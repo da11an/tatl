@@ -114,6 +114,28 @@ fn migration_v1(tx: &rusqlite::Transaction) -> Result<(), rusqlite::Error> {
         [],
     )?;
     // Note: udas_json stores JSON object: {\"key\": \"value\", ...} - keys stored without \"uda.\" prefix
+    
+    // Create indexes on commonly queried task columns
+    tx.execute(
+        "CREATE INDEX idx_tasks_project_id ON tasks(project_id)",
+        [],
+    )?;
+    tx.execute(
+        "CREATE INDEX idx_tasks_status ON tasks(status)",
+        [],
+    )?;
+    tx.execute(
+        "CREATE INDEX idx_tasks_due_ts ON tasks(due_ts)",
+        [],
+    )?;
+    tx.execute(
+        "CREATE INDEX idx_tasks_scheduled_ts ON tasks(scheduled_ts)",
+        [],
+    )?;
+    tx.execute(
+        "CREATE INDEX idx_tasks_wait_ts ON tasks(wait_ts)",
+        [],
+    )?;
 
     // Task tags table
     tx.execute(

@@ -393,14 +393,14 @@
 ## Phase 18: Performance & Optimization
 
 ### 18.1 Database Indexes
-- [ ] Verify all indexes from DDL are created
-- [ ] Test: Query performance with indexes
-- [ ] Test: Index usage in common queries
+- [x] Verify all indexes from DDL are created
+- [x] Test: Query performance with indexes
+- [x] Test: Index usage in common queries
 
 ### 18.2 Query Optimization
-- [ ] Optimize common queries (list, filter, etc.)
-- [ ] Test: Performance with large datasets
-- [ ] Profile and optimize bottlenecks
+- [x] Optimize common queries (list, filter, etc.)
+- [x] Test: Performance with large datasets
+- [x] Profile and optimize bottlenecks
 
 ---
 
