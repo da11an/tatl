@@ -104,32 +104,32 @@
 ## Phase 4: Stack Foundation
 
 ### 4.1 Stack Initialization
-- [ ] Implement auto-creation of default stack on first operation
-- [ ] Test: Stack created on first `stack show`
-- [ ] Test: Stack created on first stack operation
-- [ ] Acceptance: Stack auto-initialization scenario
+- [x] Implement auto-creation of default stack on first operation
+- [x] Test: Stack created on first `stack show`
+- [x] Test: Stack created on first stack operation
+- [ ] Acceptance: Stack auto-initialization scenario (will add when acceptance test framework ready)
 
 ### 4.2 Basic Stack Operations
-- [ ] Implement `task stack show`
-- [ ] Implement `task <id> enqueue` (add to end)
-- [ ] Implement `task stack <index> pick`
-- [ ] Implement `task stack roll [n]` (default n=1)
-- [ ] Implement `task stack <index> drop`
-- [ ] Implement `task stack clear`
-- [ ] Test: Stack operations with empty stack
-- [ ] Test: Index clamping (0, -1, out-of-range)
-- [ ] Test: Roll default behavior (n=1)
-- [ ] Acceptance: Stack basics scenarios from Section 11.1
+- [x] Implement `task stack show`
+- [x] Implement `task <id> enqueue` (add to end)
+- [x] Implement `task stack <index> pick`
+- [x] Implement `task stack roll [n]` (default n=1)
+- [x] Implement `task stack <index> drop`
+- [x] Implement `task stack clear`
+- [x] Test: Stack operations with empty stack
+- [x] Test: Index clamping (0, -1, out-of-range)
+- [x] Test: Roll default behavior (n=1)
+- [ ] Acceptance: Stack basics scenarios from Section 11.1 (will add when acceptance test framework ready)
 
 ---
 
 ## Phase 5: Clock & Sessions
 
 ### 5.1 Session Model & Storage
-- [ ] Implement session creation/retrieval
-- [ ] Implement single open session constraint
-- [ ] Test: Only one open session allowed
-- [ ] Test: Session timestamps (UTC storage)
+- [x] Implement session creation/retrieval
+- [x] Implement single open session constraint
+- [x] Test: Only one open session allowed
+- [x] Test: Session timestamps (UTC storage)
 
 ### 5.2 Basic Clock Commands
 - [ ] Implement `task clock in` (requires stack non-empty)
