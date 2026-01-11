@@ -96,6 +96,17 @@ pub enum Commands {
         #[arg(long)]
         interactive: bool,
     },
+    /// Permanently delete task(s)
+    Delete {
+        /// Task ID or filter (required)
+        id_or_filter: String,
+        /// Delete all matching tasks without confirmation
+        #[arg(long)]
+        yes: bool,
+        /// Confirm each task one by one
+        #[arg(long)]
+        interactive: bool,
+    },
     /// Recurrence management commands
     Recur {
         #[command(subcommand)]
@@ -262,6 +273,23 @@ pub fn run() -> Result<()> {
                 let interactive = done_args.contains(&"--interactive".to_string());
                 
                 return handle_task_done(Some(id_or_filter), at, next, yes, interactive);
+            }
+        }
+    }
+    
+    // Check if this is task <id|filter> delete pattern
+    if args.len() >= 2 {
+        if let Some(delete_pos) = args.iter().position(|a| a == "delete") {
+            if delete_pos > 0 {
+                // We have task <id|filter> delete
+                let id_or_filter = args[0].clone();
+                let delete_args = args[delete_pos + 1..].to_vec();
+                
+                // Parse flags
+                let yes = delete_args.contains(&"--yes".to_string());
+                let interactive = delete_args.contains(&"--interactive".to_string());
+                
+                return handle_task_delete(id_or_filter, yes, interactive);
             }
         }
     }
@@ -447,6 +475,9 @@ pub fn run() -> Result<()> {
                     Commands::Done { id_or_filter, at, next, yes, interactive } => {
                         handle_task_done(id_or_filter, at, next, yes, interactive)
                     }
+                    Commands::Delete { id_or_filter, yes, interactive } => {
+                        handle_task_delete(id_or_filter, yes, interactive)
+                    }
                     Commands::Recur { subcommand } => {
                         handle_recur(subcommand)
                     }
@@ -542,12 +573,15 @@ pub fn run() -> Result<()> {
                 handle_annotation_add(None, note)
             }
         }
-        Commands::Done { id_or_filter, at, next, yes, interactive } => {
-            handle_task_done(id_or_filter, at, next, yes, interactive)
-        }
-        Commands::Recur { subcommand } => {
-            handle_recur(subcommand)
-        }
+                    Commands::Done { id_or_filter, at, next, yes, interactive } => {
+                        handle_task_done(id_or_filter, at, next, yes, interactive)
+                    }
+                    Commands::Delete { id_or_filter, yes, interactive } => {
+                        handle_task_delete(id_or_filter, yes, interactive)
+                    }
+                    Commands::Recur { subcommand } => {
+                        handle_recur(subcommand)
+                    }
         Commands::Sessions { subcommand } => {
             // Handle sessions without task ID
             match subcommand {
@@ -2015,6 +2049,158 @@ fn handle_done_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64, nex
                 .context("Failed to start session for next task")?;
             println!("Started timing task {}", next_task_id);
         }
+    }
+    
+    Ok(())
+}
+
+/// Handle task deletion
+fn handle_task_delete(id_or_filter: String, yes: bool, interactive: bool) -> Result<()> {
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+    
+    // Try to parse as task ID first, otherwise treat as filter
+    let task_ids = match validate_task_id(&id_or_filter) {
+        Ok(task_id) => {
+            // Single task ID
+            vec![task_id]
+        }
+        Err(_) => {
+            // Treat as filter - get all matching tasks
+            let filter_expr = parse_filter(vec![id_or_filter.clone()])
+                .map_err(|e| anyhow::anyhow!("Filter parse error: {}", e))?;
+            let matching_tasks = filter_tasks(&conn, &filter_expr)
+                .context("Failed to filter tasks")?;
+            
+            if matching_tasks.is_empty() {
+                user_error("No matching tasks found");
+            }
+            
+            matching_tasks.iter()
+                .filter_map(|(task, _)| task.id)
+                .collect()
+        }
+    };
+    
+    if interactive {
+        handle_delete_interactive(&conn, &task_ids)
+    } else if yes {
+        handle_delete_yes(&conn, &task_ids)
+    } else {
+        handle_delete_confirm(&conn, &task_ids)
+    }
+}
+
+/// Delete tasks with confirmation prompt
+fn handle_delete_confirm(conn: &Connection, task_ids: &[i64]) -> Result<()> {
+    use std::io::{self, Write};
+    
+    if task_ids.len() == 1 {
+        // Single task - show description
+        let task = TaskRepo::get_by_id(conn, task_ids[0])?
+            .ok_or_else(|| anyhow::anyhow!("Task {} not found", task_ids[0]))?;
+        print!("Delete task {} ({})? (y/n): ", task_ids[0], task.description);
+        io::stdout().flush()?;
+        
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        let input = input.trim().to_lowercase();
+        
+        if input != "y" && input != "yes" {
+            println!("Cancelled.");
+            return Ok(());
+        }
+        
+        TaskRepo::delete(conn, task_ids[0])
+            .context("Failed to delete task")?;
+        println!("Deleted task {}: {}", task_ids[0], task.description);
+    } else {
+        // Multiple tasks - show count
+        print!("Delete {} tasks? (y/n): ", task_ids.len());
+        io::stdout().flush()?;
+        
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        let input = input.trim().to_lowercase();
+        
+        if input != "y" && input != "yes" {
+            println!("Cancelled.");
+            return Ok(());
+        }
+        
+        return handle_delete_yes(conn, task_ids);
+    }
+    
+    Ok(())
+}
+
+/// Delete tasks without confirmation
+fn handle_delete_yes(conn: &Connection, task_ids: &[i64]) -> Result<()> {
+    let mut deleted_count = 0;
+    
+    for task_id in task_ids {
+        match TaskRepo::get_by_id(conn, *task_id) {
+            Ok(Some(task)) => {
+                TaskRepo::delete(conn, *task_id)
+                    .context(format!("Failed to delete task {}", task_id))?;
+                println!("Deleted task {}: {}", task_id, task.description);
+                deleted_count += 1;
+            }
+            Ok(None) => {
+                eprintln!("Warning: Task {} not found, skipping", task_id);
+            }
+            Err(e) => {
+                eprintln!("Error: Failed to get task {}: {}", task_id, e);
+            }
+        }
+    }
+    
+    if deleted_count > 0 {
+        println!("Deleted {} task(s)", deleted_count);
+    }
+    
+    Ok(())
+}
+
+/// Delete tasks with interactive confirmation
+fn handle_delete_interactive(conn: &Connection, task_ids: &[i64]) -> Result<()> {
+    use std::io::{self, Write};
+    
+    let mut deleted_count = 0;
+    
+    for task_id in task_ids {
+        let task = match TaskRepo::get_by_id(conn, *task_id) {
+            Ok(Some(task)) => task,
+            Ok(None) => {
+                eprintln!("Warning: Task {} not found, skipping", task_id);
+                continue;
+            }
+            Err(e) => {
+                eprintln!("Error: Failed to get task {}: {}", task_id, e);
+                continue;
+            }
+        };
+        
+        print!("Delete task {} ({})? (y/n): ", task_id, task.description);
+        io::stdout().flush()?;
+        
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        let input = input.trim().to_lowercase();
+        
+        if input != "y" && input != "yes" {
+            println!("Skipped task {}.", task_id);
+            continue;
+        }
+        
+        TaskRepo::delete(conn, *task_id)
+            .context(format!("Failed to delete task {}", task_id))?;
+        println!("Deleted task {}: {}", task_id, task.description);
+        deleted_count += 1;
+    }
+    
+    if deleted_count > 0 {
+        println!("Deleted {} task(s)", deleted_count);
     }
     
     Ok(())

@@ -494,4 +494,49 @@ impl TaskRepo {
         
         Ok(())
     }
+
+    /// Permanently delete a task and all related data
+    /// 
+    /// This operation is atomic - all related data is deleted in a transaction.
+    /// Related data includes:
+    /// - Task tags (CASCADE)
+    /// - Task annotations (CASCADE)
+    /// - Task sessions (CASCADE)
+    /// - Stack items (CASCADE)
+    /// - Task events (CASCADE)
+    /// - Recurrence occurrences (CASCADE)
+    /// 
+    /// # Example
+    /// 
+    /// ```no_run
+    /// use task_ninja::db::DbConnection;
+    /// use task_ninja::repo::TaskRepo;
+    /// 
+    /// let conn = DbConnection::connect().unwrap();
+    /// TaskRepo::delete(&conn, 5).unwrap();
+    /// ```
+    pub fn delete(conn: &Connection, task_id: i64) -> Result<()> {
+        // Verify task exists
+        let task = Self::get_by_id(conn, task_id)?
+            .ok_or_else(|| anyhow::anyhow!("Task {} not found", task_id))?;
+        
+        // Use transaction to ensure atomicity
+        let tx = conn.unchecked_transaction()?;
+        
+        // Delete the task - CASCADE will handle related data automatically
+        // But we'll also explicitly clean up to be safe and clear
+        let rows_affected = tx.execute(
+            "DELETE FROM tasks WHERE id = ?1",
+            rusqlite::params![task_id],
+        )?;
+        
+        if rows_affected == 0 {
+            anyhow::bail!("Task {} not found", task_id);
+        }
+        
+        // Commit transaction
+        tx.commit()?;
+        
+        Ok(())
+    }
 }

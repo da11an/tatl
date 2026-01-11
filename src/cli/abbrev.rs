@@ -26,7 +26,7 @@ pub fn find_unique_command<'a>(prefix: &str, commands: &'a [&str]) -> Result<&'a
 /// Top-level commands in Task Ninja
 pub const TOP_LEVEL_COMMANDS: &[&str] = &[
     "projects", "add", "list", "modify", "stack", "clock", 
-    "annotate", "done", "recur", "sessions"
+    "annotate", "done", "delete", "recur", "sessions"
 ];
 
 /// Project subcommands
