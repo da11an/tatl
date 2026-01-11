@@ -89,15 +89,15 @@
 - [ ] Acceptance: Filter scenarios from Section 11.5 (will add when more features complete)
 
 ### 3.2 Filter Terms Implementation
-- [ ] Implement `id:<n>` and bare numeric ID
-- [ ] Implement `status:` filter
-- [ ] Implement `project:` filter (with nested project prefix matching)
-- [ ] Implement `+tag` / `-tag` filters
-- [ ] Implement `due:`, `scheduled:`, `wait:` filters
-- [ ] Implement `waiting` derived filter
-- [ ] Test: Each filter term independently
-- [ ] Test: Combined filter terms
-- [ ] Test: Nested project prefix matching
+- [x] Implement `id:<n>` and bare numeric ID
+- [x] Implement `status:` filter
+- [x] Implement `project:` filter (with nested project prefix matching)
+- [x] Implement `+tag` / `-tag` filters
+- [x] Implement `due:`, `scheduled:`, `wait:` filters (any/none/date expressions)
+- [x] Implement `waiting` derived filter
+- [x] Test: Each filter term independently
+- [x] Test: Combined filter terms
+- [x] Test: Nested project prefix matching
 
 ---
 
