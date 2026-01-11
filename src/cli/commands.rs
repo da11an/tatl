@@ -3,6 +3,7 @@ use rusqlite::Connection;
 use crate::db::DbConnection;
 use crate::repo::{ProjectRepo, TaskRepo, StackRepo, SessionRepo, AnnotationRepo, TemplateRepo};
 use crate::cli::parser::{parse_task_args, join_description};
+use crate::cli::commands_sessions::{handle_task_sessions_list, handle_task_sessions_show};
 use crate::utils::{parse_date_expr, parse_duration};
 use crate::filter::{parse_filter, filter_tasks};
 use crate::recur::RecurGenerator;
@@ -93,6 +94,11 @@ pub enum Commands {
     Recur {
         #[command(subcommand)]
         subcommand: RecurCommands,
+    },
+    /// Sessions management commands
+    Sessions {
+        #[command(subcommand)]
+        subcommand: SessionsCommands,
     },
 }
 
@@ -192,6 +198,18 @@ pub enum RecurCommands {
         #[arg(long)]
         until: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+pub enum SessionsCommands {
+    /// List session history
+    List {
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show detailed session information
+    Show,
 }
 
 #[derive(Subcommand)]
@@ -308,6 +326,40 @@ pub fn run() -> Result<()> {
         }
     }
     
+    // Check if this is task [<id>] sessions pattern
+    if args.len() >= 2 {
+        if let Some(sessions_pos) = args.iter().position(|a| a == "sessions") {
+            if sessions_pos > 0 {
+                // We have task <id> sessions
+                let task_id_str = args[0].clone();
+                let sessions_args = args[sessions_pos + 1..].to_vec();
+                
+                // Parse subcommand
+                if let Some(subcmd) = sessions_args.first() {
+                    if subcmd == "list" {
+                        let json = sessions_args.contains(&"--json".to_string());
+                        return handle_task_sessions_list(Some(task_id_str), json);
+                    } else if subcmd == "show" {
+                        return handle_task_sessions_show(Some(task_id_str));
+                    }
+                }
+            } else if sessions_pos == 0 {
+                // We have task sessions (no ID)
+                let sessions_args = args[sessions_pos + 1..].to_vec();
+                
+                // Parse subcommand
+                if let Some(subcmd) = sessions_args.first() {
+                    if subcmd == "list" {
+                        let json = sessions_args.contains(&"--json".to_string());
+                        return handle_task_sessions_list(None, json);
+                    } else if subcmd == "show" {
+                        return handle_task_sessions_show(None);
+                    }
+                }
+            }
+        }
+    }
+    
     // Otherwise use clap parsing
     let cli = Cli::parse();
     
@@ -333,6 +385,13 @@ pub fn run() -> Result<()> {
         }
         Commands::Recur { subcommand } => {
             handle_recur(subcommand)
+        }
+        Commands::Sessions { subcommand } => {
+            // Handle sessions without task ID
+            match subcommand {
+                SessionsCommands::List { json } => handle_task_sessions_list(None, json),
+                SessionsCommands::Show => handle_task_sessions_show(None),
+            }
         }
     }
 }

@@ -265,6 +265,49 @@ impl SessionRepo {
 
     /// Get the most recent closed session that ends at or after the given timestamp
     /// Used for overlap prevention - find sessions that might need end time amendment
+    /// Get all sessions, ordered by start time (newest first)
+    pub fn list_all(conn: &Connection) -> Result<Vec<Session>> {
+        let mut stmt = conn.prepare(
+            "SELECT id, task_id, start_ts, end_ts, created_ts FROM sessions ORDER BY start_ts DESC"
+        )?;
+        
+        let rows = stmt.query_map([], |row| {
+            Ok(Session {
+                id: Some(row.get(0)?),
+                task_id: row.get(1)?,
+                start_ts: row.get(2)?,
+                end_ts: row.get(3)?,
+                created_ts: row.get(4)?,
+            })
+        })?;
+        
+        let mut sessions = Vec::new();
+        for row in rows {
+            sessions.push(row?);
+        }
+        Ok(sessions)
+    }
+    
+    /// Get the most recent session for a task (open or closed)
+    pub fn get_most_recent_for_task(conn: &Connection, task_id: i64) -> Result<Option<Session>> {
+        let mut stmt = conn.prepare(
+            "SELECT id, task_id, start_ts, end_ts, created_ts FROM sessions 
+             WHERE task_id = ?1 ORDER BY start_ts DESC LIMIT 1"
+        )?;
+        
+        let session = stmt.query_row([task_id], |row| {
+            Ok(Session {
+                id: Some(row.get(0)?),
+                task_id: row.get(1)?,
+                start_ts: row.get(2)?,
+                end_ts: row.get(3)?,
+                created_ts: row.get(4)?,
+            })
+        }).optional()?;
+        
+        Ok(session)
+    }
+    
     pub fn get_recent_closed_after(conn: &Connection, before_ts: i64) -> Result<Vec<Session>> {
         let mut stmt = conn.prepare(
             "SELECT id, task_id, start_ts, end_ts, created_ts 

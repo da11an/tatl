@@ -31,6 +31,33 @@ impl AnnotationRepo {
         })
     }
 
+    /// Get all annotations for a session, ordered by entry_ts (oldest first)
+    pub fn get_by_session(conn: &Connection, session_id: i64) -> Result<Vec<Annotation>> {
+        let mut stmt = conn.prepare(
+            "SELECT id, task_id, session_id, note, entry_ts, created_ts 
+             FROM task_annotations 
+             WHERE session_id = ?1 
+             ORDER BY entry_ts ASC"
+        )?;
+        
+        let rows = stmt.query_map([session_id], |row| {
+            Ok(Annotation {
+                id: Some(row.get(0)?),
+                task_id: row.get(1)?,
+                session_id: row.get(2)?,
+                note: row.get(3)?,
+                entry_ts: row.get(4)?,
+                created_ts: row.get(5)?,
+            })
+        })?;
+        
+        let mut annotations = Vec::new();
+        for row in rows {
+            annotations.push(row?);
+        }
+        Ok(annotations)
+    }
+    
     /// Get all annotations for a task, ordered by entry_ts (oldest first)
     pub fn get_by_task(conn: &Connection, task_id: i64) -> Result<Vec<Annotation>> {
         let mut stmt = conn.prepare(

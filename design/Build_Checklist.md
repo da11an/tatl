@@ -305,13 +305,13 @@
 ## Phase 13: Sessions Commands
 
 ### 13.1 Sessions List & Show
-- [ ] Implement `task [<id>] sessions list [--json]`
-- [ ] Implement `task [<id>] sessions show`
-- [ ] Test: List all sessions
-- [ ] Test: List sessions for specific task
-- [ ] Test: Show current running session
-- [ ] Test: Show most recent session for task
-- [ ] Test: JSON output format
+- [x] Implement `task [<id>] sessions list [--json]`
+- [x] Implement `task [<id>] sessions show`
+- [x] Test: List all sessions
+- [x] Test: List sessions for specific task
+- [x] Test: Show current running session
+- [x] Test: Show most recent session for task
+- [x] Test: JSON output format
 
 ---
 
