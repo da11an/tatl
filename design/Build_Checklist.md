@@ -372,10 +372,10 @@
 - [x] Test: Projects (Section 11.8)
 
 ### 16.3 End-to-End Testing
-- [ ] Test: Complete workflows (add → clock in → annotate → done)
-- [ ] Test: Complex filter scenarios
-- [ ] Test: Recurrence generation workflows
-- [ ] Test: Project management workflows
+- [x] Test: Complete workflows (add → clock in → annotate → done)
+- [x] Test: Complex filter scenarios
+- [x] Test: Recurrence generation workflows
+- [x] Test: Project management workflows
 
 ---
 
