@@ -198,12 +198,12 @@ pub fn run() -> Result<()> {
     // Get raw args to handle special syntax patterns
     let args: Vec<String> = std::env::args().skip(1).collect();
     
-    // Check if this is task <id> done pattern
+    // Check if this is task <id|filter> done pattern
     if args.len() >= 2 {
         if let Some(done_pos) = args.iter().position(|a| a == "done") {
             if done_pos > 0 {
-                // We have task <id> done
-                let task_id = args[0].clone();
+                // We have task <id|filter> done
+                let id_or_filter = args[0].clone();
                 let done_args = args[done_pos + 1..].to_vec();
                 
                 // Parse flags
@@ -213,7 +213,7 @@ pub fn run() -> Result<()> {
                 let yes = done_args.contains(&"--yes".to_string());
                 let interactive = done_args.contains(&"--interactive".to_string());
                 
-                return handle_task_done(Some(task_id), at, next, yes, interactive);
+                return handle_task_done(Some(id_or_filter), at, next, yes, interactive);
             }
         }
     }
@@ -1197,12 +1197,47 @@ fn handle_task_done(
         chrono::Utc::now().timestamp()
     };
     
-    // Determine task ID
-    let task_id = if let Some(id_or_filter) = id_or_filter_opt {
+    // Get open session to check which tasks have running sessions
+    let open_session = SessionRepo::get_open(&conn)?;
+    let running_task_id = open_session.as_ref().map(|s| s.task_id);
+    
+    // Determine which tasks to complete
+    let task_ids = if let Some(id_or_filter) = id_or_filter_opt {
         // Task ID or filter provided
-        // For Phase 7.1, only support task ID (not filter yet)
-        id_or_filter.parse::<i64>()
-            .map_err(|_| anyhow::anyhow!("Invalid task ID: {}. Filter support will be added in Phase 7.2", id_or_filter))?
+        // Try to parse as ID first
+        if let Ok(task_id) = id_or_filter.parse::<i64>() {
+            // Single task ID
+            vec![task_id]
+        } else {
+            // Filter expression
+            let filter_expr = parse_filter(vec![id_or_filter])
+                .map_err(|e| anyhow::anyhow!("Filter parse error: {}", e))?;
+            let matching_tasks = filter_tasks(&conn, &filter_expr)
+                .context("Failed to filter tasks")?;
+            
+            // Filter to only tasks with running sessions
+            let tasks_with_sessions: Vec<i64> = matching_tasks
+                .iter()
+                .filter_map(|(task, _)| {
+                    if let Some(task_id) = task.id {
+                        if running_task_id == Some(task_id) {
+                            Some(task_id)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            
+            if tasks_with_sessions.is_empty() {
+                eprintln!("Error: No matching tasks with running sessions found.");
+                std::process::exit(1);
+            }
+            
+            tasks_with_sessions
+        }
     } else {
         // No ID provided - use stack[0]
         let stack = StackRepo::get_or_create_default(&conn)?;
@@ -1215,7 +1250,6 @@ fn handle_task_done(
         }
         
         // Check if session is running
-        let open_session = SessionRepo::get_open(&conn)?;
         if open_session.is_none() {
             eprintln!("Error: No session is running. Cannot complete task.");
             std::process::exit(1);
@@ -1223,65 +1257,182 @@ fn handle_task_done(
         
         // Verify the running session is for stack[0]
         let stack_task_id = items[0].task_id;
-        if let Some(session) = open_session {
+        if let Some(session) = &open_session {
             if session.task_id != stack_task_id {
                 eprintln!("Error: Running session is for task {}, but stack[0] is task {}. Cannot complete.", session.task_id, stack_task_id);
                 std::process::exit(1);
             }
         }
         
-        stack_task_id
+        vec![stack_task_id]
     };
     
-    // Verify task exists
-    if TaskRepo::get_by_id(&conn, task_id)?.is_none() {
-        eprintln!("Error: Task {} not found", task_id);
-        std::process::exit(1);
-    }
-    
-    // Check if session is running for this task
-    let open_session = SessionRepo::get_open(&conn)?;
-    if let Some(session) = open_session {
-        if session.task_id != task_id {
-            eprintln!("Error: Running session is for task {}, but trying to complete task {}. Cannot complete.", session.task_id, task_id);
-            std::process::exit(1);
+    // Handle multiple tasks with confirmation
+    if task_ids.len() > 1 {
+        if !yes && !interactive {
+            // Prompt for confirmation
+            println!("This will complete {} task(s).", task_ids.len());
+            print!("Complete all tasks? (y/n/i): ");
+            use std::io::{self, Write};
+            io::stdout().flush()?;
+            
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            let input = input.trim().to_lowercase();
+            
+            match input.as_str() {
+                "y" | "yes" => {
+                    // Complete all
+                }
+                "n" | "no" => {
+                    println!("Cancelled.");
+                    return Ok(());
+                }
+                "i" | "interactive" => {
+                    // Interactive mode - confirm one by one
+                    return handle_done_interactive(&conn, &task_ids, end_ts, next);
+                }
+                _ => {
+                    println!("Invalid input. Cancelled.");
+                    return Ok(());
+                }
+            }
+        } else if interactive {
+            // Force interactive mode
+            return handle_done_interactive(&conn, &task_ids, end_ts, next);
         }
-    } else {
-        eprintln!("Error: No session is running for task {}. Cannot complete.", task_id);
-        std::process::exit(1);
     }
     
-    // Close the session
-    SessionRepo::close_open(&conn, end_ts)
-        .context("Failed to close session")?;
-    
-    // Mark task as completed
-    TaskRepo::complete(&conn, task_id)
-        .context("Failed to complete task")?;
-    
-    // Remove from stack
-    let stack = StackRepo::get_or_create_default(&conn)?;
-    let stack_id = stack.id.unwrap();
-    let items = StackRepo::get_items(&conn, stack_id)?;
-    
-    // Find the task in the stack and remove it
-    if let Some(item) = items.iter().find(|item| item.task_id == task_id) {
-        // Find the ordinal of this task
-        let mut stmt = conn.prepare("SELECT ordinal FROM stack_items WHERE stack_id = ?1 AND task_id = ?2")?;
-        let ordinal: i32 = stmt.query_row(rusqlite::params![stack_id, task_id], |row| row.get(0))?;
+    // Complete all tasks
+    let mut completed_stack_top = false;
+    for task_id in &task_ids {
+        // Verify task exists
+        if TaskRepo::get_by_id(&conn, *task_id)?.is_none() {
+            eprintln!("Error: Task {} not found", task_id);
+            continue;
+        }
         
-        // Drop the task at this position
-        StackRepo::drop(&conn, stack_id, ordinal)?;
+        // Check if session is running for this task
+        if let Some(session) = &open_session {
+            if session.task_id == *task_id {
+                // Close the session
+                SessionRepo::close_open(&conn, end_ts)
+                    .context("Failed to close session")?;
+                completed_stack_top = true;
+            }
+        } else {
+            eprintln!("Warning: No session is running for task {}. Skipping.", task_id);
+            continue;
+        }
+        
+        // Mark task as completed
+        TaskRepo::complete(&conn, *task_id)
+            .context("Failed to complete task")?;
+        
+        // Remove from stack
+        let stack = StackRepo::get_or_create_default(&conn)?;
+        let stack_id = stack.id.unwrap();
+        let items = StackRepo::get_items(&conn, stack_id)?;
+        
+        // Find the task in the stack and remove it
+        if let Some(item) = items.iter().find(|item| item.task_id == *task_id) {
+            // Drop the task at this position using its ordinal
+            StackRepo::drop(&conn, stack_id, item.ordinal as i32)?;
+        }
+        
+        println!("Completed task {}", task_id);
     }
     
-    println!("Completed task {}", task_id);
-    
-    // If --next flag and stack is not empty, start session for new stack[0]
-    if next {
+    // If --next flag and we completed stack[0], start session for new stack[0]
+    if next && completed_stack_top {
+        let stack = StackRepo::get_or_create_default(&conn)?;
+        let stack_id = stack.id.unwrap();
         let items = StackRepo::get_items(&conn, stack_id)?;
         if !items.is_empty() {
             let next_task_id = items[0].task_id;
             SessionRepo::create(&conn, next_task_id, end_ts)
+                .context("Failed to start session for next task")?;
+            println!("Started timing task {}", next_task_id);
+        }
+    }
+    
+    Ok(())
+}
+
+fn handle_done_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64, next: bool) -> Result<()> {
+    use std::io::{self, Write};
+    
+    let open_session = SessionRepo::get_open(conn)?;
+    let mut completed_stack_top = false;
+    
+    for task_id in task_ids {
+        // Get task description for display
+        let task = TaskRepo::get_by_id(conn, *task_id)?;
+        if task.is_none() {
+            eprintln!("Error: Task {} not found", task_id);
+            continue;
+        }
+        let task = task.unwrap();
+        
+        // Check if session is running for this task
+        if let Some(session) = &open_session {
+            if session.task_id != *task_id {
+                println!("Task {}: No running session. Skipping.", task_id);
+                continue;
+            }
+        } else {
+            println!("Task {}: No running session. Skipping.", task_id);
+            continue;
+        }
+        
+        // Prompt for confirmation
+        print!("Complete task {} ({})? (y/n): ", task_id, task.description);
+        io::stdout().flush()?;
+        
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        let input = input.trim().to_lowercase();
+        
+        if input != "y" && input != "yes" {
+            println!("Skipped task {}.", task_id);
+            continue;
+        }
+        
+        // Close the session if this is the running task
+        if let Some(session) = &open_session {
+            if session.task_id == *task_id {
+                SessionRepo::close_open(conn, end_ts)
+                    .context("Failed to close session")?;
+                completed_stack_top = true;
+            }
+        }
+        
+        // Mark task as completed
+        TaskRepo::complete(conn, *task_id)
+            .context("Failed to complete task")?;
+        
+        // Remove from stack
+        let stack = StackRepo::get_or_create_default(conn)?;
+        let stack_id = stack.id.unwrap();
+        let items = StackRepo::get_items(conn, stack_id)?;
+        
+        // Find the task in the stack and remove it
+        if let Some(item) = items.iter().find(|item| item.task_id == *task_id) {
+            // Drop the task at this position using its ordinal
+            StackRepo::drop(conn, stack_id, item.ordinal as i32)?;
+        }
+        
+        println!("Completed task {}", task_id);
+    }
+    
+    // If --next flag and we completed stack[0], start session for new stack[0]
+    if next && completed_stack_top {
+        let stack = StackRepo::get_or_create_default(conn)?;
+        let stack_id = stack.id.unwrap();
+        let items = StackRepo::get_items(conn, stack_id)?;
+        if !items.is_empty() {
+            let next_task_id = items[0].task_id;
+            SessionRepo::create(conn, next_task_id, end_ts)
                 .context("Failed to start session for next task")?;
             println!("Started timing task {}", next_task_id);
         }

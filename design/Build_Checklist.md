@@ -195,13 +195,13 @@
 - [ ] Acceptance: Done semantics scenarios from Section 11.3 (will add when acceptance test framework ready)
 
 ### 7.2 Done with Filter & Confirmation
-- [ ] Implement `task [<id|filter>] done` with filtering
-- [ ] Implement multi-task confirmation (yes/no/interactive)
-- [ ] Implement `--yes` and `--interactive` flags
-- [ ] Implement `--next` flag (start next task)
-- [ ] Test: Filter-based done with confirmation
-- [ ] Test: `--next` starts next task in stack
-- [ ] Acceptance: Done with filter scenarios
+- [x] Implement `task [<id|filter>] done` with filtering
+- [x] Implement multi-task confirmation (yes/no/interactive)
+- [x] Implement `--yes` and `--interactive` flags
+- [x] Implement `--next` flag (start next task)
+- [x] Test: Filter-based done with confirmation
+- [x] Test: `--next` starts next task in stack
+- [ ] Acceptance: Done with filter scenarios (will add when acceptance test framework ready)
 
 ---
 
