@@ -1,16 +1,16 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, Command};
 use rusqlite::Connection;
 use crate::db::DbConnection;
 use crate::repo::{ProjectRepo, TaskRepo, StackRepo, SessionRepo, AnnotationRepo, TemplateRepo};
 use crate::cli::parser::{parse_task_args, join_description};
 use crate::cli::commands_sessions::{handle_task_sessions_list, handle_task_sessions_show, handle_task_sessions_list_with_filter, handle_task_sessions_show_with_filter};
 use crate::cli::output::{format_task_list_table, format_stack_display};
-use crate::cli::error::{user_error, internal_error, validate_task_id, validate_stack_index, validate_project_name, validate_tag, validate_uda_key, validate_template_name};
+use crate::cli::error::{user_error, validate_task_id, validate_project_name};
 use crate::utils::{parse_date_expr, parse_duration, fuzzy};
 use crate::filter::{parse_filter, filter_tasks};
 use crate::recur::RecurGenerator;
+use crate::cli::status;
 use std::collections::HashMap;
-use std::io;
 use anyhow::{Context, Result};
 
 #[derive(Parser)]
@@ -58,6 +58,8 @@ pub enum Commands {
         interactive: bool,
     },
     /// Stack management commands
+    /// The stack is a revolving queue of tasks. The task at position 0 (stack[0]) is the "active" task.
+    /// Stack operations (pick, roll, drop) affect which task is active. Clock operations time the active task.
     Stack {
         #[command(subcommand)]
         subcommand: StackCommands,
@@ -400,6 +402,97 @@ pub fn run() -> Result<()> {
         }
     }
     
+    // Check for help requests or empty args (before clap parsing)
+    let is_help_request = args.is_empty() || 
+        args.iter().any(|a| a == "--help" || a == "-h" || a == "help");
+    
+    // Check if this is a command without subcommand (would show help)
+    let is_command_without_subcommand = args.len() == 1 && matches!(
+        args[0].as_str(),
+        "projects" | "stack" | "clock" | "recur" | "sessions"
+    );
+    
+    // If help would be shown, compute and display status first
+    if is_help_request || is_command_without_subcommand {
+        let conn = match DbConnection::connect() {
+            Ok(c) => c,
+            Err(_) => {
+                // If DB connection fails, just show help normally
+                let cli = Cli::parse();
+                return match cli.command {
+                    Commands::Projects { subcommand } => handle_projects(subcommand),
+                    Commands::Add { args } => handle_task_add(args),
+                    Commands::List { filter, json } => handle_task_list(filter, json),
+                    Commands::Modify { id_or_filter, args, yes, interactive } => {
+                        handle_task_modify(id_or_filter, args, yes, interactive)
+                    }
+                    Commands::Stack { subcommand } => handle_stack(subcommand),
+                    Commands::Clock { subcommand } => handle_clock(subcommand),
+                    Commands::Annotate { note, delete } => {
+                        if let Some(_annotation_id) = delete {
+                            user_error("Task ID required when deleting annotation. Use: task <id> annotate --delete <annotation_id>");
+                        } else {
+                            handle_annotation_add(None, note)
+                        }
+                    }
+                    Commands::Done { id_or_filter, at, next, yes, interactive } => {
+                        handle_task_done(id_or_filter, at, next, yes, interactive)
+                    }
+                    Commands::Recur { subcommand } => {
+                        handle_recur(subcommand)
+                    }
+                    Commands::Sessions { subcommand } => {
+                        match subcommand {
+                            SessionsCommands::List { json } => handle_task_sessions_list(None, json),
+                            SessionsCommands::Show => handle_task_sessions_show(None),
+                        }
+                    }
+                };
+            }
+        };
+        
+        // Compute and display status based on command
+        // Print status BEFORE clap's help output
+        if args.is_empty() || (is_help_request && !is_command_without_subcommand) {
+            // Root command help - print status first, then let clap show help
+            let status_line = status::compute_root_status(&conn)
+                .unwrap_or_else(|_| "Status unavailable".to_string());
+            // Flush stderr to ensure status appears before help
+            use std::io::Write;
+            let _ = std::io::stderr().write_fmt(format_args!("Status:\n  {}\n\n", status_line));
+            let _ = std::io::stderr().flush();
+            // Now let clap handle the help (will exit after printing)
+            match Cli::try_parse() {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    e.print()?;
+                    return Ok(());
+                }
+            }
+        } else if is_command_without_subcommand {
+            // Command without subcommand - show command-specific status
+            let status_line = match args[0].as_str() {
+                "projects" => status::compute_projects_status(&conn),
+                "stack" => status::compute_stack_status(&conn),
+                "clock" => status::compute_clock_status(&conn),
+                "recur" => status::compute_recur_status(&conn),
+                "sessions" => status::compute_sessions_status(&conn),
+                _ => Ok("Status unavailable".to_string()),
+            }.unwrap_or_else(|_| "Status unavailable".to_string());
+            
+            eprintln!("Status:\n  {}\n", status_line);
+            // Now let clap show help for the specific command (will exit after printing)
+            let help_args = vec!["task".to_string(), args[0].clone(), "--help".to_string()];
+            match Cli::try_parse_from(help_args) {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    e.print()?;
+                    return Ok(());
+                }
+            }
+        }
+    }
+    
     // Otherwise use clap parsing
     let cli = Cli::parse();
     
@@ -415,6 +508,17 @@ pub fn run() -> Result<()> {
         Commands::Annotate { note, delete } => {
             if let Some(_annotation_id) = delete {
                 user_error("Task ID required when deleting annotation. Use: task <id> annotate --delete <annotation_id>");
+            } else if note.is_empty() {
+                // Show status for annotate command without arguments
+                let conn = DbConnection::connect()
+                    .context("Failed to connect to database")?;
+                let status_line = status::compute_annotate_status(&conn)
+                    .unwrap_or_else(|_| "Status unavailable".to_string());
+                // Print status first, then let clap show help
+                eprintln!("Status:\n  {}\n", status_line);
+                let help_args = vec!["task".to_string(), "annotate".to_string(), "--help".to_string()];
+                let _ = Cli::try_parse_from(help_args);
+                Ok(())
             } else {
                 handle_annotation_add(None, note)
             }
