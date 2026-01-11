@@ -10,6 +10,7 @@ use crate::utils::{parse_date_expr, parse_duration, fuzzy};
 use crate::filter::{parse_filter, filter_tasks};
 use crate::recur::RecurGenerator;
 use crate::cli::status;
+use crate::cli::abbrev;
 use std::collections::HashMap;
 use anyhow::{Context, Result};
 
@@ -235,7 +236,15 @@ pub enum ClockCommands {
 
 pub fn run() -> Result<()> {
     // Get raw args to handle special syntax patterns
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    
+    // Expand command abbreviations before processing
+    args = match abbrev::expand_command_abbreviations(args) {
+        Ok(expanded) => expanded,
+        Err(e) => {
+            user_error(&e);
+        }
+    };
     
     // Check if this is task <id|filter> done pattern
     if args.len() >= 2 {
@@ -493,8 +502,18 @@ pub fn run() -> Result<()> {
         }
     }
     
-    // Otherwise use clap parsing
-    let cli = Cli::parse();
+    // Otherwise use clap parsing with expanded args
+    // Build args vector with program name for clap
+    let clap_args = std::iter::once("task".to_string())
+        .chain(args.iter().cloned())
+        .collect::<Vec<_>>();
+    let cli = match Cli::try_parse_from(clap_args) {
+        Ok(cli) => cli,
+        Err(e) => {
+            e.print()?;
+            return Ok(());
+        }
+    };
     
     match cli.command {
         Commands::Projects { subcommand } => handle_projects(subcommand),

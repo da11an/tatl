@@ -402,14 +402,14 @@ Recommended implementation order:
 - [ ] For status as leading line, format as header, not addendum to help docs
 
 ### Item 2: Command Truncation/Abbreviation Support
-- [ ] Research clap abbreviation capabilities
-- [ ] Implement command abbreviation matching (top-level commands)
-- [ ] Implement command abbreviation matching (subcommands)
-- [ ] Implement ambiguous case error handling
-- [ ] Add configuration option for expansion verbosity (`~/.taskninja/rc`)
-- [ ] Write tests for command abbreviation
-- [ ] Write tests for ambiguous cases
-- [ ] Write tests for configuration option
+- [x] Research clap abbreviation capabilities
+- [x] Implement command abbreviation matching (top-level commands)
+- [x] Implement command abbreviation matching (subcommands)
+- [x] Implement ambiguous case error handling
+- [ ] Add configuration option for expansion verbosity (`~/.taskninja/rc`) - Deferred (not critical for MVP)
+- [x] Write tests for command abbreviation
+- [x] Write tests for ambiguous cases
+- [ ] Write tests for configuration option - Deferred
 - [ ] Document abbreviation feature
 
 ---
