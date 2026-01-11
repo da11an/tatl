@@ -5,6 +5,7 @@ use crate::repo::{ProjectRepo, TaskRepo, StackRepo, SessionRepo, AnnotationRepo}
 use crate::cli::parser::{parse_task_args, join_description};
 use crate::utils::{parse_date_expr, parse_duration};
 use crate::filter::{parse_filter, filter_tasks};
+use crate::recur::RecurGenerator;
 use std::collections::HashMap;
 use anyhow::{Context, Result};
 
@@ -87,6 +88,11 @@ pub enum Commands {
         /// Force one-by-one confirmation for each task
         #[arg(long)]
         interactive: bool,
+    },
+    /// Recurrence management commands
+    Recur {
+        #[command(subcommand)]
+        subcommand: RecurCommands,
     },
 }
 
@@ -175,6 +181,16 @@ pub enum StackCommands {
         /// Ensure clock is stopped after operation
         #[arg(long)]
         clock_out: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum RecurCommands {
+    /// Generate recurring task instances
+    Run {
+        /// Generate occurrences until this date (default: now + 14 days)
+        #[arg(long)]
+        until: Option<String>,
     },
 }
 
@@ -314,6 +330,9 @@ pub fn run() -> Result<()> {
         }
         Commands::Done { id_or_filter, at, next, yes, interactive } => {
             handle_task_done(id_or_filter, at, next, yes, interactive)
+        }
+        Commands::Recur { subcommand } => {
+            handle_recur(subcommand)
         }
     }
 }
@@ -1439,4 +1458,24 @@ fn handle_done_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64, nex
     }
     
     Ok(())
+}
+
+fn handle_recur(subcommand: RecurCommands) -> Result<()> {
+    match subcommand {
+        RecurCommands::Run { until } => {
+            let conn = DbConnection::connect()?;
+            
+            // Parse until date (default: now + 14 days)
+            let until_ts = if let Some(until_str) = until {
+                parse_date_expr(&until_str)?
+            } else {
+                let now = chrono::Utc::now();
+                (now + chrono::Duration::days(14)).timestamp()
+            };
+            
+            let count = RecurGenerator::run(&conn, until_ts)?;
+            println!("Generated {} recurring task instance(s)", count);
+            Ok(())
+        }
+    }
 }
