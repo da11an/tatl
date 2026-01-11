@@ -2,6 +2,7 @@
 
 use crate::db::DbConnection;
 use crate::repo::{SessionRepo, TaskRepo, AnnotationRepo};
+use crate::cli::error::{user_error, validate_task_id};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local, TimeZone};
 use serde_json;
@@ -34,15 +35,16 @@ pub fn handle_task_sessions_list(task_id_opt: Option<String>, json: bool) -> Res
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
     
-    let sessions = if let Some(task_id_str) = task_id_opt {
+    let sessions = if let Some(ref task_id_str) = task_id_opt {
         // List sessions for specific task
-        let task_id: i64 = task_id_str.parse()
-            .map_err(|_| anyhow::anyhow!("Invalid task ID: {}", task_id_str))?;
+        let task_id = match validate_task_id(task_id_str) {
+            Ok(id) => id,
+            Err(e) => user_error(&e),
+        };
         
         // Verify task exists
         if TaskRepo::get_by_id(&conn, task_id)?.is_none() {
-            eprintln!("Error: Task {} not found", task_id);
-            std::process::exit(1);
+            user_error(&format!("Task {} not found", task_id));
         }
         
         SessionRepo::get_by_task(&conn, task_id)?
@@ -119,13 +121,14 @@ pub fn handle_task_sessions_show(task_id_opt: Option<String>) -> Result<()> {
     
     let session = if let Some(ref task_id_str) = task_id_opt {
         // Show most recent session for specific task
-        let task_id: i64 = task_id_str.parse()
-            .map_err(|_| anyhow::anyhow!("Invalid task ID: {}", task_id_str))?;
+        let task_id = match validate_task_id(task_id_str) {
+            Ok(id) => id,
+            Err(e) => user_error(&e),
+        };
         
         // Verify task exists
         if TaskRepo::get_by_id(&conn, task_id)?.is_none() {
-            eprintln!("Error: Task {} not found", task_id);
-            std::process::exit(1);
+            user_error(&format!("Task {} not found", task_id));
         }
         
         SessionRepo::get_most_recent_for_task(&conn, task_id)?

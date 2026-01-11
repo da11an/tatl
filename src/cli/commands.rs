@@ -5,6 +5,7 @@ use crate::repo::{ProjectRepo, TaskRepo, StackRepo, SessionRepo, AnnotationRepo,
 use crate::cli::parser::{parse_task_args, join_description};
 use crate::cli::commands_sessions::{handle_task_sessions_list, handle_task_sessions_show};
 use crate::cli::output::{format_task_list_table, format_stack_display};
+use crate::cli::error::{user_error, internal_error, validate_task_id, validate_stack_index, validate_project_name, validate_tag, validate_uda_key, validate_template_name};
 use crate::utils::{parse_date_expr, parse_duration};
 use crate::filter::{parse_filter, filter_tasks};
 use crate::recur::RecurGenerator;
@@ -374,9 +375,8 @@ pub fn run() -> Result<()> {
         Commands::Stack { subcommand } => handle_stack(subcommand),
         Commands::Clock { subcommand } => handle_clock(subcommand),
         Commands::Annotate { note, delete } => {
-            if let Some(annotation_id) = delete {
-                eprintln!("Error: Task ID required when deleting annotation. Use: task <id> annotate --delete <annotation_id>");
-                std::process::exit(1);
+            if let Some(_annotation_id) = delete {
+                user_error("Task ID required when deleting annotation. Use: task <id> annotate --delete <annotation_id>");
             } else {
                 handle_annotation_add(None, note)
             }
@@ -403,14 +403,18 @@ fn handle_projects(cmd: ProjectCommands) -> Result<()> {
     
     match cmd {
         ProjectCommands::Add { name } => {
+            // Validate project name
+            if let Err(e) = validate_project_name(&name) {
+                user_error(&e);
+            }
+            
             // Check if project already exists
             if let Some(_) = ProjectRepo::get_by_name(&conn, &name)? {
-                eprintln!("Error: Project '{}' already exists", name);
-                std::process::exit(1);
+                user_error(&format!("Project '{}' already exists", name));
             }
             
             let project = ProjectRepo::create(&conn, &name)
-                .context("Failed to create project")?;
+                .map_err(|e| anyhow::anyhow!("Failed to create project: {}", e))?;
             
             println!("Created project '{}' (id: {})", project.name, project.id.unwrap());
             Ok(())
@@ -450,10 +454,17 @@ fn handle_projects(cmd: ProjectCommands) -> Result<()> {
             Ok(())
         }
         ProjectCommands::Rename { old_name, new_name, force } => {
+            // Validate project names
+            if let Err(e) = validate_project_name(&old_name) {
+                user_error(&e);
+            }
+            if let Err(e) = validate_project_name(&new_name) {
+                user_error(&e);
+            }
+            
             // Check if old project exists
             if ProjectRepo::get_by_name(&conn, &old_name)?.is_none() {
-                eprintln!("Error: Project '{}' not found", old_name);
-                std::process::exit(1);
+                user_error(&format!("Project '{}' not found", old_name));
             }
             
             // Check if new name already exists
@@ -464,8 +475,7 @@ fn handle_projects(cmd: ProjectCommands) -> Result<()> {
                         .context("Failed to merge projects")?;
                     println!("Merged project '{}' into '{}'", old_name, new_name);
                 } else {
-                    eprintln!("Error: Project '{}' already exists. Use --force to merge.", new_name);
-                    std::process::exit(1);
+                    user_error(&format!("Project '{}' already exists. Use --force to merge.", new_name));
                 }
             } else {
                 // Simple rename
@@ -492,16 +502,14 @@ fn handle_projects(cmd: ProjectCommands) -> Result<()> {
 
 fn handle_task_add(args: Vec<String>) -> Result<()> {
     if args.is_empty() {
-        eprintln!("Error: Task description is required");
-        std::process::exit(1);
+        user_error("Task description is required");
     }
     
     let parsed = parse_task_args(args);
     
     // Validate description
     if parsed.description.is_empty() {
-        eprintln!("Error: Task description is required");
-        std::process::exit(1);
+        user_error("Task description is required");
     }
     
     let description = join_description(&parsed.description);
@@ -515,8 +523,7 @@ fn handle_task_add(args: Vec<String>) -> Result<()> {
         if let Some(p) = project {
             Some(p.id.unwrap())
         } else {
-            eprintln!("Error: Project '{}' not found", project_name);
-            std::process::exit(1);
+            user_error(&format!("Project '{}' not found", project_name));
         }
     } else {
         None
@@ -658,13 +665,14 @@ fn handle_task_modify(id_or_filter: String, args: Vec<String>, _yes: bool, _inte
         .context("Failed to connect to database")?;
     
     // For now, only support numeric ID (full filter support in Phase 3)
-    let task_id: i64 = id_or_filter.parse()
-        .map_err(|_| anyhow::anyhow!("Invalid task ID: {}. Filter support will be added in Phase 3.", id_or_filter))?;
+    let task_id =         match validate_task_id(&id_or_filter) {
+            Ok(id) => id,
+            Err(e) => user_error(&e),
+        }
     
     // Check if task exists
     if TaskRepo::get_by_id(&conn, task_id)?.is_none() {
-        eprintln!("Error: Task {} not found", task_id);
-        std::process::exit(1);
+        user_error(&format!("Task {} not found", task_id));
     }
     
     // Parse modification arguments
@@ -686,8 +694,7 @@ fn handle_task_modify(id_or_filter: String, args: Vec<String>, _yes: bool, _inte
             if let Some(p) = project {
                 Some(Some(p.id.unwrap()))
             } else {
-                eprintln!("Error: Project '{}' not found", project_name);
-                std::process::exit(1);
+                user_error(&format!("Project '{}' not found", project_name));
             }
         }
     } else {
@@ -1006,13 +1013,14 @@ fn handle_task_enqueue(task_id_str: String) -> Result<()> {
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
     
-    let task_id: i64 = task_id_str.parse()
-        .map_err(|_| anyhow::anyhow!("Invalid task ID: {}", task_id_str))?;
+    let task_id =         match validate_task_id(&task_id_str) {
+            Ok(id) => id,
+            Err(e) => user_error(&e),
+        }
     
     // Check if task exists
     if TaskRepo::get_by_id(&conn, task_id)?.is_none() {
-        eprintln!("Error: Task {} not found", task_id);
-        std::process::exit(1);
+        user_error(&format!("Task {} not found", task_id));
     }
     
     let stack = StackRepo::get_or_create_default(&conn)?;
@@ -1044,8 +1052,7 @@ fn handle_clock_in(conn: &Connection, args: Vec<String>) -> Result<()> {
     let items = StackRepo::get_items(conn, stack_id)?;
     
     if items.is_empty() {
-        eprintln!("Error: Stack is empty. Add a task to the stack first.");
-        std::process::exit(1);
+        user_error("Stack is empty. Add a task to the stack first.");
     }
     
     // Get stack[0] task
@@ -1081,8 +1088,7 @@ fn handle_clock_in(conn: &Connection, args: Vec<String>) -> Result<()> {
         // Single start time or "now" (creates open session)
         // Check if session is already running (only for open sessions)
         if let Some(_) = SessionRepo::get_open(conn)? {
-            eprintln!("Error: A session is already running. Please clock out first.");
-            std::process::exit(1);
+            user_error("A session is already running. Please clock out first.");
         }
         
         let start_ts = if args.is_empty() {
@@ -1113,8 +1119,7 @@ fn handle_clock_out(conn: &Connection, args: Vec<String>) -> Result<()> {
     let session_opt = SessionRepo::get_open(conn)?;
     
     if session_opt.is_none() {
-        eprintln!("Error: No session is currently running.");
-        std::process::exit(1);
+        user_error("No session is currently running.");
     }
     
     // Parse end time (defaults to "now")
@@ -1145,13 +1150,14 @@ fn handle_task_clock_in(task_id_str: String, args: Vec<String>) -> Result<()> {
         .context("Failed to connect to database")?;
     
     // Parse task ID
-    let task_id: i64 = task_id_str.parse()
-        .map_err(|_| anyhow::anyhow!("Invalid task ID: {}", task_id_str))?;
+    let task_id =         match validate_task_id(&task_id_str) {
+            Ok(id) => id,
+            Err(e) => user_error(&e),
+        }
     
     // Check if task exists
     if TaskRepo::get_by_id(&conn, task_id)?.is_none() {
-        eprintln!("Error: Task {} not found", task_id);
-        std::process::exit(1);
+        user_error(&format!("Task {} not found", task_id));
     }
     
     // Parse arguments - check for interval syntax (start..end)
@@ -1241,8 +1247,7 @@ fn handle_annotation_add(task_id_opt: Option<String>, note_args: Vec<String>) ->
         .context("Failed to connect to database")?;
     
     if note_args.is_empty() {
-        eprintln!("Error: Annotation note cannot be empty");
-        std::process::exit(1);
+        user_error("Annotation note cannot be empty");
     }
     
     let note = note_args.join(" ");
@@ -1250,23 +1255,23 @@ fn handle_annotation_add(task_id_opt: Option<String>, note_args: Vec<String>) ->
     // Determine task ID
     let task_id = if let Some(tid_str) = task_id_opt {
         // Task ID provided
-        tid_str.parse::<i64>()
-            .map_err(|_| anyhow::anyhow!("Invalid task ID: {}", tid_str))?
+        match validate_task_id(&tid_str) {
+            Ok(id) => id,
+            Err(e) => user_error(&e),
+        }
     } else {
         // No task ID - check if clocked in
         let open_session = SessionRepo::get_open(&conn)?;
         if let Some(session) = open_session {
             session.task_id
         } else {
-            eprintln!("Error: No task ID provided and no session is running. Please specify a task ID or clock in first.");
-            std::process::exit(1);
+            user_error("No task ID provided and no session is running. Please specify a task ID or clock in first.");
         }
     };
     
     // Check if task exists
     if TaskRepo::get_by_id(&conn, task_id)?.is_none() {
-        eprintln!("Error: Task {} not found", task_id);
-        std::process::exit(1);
+        user_error(&format!("Task {} not found", task_id));
     }
     
     // Get current session if running (for session linking)
@@ -1294,16 +1299,19 @@ fn handle_annotation_delete(task_id_str: String, annotation_id_str: String) -> R
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
     
-    let task_id: i64 = task_id_str.parse()
-        .map_err(|_| anyhow::anyhow!("Invalid task ID: {}", task_id_str))?;
+    let task_id = match validate_task_id(&task_id_str) {
+        Ok(id) => id,
+        Err(e) => user_error(&e),
+    };
     
-    let annotation_id: i64 = annotation_id_str.parse()
-        .map_err(|_| anyhow::anyhow!("Invalid annotation ID: {}", annotation_id_str))?;
+    let annotation_id: i64 = match annotation_id_str.parse() {
+        Ok(id) => id,
+        Err(_) => user_error(&format!("Invalid annotation ID: '{}'. Annotation ID must be a number.", annotation_id_str)),
+    };
     
     // Check if task exists
     if TaskRepo::get_by_id(&conn, task_id)?.is_none() {
-        eprintln!("Error: Task {} not found", task_id);
-        std::process::exit(1);
+        user_error(&format!("Task {} not found", task_id));
     }
     
     // Delete annotation (verifies it belongs to the task)
@@ -1366,8 +1374,7 @@ fn handle_task_done(
                 .collect();
             
             if tasks_with_sessions.is_empty() {
-                eprintln!("Error: No matching tasks with running sessions found.");
-                std::process::exit(1);
+                user_error("No matching tasks with running sessions found.");
             }
             
             tasks_with_sessions
@@ -1379,22 +1386,19 @@ fn handle_task_done(
         let items = StackRepo::get_items(&conn, stack_id)?;
         
         if items.is_empty() {
-            eprintln!("Error: Stack is empty. Cannot complete task.");
-            std::process::exit(1);
+            user_error("Stack is empty. Cannot complete task.");
         }
         
         // Check if session is running
         if open_session.is_none() {
-            eprintln!("Error: No session is running. Cannot complete task.");
-            std::process::exit(1);
+            user_error("No session is running. Cannot complete task.");
         }
         
         // Verify the running session is for stack[0]
         let stack_task_id = items[0].task_id;
         if let Some(session) = &open_session {
             if session.task_id != stack_task_id {
-                eprintln!("Error: Running session is for task {}, but stack[0] is task {}. Cannot complete.", session.task_id, stack_task_id);
-                std::process::exit(1);
+                user_error(&format!("Running session is for task {}, but stack[0] is task {}. Cannot complete.", session.task_id, stack_task_id));
             }
         }
         
@@ -1443,7 +1447,7 @@ fn handle_task_done(
         // Verify task exists
         if TaskRepo::get_by_id(&conn, *task_id)?.is_none() {
             eprintln!("Error: Task {} not found", task_id);
-            continue;
+            continue; // Continue processing other tasks
         }
         
         // Check if session is running for this task
@@ -1507,7 +1511,7 @@ fn handle_done_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64, nex
         let task = TaskRepo::get_by_id(conn, *task_id)?;
         if task.is_none() {
             eprintln!("Error: Task {} not found", task_id);
-            continue;
+            continue; // Continue processing other tasks
         }
         let task = task.unwrap();
         

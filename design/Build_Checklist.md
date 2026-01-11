@@ -338,17 +338,17 @@
 ## Phase 15: Error Handling & Validation
 
 ### 15.1 Error Messages
-- [ ] Implement error message format ("Error: " prefix)
-- [ ] Implement internal error format ("Internal error: " prefix)
-- [ ] Implement stderr output for errors
-- [ ] Test: All error messages follow standard format
-- [ ] Test: Exit codes match specification
+- [x] Implement error message format ("Error: " prefix)
+- [x] Implement internal error format ("Internal error: " prefix)
+- [x] Implement stderr output for errors
+- [x] Test: All error messages follow standard format
+- [x] Test: Exit codes match specification
 
 ### 15.2 Input Validation
-- [ ] Implement validation for all command inputs
-- [ ] Implement helpful error messages for invalid input
-- [ ] Test: Invalid input handling
-- [ ] Test: Error message clarity
+- [x] Implement validation for all command inputs
+- [x] Implement helpful error messages for invalid input
+- [x] Test: Invalid input handling
+- [x] Test: Error message clarity
 
 ---
 
