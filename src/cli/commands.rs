@@ -10,6 +10,7 @@ use crate::utils::{parse_date_expr, parse_duration};
 use crate::filter::{parse_filter, filter_tasks};
 use crate::recur::RecurGenerator;
 use std::collections::HashMap;
+use std::io;
 use anyhow::{Context, Result};
 
 #[derive(Parser)]
@@ -660,23 +661,101 @@ fn handle_task_list(filter_args: Vec<String>, json: bool) -> Result<()> {
     Ok(())
 }
 
-fn handle_task_modify(id_or_filter: String, args: Vec<String>, _yes: bool, _interactive: bool) -> Result<()> {
+fn handle_task_modify(id_or_filter: String, args: Vec<String>, yes: bool, interactive: bool) -> Result<()> {
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
     
-    // For now, only support numeric ID (full filter support in Phase 3)
-    let task_id =         match validate_task_id(&id_or_filter) {
-            Ok(id) => id,
-            Err(e) => user_error(&e),
+    // Try to parse as task ID first, otherwise treat as filter
+    let task_ids: Vec<i64> = match validate_task_id(&id_or_filter) {
+        Ok(id) => {
+            // Single task ID
+            if TaskRepo::get_by_id(&conn, id)?.is_none() {
+                user_error(&format!("Task {} not found", id));
+            }
+            vec![id]
         }
+        Err(_) => {
+            // Treat as filter
+            let filter_expr = match parse_filter(vec![id_or_filter]) {
+                Ok(expr) => expr,
+                Err(e) => user_error(&format!("Filter parse error: {}", e)),
+            };
+            let matching_tasks = filter_tasks(&conn, &filter_expr)
+                .context("Failed to filter tasks")?;
+            
+            if matching_tasks.is_empty() {
+                user_error("No matching tasks found");
+            }
+            
+            matching_tasks.iter()
+                .filter_map(|(task, _)| task.id)
+                .collect()
+        }
+    };
     
-    // Check if task exists
-    if TaskRepo::get_by_id(&conn, task_id)?.is_none() {
-        user_error(&format!("Task {} not found", task_id));
+    // Handle multiple tasks with confirmation
+    if task_ids.len() > 1 {
+        if !yes && !interactive {
+            // Prompt for confirmation
+            eprintln!("This will modify {} tasks. Continue? (yes/no/interactive): ", task_ids.len());
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input)
+                .map_err(|e| anyhow::anyhow!("Failed to read input: {}", e))?;
+            let input = input.trim().to_lowercase();
+            
+            match input.as_str() {
+                "y" | "yes" => {
+                    // Continue with all
+                }
+                "n" | "no" => {
+                    println!("Cancelled.");
+                    return Ok(());
+                }
+                "i" | "interactive" => {
+                    // Process one by one
+                    for task_id in task_ids {
+                        eprint!("Modify task {}? (y/n): ", task_id);
+                        let mut input = String::new();
+                        std::io::stdin().read_line(&mut input)
+                            .map_err(|e| anyhow::anyhow!("Failed to read input: {}", e))?;
+                        if input.trim().to_lowercase() == "y" || input.trim().to_lowercase() == "yes" {
+                            modify_single_task(&conn, task_id, &args)?;
+                        }
+                    }
+                    return Ok(());
+                }
+                _ => {
+                    println!("Invalid response. Cancelled.");
+                    return Ok(());
+                }
+            }
+        } else if interactive {
+            // Process one by one
+            for task_id in task_ids {
+                eprint!("Modify task {}? (y/n): ", task_id);
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)
+                    .map_err(|e| anyhow::anyhow!("Failed to read input: {}", e))?;
+                if input.trim().to_lowercase() == "y" || input.trim().to_lowercase() == "yes" {
+                    modify_single_task(&conn, task_id, &args)?;
+                }
+            }
+            return Ok(());
+        }
+        // else: yes flag - continue with all
     }
     
+    // Apply modifications to all selected tasks
+    for task_id in task_ids {
+        modify_single_task(&conn, task_id, &args)?;
+    }
+    
+    Ok(())
+}
+
+fn modify_single_task(conn: &Connection, task_id: i64, args: &[String]) -> Result<()> {
     // Parse modification arguments
-    let parsed = parse_task_args(args);
+    let parsed = parse_task_args(args.to_vec());
     
     // Parse description (optional)
     let description = if parsed.description.is_empty() {
@@ -1013,10 +1092,10 @@ fn handle_task_enqueue(task_id_str: String) -> Result<()> {
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
     
-    let task_id =         match validate_task_id(&task_id_str) {
-            Ok(id) => id,
-            Err(e) => user_error(&e),
-        }
+    let task_id = match validate_task_id(&task_id_str) {
+        Ok(id) => id,
+        Err(e) => user_error(&e),
+    };
     
     // Check if task exists
     if TaskRepo::get_by_id(&conn, task_id)?.is_none() {
@@ -1150,10 +1229,10 @@ fn handle_task_clock_in(task_id_str: String, args: Vec<String>) -> Result<()> {
         .context("Failed to connect to database")?;
     
     // Parse task ID
-    let task_id =         match validate_task_id(&task_id_str) {
-            Ok(id) => id,
-            Err(e) => user_error(&e),
-        }
+    let task_id = match validate_task_id(&task_id_str) {
+        Ok(id) => id,
+        Err(e) => user_error(&e),
+    };
     
     // Check if task exists
     if TaskRepo::get_by_id(&conn, task_id)?.is_none() {
