@@ -24,12 +24,38 @@ A powerful command-line task management tool built with Rust and SQLite - your s
 git clone <repository-url>
 cd task-ninja
 
-# Build and install
+# Build release version
 cargo build --release
+
+# Install to ~/.cargo/bin/ (or $CARGO_HOME/bin)
 cargo install --path .
 ```
 
-The `task` command will be available in your PATH.
+The `task` command will be available in your PATH (typically `~/.cargo/bin/task`).
+
+**Note:** If you have Taskwarrior installed, it also uses the `task` command. You can:
+- Use the full path: `~/.cargo/bin/task`
+- Create an alias: `alias task-ninja='~/.cargo/bin/task'`
+- Add `~/.cargo/bin` to the beginning of your PATH to prioritize this installation
+- Rename the binary by modifying `Cargo.toml` if you prefer a different name
+
+### Local Development Installation
+
+For local testing without installing globally:
+
+```bash
+# Build in release mode
+cargo build --release
+
+# Use directly
+./target/release/task stack show
+
+# Or create an alias in your current shell
+alias tn='./target/release/task'
+tn stack show
+```
+
+See `INSTALL.md` for more detailed installation options and conflict resolution with Taskwarrior.
 
 ## Quick Start
 
