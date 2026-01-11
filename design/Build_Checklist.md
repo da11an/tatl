@@ -355,10 +355,10 @@
 ## Phase 16: Integration & Acceptance Testing
 
 ### 16.1 Acceptance Test Framework
-- [ ] Set up acceptance test infrastructure
-- [ ] Implement test database setup/teardown
-- [ ] Implement Given/When/Then test runner
-- [ ] Test: Test framework works correctly
+- [x] Set up acceptance test infrastructure
+- [x] Implement test database setup/teardown
+- [x] Implement Given/When/Then test runner
+- [x] Test: Test framework works correctly
 
 ### 16.2 Acceptance Test Implementation
 - [ ] Implement all acceptance tests from Section 11

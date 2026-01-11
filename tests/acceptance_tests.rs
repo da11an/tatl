@@ -1,32 +1,10 @@
 // Acceptance tests for Task Ninja
 // These implement the Given/When/Then scenarios from Section 11 of the design document
 
+mod acceptance_framework;
+use acceptance_framework::*;
 use assert_cmd::Command;
 use predicates::prelude::*;
-use tempfile::TempDir;
-use std::env;
-use std::fs;
-
-/// Helper to create a temporary database and set it as the data location
-fn setup_test_env() -> TempDir {
-    let temp_dir = TempDir::new().unwrap();
-    let db_path = temp_dir.path().join("test.db");
-    
-    // Create config file
-    let config_dir = temp_dir.path().join(".taskninja");
-    fs::create_dir_all(&config_dir).unwrap();
-    let config_file = config_dir.join("rc");
-    fs::write(&config_file, format!("data.location={}\n", db_path.display())).unwrap();
-    
-    temp_dir
-}
-
-/// Helper to create a new command with test environment
-fn new_cmd(temp_dir: &TempDir) -> Command {
-    let mut cmd = Command::cargo_bin("task").unwrap();
-    cmd.env("HOME", temp_dir.path());
-    cmd
-}
 
 // Section 11.8: Projects
 
@@ -38,23 +16,18 @@ fn acceptance_project_rename_errors_if_target_exists() {
     // Then exit code is 1
     // And message indicates project already exists
     
-    let temp_dir = setup_test_env();
+    let ctx = AcceptanceTestContext::new();
+    let given = GivenBuilder::new(&ctx);
     
-    new_cmd(&temp_dir)
-        .args(&["projects", "add", "work"])
-        .assert()
-        .success();
+    given.project_exists("work");
+    given.project_exists("office");
     
-    new_cmd(&temp_dir)
-        .args(&["projects", "add", "office"])
-        .assert()
-        .success();
+    let mut when = WhenBuilder::new(&ctx);
+    when.execute_failure(&["projects", "rename", "work", "office"]);
     
-    new_cmd(&temp_dir)
-        .args(&["projects", "rename", "work", "office"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("already exists"));
+    let then = ThenBuilder::new(&ctx, when.result());
+    then.exit_code_is(1)
+        .message_contains("already exists");
 }
 
 #[test]
@@ -66,40 +39,25 @@ fn acceptance_project_rename_with_force_merges_projects() {
     // And tasks 10, 11, 12 all reference project `work`
     // And project `work` still exists
     
-    let temp_dir = setup_test_env();
+    let ctx = AcceptanceTestContext::new();
+    let given = GivenBuilder::new(&ctx);
     
-    // Create projects
-    new_cmd(&temp_dir)
-        .args(&["projects", "add", "temp"])
-        .assert()
-        .success();
+    given.project_exists("temp");
+    given.project_exists("work");
     
-    new_cmd(&temp_dir)
-        .args(&["projects", "add", "work"])
-        .assert()
-        .success();
+    let task10 = given.task_exists_with_project("Task 10", "temp");
+    let task11 = given.task_exists_with_project("Task 11", "temp");
+    let task12 = given.task_exists_with_project("Task 12", "work");
     
-    // TODO: Create tasks once task add is implemented
-    // For now, just verify the merge works
-    new_cmd(&temp_dir)
-        .args(&["projects", "rename", "temp", "work", "--force"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Merged"));
+    let mut when = WhenBuilder::new(&ctx);
+    when.execute_success(&["projects", "rename", "temp", "work", "--force"]);
     
-    // Verify temp no longer exists
-    new_cmd(&temp_dir)
-        .args(&["projects", "list"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("temp").not());
-    
-    // Verify work still exists
-    new_cmd(&temp_dir)
-        .args(&["projects", "list"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("work"));
+    let then = ThenBuilder::new(&ctx, when.result());
+    then.project_does_not_exist("temp")
+        .project_exists("work")
+        .task_references_project(task10, "work")
+        .task_references_project(task11, "work")
+        .task_references_project(task12, "work");
 }
 
 // More acceptance tests will be added as features are implemented
