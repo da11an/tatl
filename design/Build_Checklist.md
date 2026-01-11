@@ -51,16 +51,16 @@
 - [ ] Acceptance: All project scenarios from Section 11.8 (deferred - will add when acceptance test framework is ready)
 
 ### 2.2 Task CRUD (Basic)
-- [ ] Implement `task add` command
-- [ ] Implement description parsing (no `--` delimiter)
-- [ ] Implement field token parsing (`project:`, `due:`, etc.)
-- [ ] Implement tag parsing (`+tag`, `-tag`)
-- [ ] Implement `task list` command
-- [ ] Test: Task creation with all field types
-- [ ] Test: Description parsing handles mixed tokens
-- [ ] Test: Tag add/remove
-- [ ] Test: UDA storage format (JSON, keys without prefix)
-- [ ] Acceptance: Basic task add/list scenarios
+- [x] Implement `task add` command
+- [x] Implement description parsing (no `--` delimiter)
+- [x] Implement field token parsing (`project:`, `due:`, etc.)
+- [x] Implement tag parsing (`+tag`, `-tag`)
+- [x] Implement `task list` command
+- [x] Test: Task creation with all field types (basic support - full date/duration parsing in Phase 9)
+- [x] Test: Description parsing handles mixed tokens
+- [x] Test: Tag add/remove
+- [x] Test: UDA storage format (JSON, keys without prefix)
+- [ ] Acceptance: Basic task add/list scenarios (will add when more features complete)
 
 ### 2.3 Task Modification
 - [ ] Implement `task <id|filter> modify` command

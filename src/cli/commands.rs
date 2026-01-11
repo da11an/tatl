@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
 use crate::db::DbConnection;
-use crate::repo::ProjectRepo;
+use crate::repo::{ProjectRepo, TaskRepo};
+use crate::cli::parser::{parse_task_args, join_description};
+use crate::utils::{parse_date_expr, parse_duration};
 use anyhow::{Context, Result};
 
 #[derive(Parser)]
@@ -17,6 +19,18 @@ pub enum Commands {
     Projects {
         #[command(subcommand)]
         subcommand: ProjectCommands,
+    },
+    /// Add a new task
+    Add {
+        /// Task description and fields (e.g., "fix bug project:work +urgent")
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// List tasks
+    List {
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -63,6 +77,8 @@ pub fn run() -> Result<()> {
     
     match cli.command {
         Commands::Projects { subcommand } => handle_projects(subcommand),
+        Commands::Add { args } => handle_task_add(args),
+        Commands::List { json } => handle_task_list(json),
     }
 }
 
@@ -143,4 +159,133 @@ fn handle_projects(cmd: ProjectCommands) -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn handle_task_add(args: Vec<String>) -> Result<()> {
+    if args.is_empty() {
+        eprintln!("Error: Task description is required");
+        std::process::exit(1);
+    }
+    
+    let parsed = parse_task_args(args);
+    
+    // Validate description
+    if parsed.description.is_empty() {
+        eprintln!("Error: Task description is required");
+        std::process::exit(1);
+    }
+    
+    let description = join_description(&parsed.description);
+    
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+    
+    // Resolve project
+    let project_id = if let Some(project_name) = parsed.project {
+        let project = ProjectRepo::get_by_name(&conn, &project_name)?;
+        if let Some(p) = project {
+            Some(p.id.unwrap())
+        } else {
+            eprintln!("Error: Project '{}' not found", project_name);
+            std::process::exit(1);
+        }
+    } else {
+        None
+    };
+    
+    // Parse dates (simplified for MVP)
+    let due_ts = if let Some(due) = parsed.due {
+        Some(parse_date_expr(&due).context("Failed to parse due date")?)
+    } else {
+        None
+    };
+    
+    let scheduled_ts = if let Some(scheduled) = parsed.scheduled {
+        Some(parse_date_expr(&scheduled).context("Failed to parse scheduled date")?)
+    } else {
+        None
+    };
+    
+    let wait_ts = if let Some(wait) = parsed.wait {
+        Some(parse_date_expr(&wait).context("Failed to parse wait date")?)
+    } else {
+        None
+    };
+    
+    // Parse duration
+    let alloc_secs = if let Some(alloc) = parsed.alloc {
+        Some(parse_duration(&alloc).context("Failed to parse allocation duration")?)
+    } else {
+        None
+    };
+    
+    // Create task
+    let task = TaskRepo::create_full(
+        &conn,
+        &description,
+        project_id,
+        due_ts,
+        scheduled_ts,
+        wait_ts,
+        alloc_secs,
+        parsed.template,
+        parsed.recur,
+        &parsed.udas,
+        &parsed.tags_add,
+    )
+    .context("Failed to create task")?;
+    
+    println!("Created task {}: {}", task.id.unwrap(), description);
+    Ok(())
+}
+
+fn handle_task_list(json: bool) -> Result<()> {
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+    
+    let tasks = TaskRepo::list_all(&conn)
+        .context("Failed to list tasks")?;
+    
+    if tasks.is_empty() {
+        println!("No tasks found.");
+        return Ok(());
+    }
+    
+    if json {
+        // JSON output
+        let json_tasks: Vec<serde_json::Value> = tasks.iter().map(|(task, tags)| {
+            serde_json::json!({
+                "id": task.id,
+                "description": task.description,
+                "status": task.status.as_str(),
+                "project_id": task.project_id,
+                "due_ts": task.due_ts,
+                "scheduled_ts": task.scheduled_ts,
+                "wait_ts": task.wait_ts,
+                "tags": tags,
+                "udas": task.udas,
+            })
+        }).collect();
+        println!("{}", serde_json::to_string_pretty(&json_tasks)?);
+    } else {
+        // Human-readable output
+        for (task, tags) in tasks {
+            let id = task.id.unwrap();
+            let mut parts = vec![format!("{}", id), task.description];
+            
+            if let Some(project_id) = task.project_id {
+                // TODO: Get project name (for now just show ID)
+                parts.push(format!("[project:{}]", project_id));
+            }
+            
+            if !tags.is_empty() {
+                let tag_str = tags.iter().map(|t| format!("+{}", t)).collect::<Vec<_>>().join(" ");
+                parts.push(tag_str);
+            }
+            
+            println!("{}", parts.join(" "));
+        }
+    }
+    
+    Ok(())
 }
