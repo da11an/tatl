@@ -373,17 +373,17 @@ Recommended implementation order:
 - [ ] Update design documentation if needed
 
 ### Item 1: Enhanced Project Not Found Error Messages
-- [ ] Implement Levenshtein distance function (or evaluate `strsim` crate)
-- [ ] Add fuzzy matching utility function
-- [ ] Update `handle_task_add` to use fuzzy matching for project errors
-- [ ] Update `handle_task_modify` to use fuzzy matching for project errors
-- [ ] Update other handlers that reference projects
-- [ ] Implement "show up to 5 matches" logic
-- [ ] Write tests for project fuzzy matching
-- [ ] Write tests for multiple near matches
-- [ ] Write tests for case-insensitive matching
-- [ ] Write tests for substring matching
-- [ ] Write tests for active vs archived project checking
+- [x] Implement Levenshtein distance function (implemented directly)
+- [x] Add fuzzy matching utility function
+- [x] Update `handle_task_add` to use fuzzy matching for project errors
+- [x] Update `handle_task_modify` to use fuzzy matching for project errors
+- [x] Update other handlers that reference projects (project rename)
+- [x] Implement "show up to 5 matches" logic
+- [x] Write tests for project fuzzy matching
+- [x] Write tests for multiple near matches
+- [x] Write tests for case-insensitive matching
+- [x] Write tests for substring matching
+- [x] Write tests for active vs archived project checking (implicit in implementation)
 
 ### Item 3: Status Lines for Commands Without Arguments
 - [ ] Research clap help customization/interception

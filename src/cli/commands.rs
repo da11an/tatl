@@ -6,7 +6,7 @@ use crate::cli::parser::{parse_task_args, join_description};
 use crate::cli::commands_sessions::{handle_task_sessions_list, handle_task_sessions_show, handle_task_sessions_list_with_filter, handle_task_sessions_show_with_filter};
 use crate::cli::output::{format_task_list_table, format_stack_display};
 use crate::cli::error::{user_error, internal_error, validate_task_id, validate_stack_index, validate_project_name, validate_tag, validate_uda_key, validate_template_name};
-use crate::utils::{parse_date_expr, parse_duration};
+use crate::utils::{parse_date_expr, parse_duration, fuzzy};
 use crate::filter::{parse_filter, filter_tasks};
 use crate::recur::RecurGenerator;
 use std::collections::HashMap;
@@ -310,14 +310,21 @@ pub fn run() -> Result<()> {
     }
     
     // Check if this is task <id|filter> list pattern
+    // But only if the first arg is NOT a known global subcommand
     if args.len() >= 2 {
-        if let Some(list_pos) = args.iter().position(|a| a == "list") {
-            if list_pos > 0 {
-                // We have task <filter> list
-                let filter_args = args[0..list_pos].to_vec();
-                let list_args = args[list_pos + 1..].to_vec();
-                let json = list_args.contains(&"--json".to_string());
-                return handle_task_list(filter_args, json);
+        let first_arg = &args[0];
+        let is_global_subcommand = matches!(first_arg.as_str(), 
+            "projects" | "stack" | "clock" | "recur" | "templates" | "sessions");
+        
+        if !is_global_subcommand {
+            if let Some(list_pos) = args.iter().position(|a| a == "list") {
+                if list_pos > 0 {
+                    // We have task <filter> list
+                    let filter_args = args[0..list_pos].to_vec();
+                    let list_args = args[list_pos + 1..].to_vec();
+                    let json = list_args.contains(&"--json".to_string());
+                    return handle_task_list(filter_args, json);
+                }
             }
         }
     }
@@ -352,20 +359,28 @@ pub fn run() -> Result<()> {
     }
     
     // Check if this is task [<id|filter>] sessions pattern
+    // But only if the first arg is NOT a known global subcommand (or if sessions_pos == 0)
     if args.len() >= 2 {
         if let Some(sessions_pos) = args.iter().position(|a| a == "sessions") {
             if sessions_pos > 0 {
-                // We have task <id|filter> sessions
-                let id_or_filter = args[0].clone();
-                let sessions_args = args[sessions_pos + 1..].to_vec();
+                // Check if first arg is a task ID (numeric) or filter (not a global subcommand)
+                let first_arg = &args[0];
+                let is_global_subcommand = matches!(first_arg.as_str(), 
+                    "projects" | "stack" | "clock" | "recur" | "templates" | "sessions");
                 
-                // Parse subcommand
-                if let Some(subcmd) = sessions_args.first() {
-                    if subcmd == "list" {
-                        let json = sessions_args.contains(&"--json".to_string());
-                        return handle_task_sessions_list_with_filter(Some(id_or_filter), json);
-                    } else if subcmd == "show" {
-                        return handle_task_sessions_show_with_filter(Some(id_or_filter));
+                if !is_global_subcommand {
+                    // We have task <id|filter> sessions
+                    let id_or_filter = args[0].clone();
+                    let sessions_args = args[sessions_pos + 1..].to_vec();
+                    
+                    // Parse subcommand
+                    if let Some(subcmd) = sessions_args.first() {
+                        if subcmd == "list" {
+                            let json = sessions_args.contains(&"--json".to_string());
+                            return handle_task_sessions_list_with_filter(Some(id_or_filter), json);
+                        } else if subcmd == "show" {
+                            return handle_task_sessions_show_with_filter(Some(id_or_filter));
+                        }
                     }
                 }
             } else if sessions_pos == 0 {
@@ -417,6 +432,38 @@ pub fn run() -> Result<()> {
                 SessionsCommands::Show => handle_task_sessions_show(None),
             }
         }
+    }
+}
+
+/// Generate enhanced error message for project not found
+fn project_not_found_error(conn: &Connection, project_name: &str) -> ! {
+    // Get all projects (active first, then archived)
+    let active_projects = ProjectRepo::list(conn, false)
+        .unwrap_or_else(|_| Vec::new());
+    let archived_projects = ProjectRepo::list(conn, true)
+        .unwrap_or_else(|_| Vec::new());
+    
+    // Prepare project list: active first, then archived
+    let mut all_projects: Vec<(String, bool)> = active_projects.iter()
+        .map(|p| (p.name.clone(), p.is_archived))
+        .collect();
+    let mut archived_list: Vec<(String, bool)> = archived_projects.iter()
+        .filter(|p| p.is_archived)
+        .map(|p| (p.name.clone(), p.is_archived))
+        .collect();
+    all_projects.append(&mut archived_list);
+    
+    // Find near matches (max distance 3)
+    let matches = fuzzy::find_near_project_matches(project_name, &all_projects, 3);
+    
+    if matches.is_empty() {
+        // No near match found
+        user_error(&format!("Project '{}' not found. To add: task projects add {}", project_name, project_name));
+    } else {
+        // Near matches found
+        let match_names: Vec<String> = matches.iter().map(|(name, _)| format!("'{}'", name)).collect();
+        let match_str = match_names.join(", ");
+        user_error(&format!("Project '{}' not found. Did you mean {}?", project_name, match_str));
     }
 }
 
@@ -487,7 +534,7 @@ fn handle_projects(cmd: ProjectCommands) -> Result<()> {
             
             // Check if old project exists
             if ProjectRepo::get_by_name(&conn, &old_name)?.is_none() {
-                user_error(&format!("Project '{}' not found", old_name));
+                project_not_found_error(&conn, &old_name);
             }
             
             // Check if new name already exists
@@ -546,7 +593,7 @@ fn handle_task_add(args: Vec<String>) -> Result<()> {
         if let Some(p) = project {
             Some(p.id.unwrap())
         } else {
-            user_error(&format!("Project '{}' not found", project_name));
+            project_not_found_error(&conn, &project_name);
         }
     } else {
         None
@@ -795,7 +842,7 @@ fn modify_single_task(conn: &Connection, task_id: i64, args: &[String]) -> Resul
             if let Some(p) = project {
                 Some(Some(p.id.unwrap()))
             } else {
-                user_error(&format!("Project '{}' not found", project_name));
+                project_not_found_error(&conn, &project_name);
             }
         }
     } else {
