@@ -132,13 +132,13 @@
 - [x] Test: Session timestamps (UTC storage)
 
 ### 5.2 Basic Clock Commands
-- [ ] Implement `task clock in` (requires stack non-empty)
-- [ ] Implement `task clock out`
-- [ ] Implement default "now" behavior
-- [ ] Test: Clock in errors on empty stack
-- [ ] Test: Clock in errors if already running
-- [ ] Test: Clock out closes session
-- [ ] Acceptance: Clock scenarios from Section 11.2
+- [x] Implement `task clock in` (requires stack non-empty)
+- [x] Implement `task clock out`
+- [x] Implement default "now" behavior
+- [x] Test: Clock in errors on empty stack
+- [x] Test: Clock in errors if already running
+- [x] Test: Clock out closes session
+- [ ] Acceptance: Clock scenarios from Section 11.2 (will add when acceptance test framework ready)
 
 ### 5.3 Clock with Task ID
 - [ ] Implement `task <id> clock in` (push to top and start)

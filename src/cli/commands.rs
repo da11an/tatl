@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
+use rusqlite::Connection;
 use crate::db::DbConnection;
-use crate::repo::{ProjectRepo, TaskRepo};
+use crate::repo::{ProjectRepo, TaskRepo, StackRepo, SessionRepo};
 use crate::cli::parser::{parse_task_args, join_description};
 use crate::utils::{parse_date_expr, parse_duration};
 use crate::filter::{parse_filter, filter_tasks};
@@ -51,6 +52,16 @@ pub enum Commands {
         #[arg(long)]
         interactive: bool,
     },
+    /// Stack management commands
+    Stack {
+        #[command(subcommand)]
+        subcommand: StackCommands,
+    },
+    /// Clock management commands
+    Clock {
+        #[command(subcommand)]
+        subcommand: ClockCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -91,9 +102,78 @@ pub enum ProjectCommands {
     },
 }
 
+#[derive(Subcommand)]
+pub enum StackCommands {
+    /// Show current stack
+    Show {
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+    },
+    /// Move task at position to top
+    Pick {
+        /// Stack position/index (0 = top, -1 = end)
+        index: i32,
+    },
+    /// Rotate stack
+    Roll {
+        /// Number of positions to rotate (default: 1)
+        #[arg(default_value = "1")]
+        n: i32,
+    },
+    /// Remove task at position
+    Drop {
+        /// Stack position/index (0 = top, -1 = end)
+        index: i32,
+    },
+    /// Clear all tasks from stack
+    Clear,
+}
+
+#[derive(Subcommand)]
+pub enum ClockCommands {
+    /// Start timing the current task (stack[0])
+    In {
+        /// Start time (date expression, defaults to "now")
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Stop timing the current task
+    Out {
+        /// End time (date expression, defaults to "now")
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+}
+
 pub fn run() -> Result<()> {
-    // Get raw args to handle task <id|filter> modify syntax
+    // Get raw args to handle special syntax patterns
     let args: Vec<String> = std::env::args().skip(1).collect();
+    
+    // Check if this is task <id> clock in pattern
+    if args.len() >= 3 {
+        if let Some(clock_pos) = args.iter().position(|a| a == "clock") {
+            if clock_pos > 0 && clock_pos + 1 < args.len() {
+                if args[clock_pos + 1] == "in" {
+                    // We have task <id> clock in
+                    let task_id = args[0].clone();
+                    let clock_args = args[clock_pos + 2..].to_vec();
+                    return handle_task_clock_in(task_id, clock_args);
+                }
+            }
+        }
+    }
+    
+    // Check if this is task <id> enqueue pattern
+    if args.len() >= 2 {
+        if let Some(enqueue_pos) = args.iter().position(|a| a == "enqueue") {
+            if enqueue_pos > 0 {
+                // We have task <id> enqueue
+                let task_id = args[0].clone();
+                return handle_task_enqueue(task_id);
+            }
+        }
+    }
     
     // Check if this is task <id|filter> modify pattern
     if args.len() >= 2 {
@@ -113,6 +193,17 @@ pub fn run() -> Result<()> {
         }
     }
     
+    // Check if this is task stack <index> pick/drop pattern
+    if args.len() >= 3 && args[0] == "stack" {
+        if let Ok(index) = args[1].parse::<i32>() {
+            if args[2] == "pick" {
+                return handle_stack_pick(index);
+            } else if args[2] == "drop" {
+                return handle_stack_drop(index);
+            }
+        }
+    }
+    
     // Otherwise use clap parsing
     let cli = Cli::parse();
     
@@ -123,6 +214,8 @@ pub fn run() -> Result<()> {
         Commands::Modify { id_or_filter, args, yes, interactive } => {
             handle_task_modify(id_or_filter, args, yes, interactive)
         }
+        Commands::Stack { subcommand } => handle_stack(subcommand),
+        Commands::Clock { subcommand } => handle_clock(subcommand),
     }
 }
 
@@ -479,4 +572,192 @@ fn handle_task_modify(id_or_filter: String, args: Vec<String>, _yes: bool, _inte
     
     println!("Modified task {}", task_id);
     Ok(())
+}
+
+fn handle_stack(cmd: StackCommands) -> Result<()> {
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+    
+    match cmd {
+        StackCommands::Show { json } => {
+            let stack = StackRepo::get_or_create_default(&conn)?;
+            let stack_id = stack.id.unwrap();
+            let items = StackRepo::get_items(&conn, stack_id)?;
+            
+            if json {
+                let json_items: Vec<serde_json::Value> = items.iter().enumerate().map(|(idx, item)| {
+                    serde_json::json!({
+                        "index": idx,
+                        "task_id": item.task_id,
+                        "ordinal": item.ordinal,
+                    })
+                }).collect();
+                println!("{}", serde_json::to_string_pretty(&json_items)?);
+            } else {
+                if items.is_empty() {
+                    println!("[]");
+                } else {
+                    let task_ids: Vec<String> = items.iter().map(|item| item.task_id.to_string()).collect();
+                    println!("[{}]", task_ids.join(","));
+                }
+            }
+            Ok(())
+        }
+        StackCommands::Pick { index } => {
+            let stack = StackRepo::get_or_create_default(&conn)?;
+            StackRepo::pick(&conn, stack.id.unwrap(), index)
+                .context("Failed to pick task")?;
+            println!("Moved task at position {} to top", index);
+            Ok(())
+        }
+        StackCommands::Roll { n } => {
+            let stack = StackRepo::get_or_create_default(&conn)?;
+            StackRepo::roll(&conn, stack.id.unwrap(), n)
+                .context("Failed to roll stack")?;
+            println!("Rotated stack by {} position(s)", n);
+            Ok(())
+        }
+        StackCommands::Drop { index } => {
+            let stack = StackRepo::get_or_create_default(&conn)?;
+            StackRepo::drop(&conn, stack.id.unwrap(), index)
+                .context("Failed to drop task")?;
+            println!("Removed task at position {}", index);
+            Ok(())
+        }
+        StackCommands::Clear => {
+            let stack = StackRepo::get_or_create_default(&conn)?;
+            StackRepo::clear(&conn, stack.id.unwrap())
+                .context("Failed to clear stack")?;
+            println!("Cleared stack");
+            Ok(())
+        }
+    }
+}
+
+fn handle_stack_pick(index: i32) -> Result<()> {
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+    let stack = StackRepo::get_or_create_default(&conn)?;
+    StackRepo::pick(&conn, stack.id.unwrap(), index)
+        .context("Failed to pick task")?;
+    println!("Moved task at position {} to top", index);
+    Ok(())
+}
+
+fn handle_stack_drop(index: i32) -> Result<()> {
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+    let stack = StackRepo::get_or_create_default(&conn)?;
+    StackRepo::drop(&conn, stack.id.unwrap(), index)
+        .context("Failed to drop task")?;
+    println!("Removed task at position {}", index);
+    Ok(())
+}
+
+fn handle_task_enqueue(task_id_str: String) -> Result<()> {
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+    
+    let task_id: i64 = task_id_str.parse()
+        .map_err(|_| anyhow::anyhow!("Invalid task ID: {}", task_id_str))?;
+    
+    // Check if task exists
+    if TaskRepo::get_by_id(&conn, task_id)?.is_none() {
+        eprintln!("Error: Task {} not found", task_id);
+        std::process::exit(1);
+    }
+    
+    let stack = StackRepo::get_or_create_default(&conn)?;
+    StackRepo::enqueue(&conn, stack.id.unwrap(), task_id)
+        .context("Failed to enqueue task")?;
+    
+    println!("Enqueued task {}", task_id);
+    Ok(())
+}
+
+fn handle_clock(cmd: ClockCommands) -> Result<()> {
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+    
+    match cmd {
+        ClockCommands::In { args } => {
+            handle_clock_in(&conn, args)
+        }
+        ClockCommands::Out { args } => {
+            handle_clock_out(&conn, args)
+        }
+    }
+}
+
+fn handle_clock_in(conn: &Connection, args: Vec<String>) -> Result<()> {
+    // Get stack and check if it's empty
+    let stack = StackRepo::get_or_create_default(conn)?;
+    let stack_id = stack.id.unwrap();
+    let items = StackRepo::get_items(conn, stack_id)?;
+    
+    if items.is_empty() {
+        eprintln!("Error: Stack is empty. Add a task to the stack first.");
+        std::process::exit(1);
+    }
+    
+    // Check if session is already running
+    if let Some(_) = SessionRepo::get_open(conn)? {
+        eprintln!("Error: A session is already running. Please clock out first.");
+        std::process::exit(1);
+    }
+    
+    // Get stack[0] task
+    let task_id = items[0].task_id;
+    
+    // Parse start time (defaults to "now")
+    let start_ts = if args.is_empty() {
+        chrono::Utc::now().timestamp()
+    } else {
+        let start_expr = args.join(" ");
+        parse_date_expr(&start_expr)
+            .context("Invalid start time expression")?
+    };
+    
+    // Create session
+    SessionRepo::create(conn, task_id, start_ts)
+        .context("Failed to start session")?;
+    
+    println!("Started timing task {}", task_id);
+    Ok(())
+}
+
+fn handle_clock_out(conn: &Connection, args: Vec<String>) -> Result<()> {
+    // Check if session is running
+    let session_opt = SessionRepo::get_open(conn)?;
+    
+    if session_opt.is_none() {
+        eprintln!("Error: No session is currently running.");
+        std::process::exit(1);
+    }
+    
+    // Parse end time (defaults to "now")
+    let end_ts = if args.is_empty() {
+        chrono::Utc::now().timestamp()
+    } else {
+        let end_expr = args.join(" ");
+        parse_date_expr(&end_expr)
+            .context("Invalid end time expression")?
+    };
+    
+    // Close session
+    let closed = SessionRepo::close_open(conn, end_ts)
+        .context("Failed to close session")?;
+    
+    if let Some(session) = closed {
+        println!("Stopped timing task {}", session.task_id);
+    }
+    
+    Ok(())
+}
+
+fn handle_task_clock_in(_task_id_str: String, _args: Vec<String>) -> Result<()> {
+    // This will be implemented in Phase 5.3
+    // For now, just show an error
+    eprintln!("Error: task <id> clock in not yet implemented (Phase 5.3)");
+    std::process::exit(1);
 }
