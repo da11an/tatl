@@ -382,11 +382,11 @@
 ## Phase 17: Transaction & Atomicity
 
 ### 17.1 Transaction Implementation
-- [ ] Ensure all state-mutating commands run in transactions
-- [ ] Implement rollback on errors
-- [ ] Test: Atomic operations (stack + clock, done --next, etc.)
-- [ ] Test: Rollback on failure
-- [ ] Test: No partial state changes
+- [x] Ensure all state-mutating commands run in transactions
+- [x] Implement rollback on errors
+- [x] Test: Atomic operations (stack + clock, done --next, etc.)
+- [x] Test: Rollback on failure
+- [x] Test: No partial state changes
 
 ---
 

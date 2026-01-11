@@ -953,48 +953,64 @@ fn handle_stack_pick_with_clock(conn: &Connection, index: i32, clock_in: bool, c
 }
 
 /// Handle stack roll with clock state management
+/// This is an atomic operation: stack roll + clock state change must succeed or fail together
 fn handle_stack_roll_with_clock(conn: &Connection, n: i32, clock_in: bool, clock_out: bool) -> Result<()> {
+    // Get current stack state before transaction
     let stack = StackRepo::get_or_create_default(conn)?;
     let stack_id = stack.id.unwrap();
-    
-    // Get current stack state
     let items_before = StackRepo::get_items(conn, stack_id)?;
     let old_top_task = items_before.get(0).map(|item| item.task_id);
     
-    // Perform the roll operation
-    StackRepo::roll(conn, stack_id, n)
+    // Wrap entire operation in a transaction
+    // Note: StackRepo::roll uses its own transaction internally, but we wrap the whole
+    // operation (roll + clock state) to ensure atomicity
+    let tx = conn.unchecked_transaction()?;
+    
+    // Perform the roll operation (it will use its own transaction internally, but that's OK)
+    // We're wrapping the entire operation including clock state changes
+    StackRepo::roll(&tx, stack_id, n)
         .context("Failed to roll stack")?;
     
     // Get new stack state
-    let items_after = StackRepo::get_items(conn, stack_id)?;
+    let items_after = StackRepo::get_items(&tx, stack_id)?;
     let new_top_task = items_after.get(0).map(|item| item.task_id);
     
-    // Handle clock state
-    handle_stack_clock_state(conn, old_top_task, new_top_task, clock_in, clock_out)?;
+    // Handle clock state (within transaction)
+    handle_stack_clock_state_transactional(&tx, old_top_task, new_top_task, clock_in, clock_out)?;
+    
+    // Commit transaction - all changes applied atomically
+    tx.commit()?;
     
     println!("Rotated stack by {} position(s)", n);
     Ok(())
 }
 
 /// Handle stack drop with clock state management
+/// This is an atomic operation: stack drop + clock state change must succeed or fail together
 fn handle_stack_drop_with_clock(conn: &Connection, index: i32, clock_in: bool, clock_out: bool) -> Result<()> {
-    let stack = StackRepo::get_or_create_default(conn)?;
+    // Wrap entire operation in a transaction for atomicity
+    let tx = conn.unchecked_transaction()?;
+    
+    let stack = StackRepo::get_or_create_default(&tx)?;
     let stack_id = stack.id.unwrap();
     
     // Get current stack state
-    let items_before = StackRepo::get_items(conn, stack_id)?;
+    let items_before = StackRepo::get_items(&tx, stack_id)?;
     let old_top_task = items_before.get(0).map(|item| item.task_id);
     
     // Perform the drop operation
-    StackRepo::drop(conn, stack_id, index)
+    StackRepo::drop(&tx, stack_id, index)
         .context("Failed to drop task")?;
     
     // Get new stack state
-    let items_after = StackRepo::get_items(conn, stack_id)?;
+    let items_after = StackRepo::get_items(&tx, stack_id)?;
     let new_top_task = items_after.get(0).map(|item| item.task_id);
     
-    // Handle clock state
-    handle_stack_clock_state(conn, old_top_task, new_top_task, clock_in, clock_out)?;
+    // Handle clock state (within same transaction)
+    handle_stack_clock_state_transactional(&tx, old_top_task, new_top_task, clock_in, clock_out)?;
+    
+    // Commit transaction - all changes applied atomically
+    tx.commit()?;
     
     println!("Removed task at position {}", index);
     Ok(())
@@ -1020,10 +1036,22 @@ fn handle_stack_clear_with_clock(conn: &Connection, clock_out: bool) -> Result<(
     Ok(())
 }
 
-/// Handle clock state changes for stack operations
+/// Handle clock state changes for stack operations (non-transactional version)
 /// Default behavior: if clock is running and stack[0] changes, close current session and start new one
 /// Flags: --clock_in ensures clock is running, --clock_out ensures clock is stopped
 fn handle_stack_clock_state(
+    conn: &Connection,
+    old_top_task: Option<i64>,
+    new_top_task: Option<i64>,
+    clock_in: bool,
+    clock_out: bool,
+) -> Result<()> {
+    handle_stack_clock_state_transactional(conn, old_top_task, new_top_task, clock_in, clock_out)
+}
+
+/// Handle clock state changes for stack operations (transactional version)
+/// This can be called from within a transaction
+fn handle_stack_clock_state_transactional(
     conn: &Connection,
     old_top_task: Option<i64>,
     new_top_task: Option<i64>,
@@ -1268,31 +1296,39 @@ fn handle_task_clock_in(task_id_str: String, args: Vec<String>) -> Result<()> {
         (start_ts, None)
     };
     
+    // Wrap entire operation in a transaction for atomicity
+    // This ensures: close existing session + push to stack + create new session all succeed or fail together
+    let tx = conn.unchecked_transaction()?;
+    
     // Check if session is already running
-    let existing_session = SessionRepo::get_open(&conn)?;
+    let existing_session = SessionRepo::get_open(&tx)?;
     
     // If session is running, close it at the effective start time
     if existing_session.is_some() {
-        SessionRepo::close_open(&conn, start_ts)
+        SessionRepo::close_open(&tx, start_ts)
             .context("Failed to close existing session")?;
     }
     
     // Check for overlap prevention (before creating new session)
-    check_and_amend_overlaps(&conn, start_ts)?;
+    // Note: This might need to be done outside transaction if it queries other sessions
+    // For now, we'll do it within the transaction
+    check_and_amend_overlaps_transactional(&tx, start_ts)?;
     
     // Push task to stack[0]
-    let stack = StackRepo::get_or_create_default(&conn)?;
-    StackRepo::push_to_top(&conn, stack.id.unwrap(), task_id)
+    let stack = StackRepo::get_or_create_default(&tx)?;
+    StackRepo::push_to_top(&tx, stack.id.unwrap(), task_id)
         .context("Failed to push task to stack")?;
     
     // Create session (closed if interval, open otherwise)
     if let Some(end_ts) = end_ts_opt {
-        SessionRepo::create_closed(&conn, task_id, start_ts, end_ts)
+        SessionRepo::create_closed(&tx, task_id, start_ts, end_ts)
             .context("Failed to create closed session")?;
+        tx.commit()?;
         println!("Recorded session for task {} ({} to {})", task_id, start_ts, end_ts);
     } else {
-        SessionRepo::create(&conn, task_id, start_ts)
+        SessionRepo::create(&tx, task_id, start_ts)
             .context("Failed to start session")?;
+        tx.commit()?;
         // Get task description for better message
         let task = TaskRepo::get_by_id(&conn, task_id)?;
         let desc = task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
@@ -1303,8 +1339,14 @@ fn handle_task_clock_in(task_id_str: String, args: Vec<String>) -> Result<()> {
 }
 
 /// Check for closed sessions that end after the given start time and amend them
-/// to prevent overlap
+/// to prevent overlap (non-transactional version)
 fn check_and_amend_overlaps(conn: &Connection, new_start_ts: i64) -> Result<()> {
+    check_and_amend_overlaps_transactional(conn, new_start_ts)
+}
+
+/// Check for closed sessions that end after the given start time and amend them
+/// to prevent overlap (transactional version)
+fn check_and_amend_overlaps_transactional(conn: &Connection, new_start_ts: i64) -> Result<()> {
     // Find closed sessions that end at or after the new start time
     let recent_sessions = SessionRepo::get_recent_closed_after(conn, new_start_ts)?;
     

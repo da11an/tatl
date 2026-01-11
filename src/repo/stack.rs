@@ -171,6 +171,7 @@ impl StackRepo {
     }
 
     /// Rotate stack by n positions
+    /// If called within a transaction, the transaction should be passed as conn
     pub fn roll(conn: &Connection, stack_id: i64, n: i32) -> Result<()> {
         let items = Self::get_items(conn, stack_id)?;
         if items.len() <= 1 {
@@ -183,9 +184,6 @@ impl StackRepo {
             return Ok(()); // No rotation needed
         }
         
-        // Use a transaction to avoid constraint violations
-        let tx = conn.unchecked_transaction()?;
-        
         // Store current ordinals and task_ids
         let mut task_ordinals: Vec<(i64, i32)> = Vec::new();
         for item in &items {
@@ -193,7 +191,7 @@ impl StackRepo {
         }
         
         // Clear all items temporarily
-        tx.execute("DELETE FROM stack_items WHERE stack_id = ?1", [stack_id])?;
+        conn.execute("DELETE FROM stack_items WHERE stack_id = ?1", [stack_id])?;
         
         // Reinsert with new ordinals
         // Roll: [a,b,c] with roll 1 becomes [b,c,a]
@@ -210,15 +208,13 @@ impl StackRepo {
                 (old_ordinal + abs_n) % item_count
             };
             
-            tx.execute(
+            conn.execute(
                 "INSERT INTO stack_items (stack_id, task_id, ordinal, added_ts) VALUES (?1, ?2, ?3, ?4)",
                 rusqlite::params![stack_id, task_id, new_ordinal, now],
             )?;
         }
         
-        tx.commit()?;
-        
-        // Renumber to ensure clean ordinals
+        // Renumber to ensure clean ordinals (within same transaction if applicable)
         Self::renumber(conn, stack_id)?;
         Self::update_modified(conn, stack_id)?;
         Ok(())
