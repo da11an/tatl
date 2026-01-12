@@ -136,7 +136,7 @@ task 1-3 done --yes
 - [x] Update `handle_task_delete()` to use ID spec parsing
 - [x] Update `handle_task_modify()` to use ID spec parsing
 - [x] Update `handle_task_done()` to use ID spec parsing
-- [ ] Update `handle_task_list()` to use ID spec parsing (for bare numeric IDs)
+- [x] Update `handle_task_list()` to use ID spec parsing (for bare numeric IDs)
 - [ ] Update `handle_annotation_add()` to use ID spec parsing
 - [ ] Update `handle_task_sessions_*()` to use ID spec parsing
 - [x] Write tests for range parsing
@@ -178,3 +178,13 @@ task 1,3,5 done --yes
 - **Performance:** Large ranges (e.g., `1-10000`) should be handled efficiently
 - **User Experience:** Clear error messages for invalid syntax
 - **Consistency:** Same syntax works across all commands that accept task IDs
+
+---
+
+## Outstanding Items
+
+See `Outstanding_Items.md` for remaining tasks:
+- Update `handle_annotation_add()` to use ID spec parsing
+- Update `handle_task_sessions_*()` to use ID spec parsing
+- Write integration tests for commands
+- Update command reference documentation
