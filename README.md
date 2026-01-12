@@ -72,7 +72,7 @@ task +urgent list
 task 10 clock in
 
 # Add task to queue (do it later)
-task 11 enqueue
+task 11 enqueue  # or: task stack enqueue 11
 
 # Add annotation while working
 task annotate Found the issue in auth module

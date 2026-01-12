@@ -36,7 +36,7 @@ pub const PROJECT_COMMANDS: &[&str] = &[
 
 /// Stack subcommands
 pub const STACK_COMMANDS: &[&str] = &[
-    "show", "pick", "roll", "drop", "clear"
+    "show", "enqueue", "pick", "roll", "drop", "clear"
 ];
 
 /// Clock subcommands

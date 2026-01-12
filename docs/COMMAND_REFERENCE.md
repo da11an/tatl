@@ -57,6 +57,8 @@ task add Customer call uda.client:acme uda.priority:high
 
 List tasks matching optional filter.
 
+**Note:** You can also use the filter-before-command pattern: `task <filter> list` (e.g., `task project:work list`)
+
 **Options:**
 - `--json` - Output in JSON format
 
@@ -78,6 +80,8 @@ task project:work +urgent list --json
 ### `task <id|filter> modify [attributes...] [--yes] [--interactive]`
 
 Modify one or more tasks.
+
+**Note:** You can also use: `task modify <id|filter> [attributes...]` (top-level form)
 
 **Options:**
 - `--yes` - Apply to all matching tasks without confirmation
@@ -101,6 +105,8 @@ task 10 modify project:none due:none allocation:none
 ### `task [<id|filter>] done [--at <expr>] [--next] [--yes] [--interactive]`
 
 Complete one or more tasks.
+
+**Note:** You can also use: `task done [<id|filter>]` (top-level form)
 
 **Behavior:**
 1. Closes running session at `--at` or now
@@ -135,6 +141,8 @@ task +urgent done --yes
 ### `task [<id>] annotate <note...>`
 
 Add annotation to a task.
+
+**Note:** You can also use: `task annotate <note...>` (top-level form, requires task ID in filter or defaults to stack[0])
 
 **Behavior:**
 - If `<id>` provided: annotates specified task
@@ -238,23 +246,38 @@ Display the current stack.
 task stack show
 ```
 
-### `task <id> enqueue`
+### `task stack enqueue <id>` / `task <id> enqueue`
 
 Add task to end of stack (do it later).
 
+**Forms:**
+- `task stack enqueue <id>` (canonical form)
+- `task <id> enqueue` (syntactic sugar, equivalent)
+
 **Examples:**
 ```bash
+# Canonical form
+task stack enqueue 10
+
+# Syntactic sugar (equivalent)
 task 10 enqueue
 task 11 enqueue
 ```
 
-### `task stack <index> pick`
+### `task stack pick <index>` / `task stack <index> pick`
 
 Move task at position to top of stack.
 
+**Forms:**
+- `task stack pick <index>` (canonical form)
+- `task stack <index> pick` (alternative syntax, equivalent)
+
 **Examples:**
 ```bash
-# Move position 2 to top
+# Canonical form
+task stack pick 2
+
+# Alternative syntax (equivalent)
 task stack 2 pick
 ```
 
@@ -275,13 +298,20 @@ task stack roll
 task stack roll 2
 ```
 
-### `task stack <index> drop`
+### `task stack drop <index>` / `task stack <index> drop`
 
 Remove task from stack at position.
 
+**Forms:**
+- `task stack drop <index>` (canonical form)
+- `task stack <index> drop` (alternative syntax, equivalent)
+
 **Examples:**
 ```bash
-# Remove task at position 1
+# Canonical form
+task stack drop 1
+
+# Alternative syntax (equivalent)
 task stack 1 drop
 ```
 
@@ -302,9 +332,13 @@ task stack clear --clock-out
 
 ## Clock Commands
 
-### `task clock in [<start>|<start..end>]`
+### `task clock in [<start>|<start..end>]` / `task <id> clock in [<start>|<start..end>]`
 
-Start timing the current stack[0] task.
+Start timing the current stack[0] task, or push a specific task to top and start timing.
+
+**Forms:**
+- `task clock in` (starts timing stack[0])
+- `task <id> clock in` (pushes task to top and starts timing)
 
 **Behavior:**
 - If no arguments: starts at "now"
@@ -325,9 +359,10 @@ task clock in 09:00
 # Create closed interval
 task clock in 09:00..11:00
 task clock in today..eod
-```
 
-### `task <id> clock in [<start>|<start..end>]`
+# Push task 5 to top and start timing
+task 5 clock in
+```
 
 Push task to stack[0] and start timing.
 
@@ -365,9 +400,11 @@ task clock out 17:00
 
 ## Session Commands
 
-### `task [<id>] sessions list [--json]`
+### `task [<id>] sessions list [--json]` / `task sessions list [--json]`
 
 List session history.
+
+**Note:** You can also use: `task <id> sessions list` or `task <filter> sessions list` to filter by task
 
 **Behavior:**
 - If `<id>` provided: lists sessions for specific task
@@ -388,9 +425,11 @@ task 10 sessions list
 task sessions list --json
 ```
 
-### `task [<id>] sessions show`
+### `task [<id>] sessions show` / `task sessions show`
 
 Show detailed session information.
+
+**Note:** You can also use: `task <id> sessions show` or `task <filter> sessions show` to filter by task
 
 **Behavior:**
 - If `<id>` provided: shows most recent session for task

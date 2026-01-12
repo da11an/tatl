@@ -17,6 +17,22 @@ use anyhow::{Context, Result};
 #[derive(Parser)]
 #[command(name = "task")]
 #[command(about = "Task Ninja - A powerful command-line task management tool")]
+#[command(
+    long_about = "Task Ninja - A powerful command-line task management tool\n\n\
+    Task Subcommands (use with task <id> <subcommand>):\n\
+      enqueue    Add task to end of stack (also: task stack enqueue <id>)\n\
+      modify     Modify task attributes\n\
+      done       Mark task as completed\n\
+      delete     Permanently delete task\n\
+      annotate   Add annotation to task\n\
+      summary    Show detailed task summary\n\n\
+    Command Patterns:\n\
+      - Filter before command: task <filter> <command> (e.g., task project:work list)\n\
+      - Task ID default: task <id> (shows summary, same as task <id> summary)\n\
+      - Alternative stack syntax: task stack <index> pick (same as task stack pick <index>)\n\
+      - Task-specific clock: task <id> clock in (pushes to top and starts timing)\n\n\
+    Explore commands with: task <command> --help"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -45,6 +61,7 @@ pub enum Commands {
         json: bool,
     },
     /// Modify tasks
+    /// You can also use: task <id|filter> modify (e.g., task 1 modify or task +urgent modify)
     Modify {
         /// Task ID or filter (for now, only ID supported)
         id_or_filter: String,
@@ -61,16 +78,23 @@ pub enum Commands {
     /// Stack management commands
     /// The stack is a revolving queue of tasks. The task at position 0 (stack[0]) is the "active" task.
     /// Stack operations (pick, roll, drop) affect which task is active. Clock operations time the active task.
+    /// 
+    /// To add tasks to the stack:
+    ///   - `task stack enqueue <id>` (canonical form, adds to end)
+    ///   - `task <id> enqueue` (syntactic sugar, equivalent)
+    ///   - `task <id> clock in` (pushes to top and starts timing)
     Stack {
         #[command(subcommand)]
         subcommand: StackCommands,
     },
     /// Clock management commands
+    /// You can also use: task <id> clock in (pushes task to top and starts timing)
     Clock {
         #[command(subcommand)]
         subcommand: ClockCommands,
     },
     /// Annotate a task
+    /// You can also use: task <id|filter> annotate <note> (e.g., task 1 annotate \"note\")
     Annotate {
         /// Annotation note text
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -80,6 +104,7 @@ pub enum Commands {
         delete: Option<String>,
     },
     /// Mark task(s) as done
+    /// You can also use: task <id|filter> done (e.g., task 1 done or task project:work done)
     Done {
         /// Task ID or filter (optional, defaults to stack\[0\])
         id_or_filter: Option<String>,
@@ -97,6 +122,7 @@ pub enum Commands {
         interactive: bool,
     },
     /// Permanently delete task(s)
+    /// You can also use: task <id|filter> delete (e.g., task 1 delete or task +old delete)
     Delete {
         /// Task ID or filter (required)
         id_or_filter: String,
@@ -170,6 +196,11 @@ pub enum StackCommands {
         #[arg(long)]
         json: bool,
     },
+    /// Add task to end of stack
+    Enqueue {
+        /// Task ID to enqueue
+        task_id: i64,
+    },
     /// Move task at position to top
     Pick {
         /// Stack position/index (0 = top, -1 = end)
@@ -194,6 +225,7 @@ pub enum StackCommands {
         clock_out: bool,
     },
     /// Remove task at position
+    /// You can also use: task stack <index> drop (alternative syntax)
     Drop {
         /// Stack position/index (0 = top, -1 = end)
         index: i32,
@@ -237,6 +269,7 @@ pub enum SessionsCommands {
 #[derive(Subcommand)]
 pub enum ClockCommands {
     /// Start timing the current task (stack\[0\])
+    /// You can also use: task <id> clock in (pushes task to top and starts timing)
     In {
         /// Start time (date expression, defaults to "now")
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -343,10 +376,11 @@ pub fn run() -> Result<()> {
     }
     
     // Check if this is task <id> enqueue pattern
+    // But NOT if it's task stack enqueue (which is handled by Clap)
     if args.len() >= 2 {
         if let Some(enqueue_pos) = args.iter().position(|a| a == "enqueue") {
-            if enqueue_pos > 0 {
-                // We have task <id> enqueue
+            if enqueue_pos > 0 && args[0] != "stack" {
+                // We have task <id> enqueue (syntactic sugar)
                 let task_id = args[0].clone();
                 return handle_task_enqueue(task_id);
             }
@@ -369,7 +403,7 @@ pub fn run() -> Result<()> {
         let first_arg = &args[0];
         // Check if it's a numeric ID or ID spec (not a global subcommand)
         let is_global_subcommand = matches!(first_arg.as_str(), 
-            "projects" | "stack" | "clock" | "recur" | "templates" | "sessions" | "add" | "list" | "modify" | "annotate" | "done" | "delete" | "summary");
+            "projects" | "stack" | "clock" | "recur" | "sessions" | "add" | "list" | "modify" | "annotate" | "done" | "delete" | "summary");
         
         if !is_global_subcommand {
             // Try to parse as task ID spec
@@ -385,7 +419,7 @@ pub fn run() -> Result<()> {
     if args.len() >= 2 {
         let first_arg = &args[0];
         let is_global_subcommand = matches!(first_arg.as_str(), 
-            "projects" | "stack" | "clock" | "recur" | "templates" | "sessions");
+            "projects" | "stack" | "clock" | "recur" | "sessions");
         
         if !is_global_subcommand {
             if let Some(list_pos) = args.iter().position(|a| a == "list") {
@@ -437,7 +471,7 @@ pub fn run() -> Result<()> {
                 // Check if first arg is a task ID (numeric) or filter (not a global subcommand)
                 let first_arg = &args[0];
                 let is_global_subcommand = matches!(first_arg.as_str(), 
-                    "projects" | "stack" | "clock" | "recur" | "templates" | "sessions");
+                    "projects" | "stack" | "clock" | "recur" | "sessions");
                 
                 if !is_global_subcommand {
                     // We have task <id|filter> sessions
@@ -1218,6 +1252,9 @@ fn handle_stack(cmd: StackCommands) -> Result<()> {
                 print!("{}", display);
             }
             Ok(())
+        }
+        StackCommands::Enqueue { task_id } => {
+            handle_task_enqueue(task_id.to_string())
         }
         StackCommands::Pick { index, clock_in, clock_out } => {
             handle_stack_pick_with_clock(&conn, index, clock_in, clock_out)
