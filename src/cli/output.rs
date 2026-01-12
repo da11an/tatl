@@ -1,7 +1,7 @@
 // Output formatting utilities
 
 use crate::models::Task;
-use crate::repo::ProjectRepo;
+use crate::repo::{ProjectRepo, AnnotationRepo, SessionRepo, StackRepo};
 use chrono::Local;
 use rusqlite::Connection;
 use anyhow::Result;
@@ -193,4 +193,173 @@ pub fn format_clock_transition(
         }
         _ => format!("Clock {}", action)
     }
+}
+
+/// Format task summary report
+pub fn format_task_summary(
+    conn: &Connection,
+    task: &crate::models::Task,
+    tags: &[String],
+    annotations: &[crate::models::Annotation],
+    sessions: &[crate::models::Session],
+    stack_position: Option<(i32, i32)>, // (position, total)
+) -> Result<String> {
+    let mut output = String::new();
+    
+    // Header
+    let header = format!("Task {}: {}", 
+        task.id.map(|id| id.to_string()).unwrap_or_else(|| "?".to_string()),
+        task.description);
+    output.push_str(&header);
+    output.push_str("\n");
+    output.push_str(&"=".repeat(header.len().max(60)));
+    output.push_str("\n\n");
+    
+    // Description
+    output.push_str("Description:\n");
+    output.push_str(&format!("  {}\n\n", task.description));
+    
+    // Basic Info
+    output.push_str("Status: ");
+    output.push_str(task.status.as_str());
+    output.push_str("\n");
+    output.push_str(&format!("Created: {}\n", format_timestamp(task.created_ts)));
+    output.push_str(&format!("Modified: {}\n\n", format_timestamp(task.modified_ts)));
+    
+    // Attributes
+    output.push_str("Attributes:\n");
+    
+    // Project
+    if let Some(project_id) = task.project_id {
+        if let Ok(Some(project)) = ProjectRepo::get_by_id(conn, project_id) {
+            output.push_str(&format!("  Project:     {}\n", project.name));
+        } else {
+            output.push_str(&format!("  Project:     [{}]\n", project_id));
+        }
+    } else {
+        output.push_str("  Project:     (none)\n");
+    }
+    
+    // Due
+    if let Some(due_ts) = task.due_ts {
+        output.push_str(&format!("  Due:         {}\n", format_date(due_ts)));
+    } else {
+        output.push_str("  Due:         (none)\n");
+    }
+    
+    // Scheduled
+    if let Some(scheduled_ts) = task.scheduled_ts {
+        output.push_str(&format!("  Scheduled:   {}\n", format_date(scheduled_ts)));
+    } else {
+        output.push_str("  Scheduled:   (none)\n");
+    }
+    
+    // Wait
+    if let Some(wait_ts) = task.wait_ts {
+        output.push_str(&format!("  Wait:        {}\n", format_date(wait_ts)));
+    } else {
+        output.push_str("  Wait:        (none)\n");
+    }
+    
+    // Allocation
+    if let Some(alloc_secs) = task.alloc_secs {
+        output.push_str(&format!("  Allocation:  {}\n", format_duration(alloc_secs)));
+    } else {
+        output.push_str("  Allocation:  (none)\n");
+    }
+    
+    // Tags
+    if !tags.is_empty() {
+        let tag_str = tags.iter().map(|t| format!("+{}", t)).collect::<Vec<_>>().join(" ");
+        output.push_str(&format!("  Tags:        {}\n", tag_str));
+    } else {
+        output.push_str("  Tags:        (none)\n");
+    }
+    
+    // Template
+    if let Some(ref template) = task.template {
+        output.push_str(&format!("  Template:    {}\n", template));
+    } else {
+        output.push_str("  Template:    (none)\n");
+    }
+    
+    // Recurrence
+    if let Some(ref recur) = task.recur {
+        output.push_str(&format!("  Recurrence:  {}\n", recur));
+    } else {
+        output.push_str("  Recurrence:  none\n");
+    }
+    
+    output.push_str("\n");
+    
+    // User-Defined Attributes
+    if !task.udas.is_empty() {
+        output.push_str("User-Defined Attributes:\n");
+        let mut udas: Vec<_> = task.udas.iter().collect();
+        udas.sort_by_key(|(k, _)| *k);
+        for (key, value) in udas {
+            output.push_str(&format!("  {}:    {}\n", key, value));
+        }
+        output.push_str("\n");
+    }
+    
+    // Stack
+    if let Some((position, total)) = stack_position {
+        output.push_str("Stack:\n");
+        output.push_str(&format!("  Position:    {} of {}\n\n", position + 1, total));
+    }
+    
+    // Recurrence details (if recurring)
+    if task.recur.is_some() {
+        output.push_str("Recurrence:\n");
+        output.push_str(&format!("  Type:        {}\n", task.recur.as_ref().unwrap()));
+        // TODO: Add more recurrence details if needed (next occurrence, etc.)
+        output.push_str("\n");
+    }
+    
+    // Annotations
+    output.push_str(&format!("Annotations ({}):\n", annotations.len()));
+    if annotations.is_empty() {
+        output.push_str("  (none)\n");
+    } else {
+        for (idx, annotation) in annotations.iter().enumerate() {
+            output.push_str(&format!("  {}. {}\n", idx + 1, format_timestamp(annotation.entry_ts)));
+            // Format note with indentation for multi-line notes
+            for line in annotation.note.lines() {
+                output.push_str(&format!("     {}\n", line));
+            }
+            output.push_str("\n");
+        }
+    }
+    output.push_str("\n");
+    
+    // Sessions
+    output.push_str(&format!("Sessions ({}):\n", sessions.len()));
+    if sessions.is_empty() {
+        output.push_str("  (none)\n");
+    } else {
+        for (idx, session) in sessions.iter().enumerate() {
+            output.push_str(&format!("  {}. {} - ", idx + 1, format_timestamp(session.start_ts)));
+            if let Some(end_ts) = session.end_ts {
+                output.push_str(&format!("{}", format_timestamp(end_ts)));
+                if let Some(duration) = session.duration_secs() {
+                    output.push_str(&format!(" ({})", format_duration(duration)));
+                }
+            } else {
+                output.push_str("(running)");
+                let current_duration = chrono::Utc::now().timestamp() - session.start_ts;
+                output.push_str(&format!(" ({})", format_duration(current_duration)));
+            }
+            output.push_str("\n");
+        }
+    }
+    output.push_str("\n");
+    
+    // Total Time
+    let total_secs: i64 = sessions.iter()
+        .filter_map(|s| s.duration_secs())
+        .sum();
+    output.push_str(&format!("Total Time: {}\n", format_duration(total_secs)));
+    
+    Ok(output)
 }

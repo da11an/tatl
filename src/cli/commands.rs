@@ -4,7 +4,7 @@ use crate::db::DbConnection;
 use crate::repo::{ProjectRepo, TaskRepo, StackRepo, SessionRepo, AnnotationRepo, TemplateRepo};
 use crate::cli::parser::{parse_task_args, join_description};
 use crate::cli::commands_sessions::{handle_task_sessions_list, handle_task_sessions_show, handle_task_sessions_list_with_filter, handle_task_sessions_show_with_filter};
-use crate::cli::output::{format_task_list_table, format_stack_display};
+use crate::cli::output::{format_task_list_table, format_stack_display, format_task_summary};
 use crate::cli::error::{user_error, validate_task_id, validate_project_name, parse_task_id_spec};
 use crate::utils::{parse_date_expr, parse_duration, fuzzy};
 use crate::filter::{parse_filter, filter_tasks};
@@ -116,6 +116,11 @@ pub enum Commands {
     Sessions {
         #[command(subcommand)]
         subcommand: SessionsCommands,
+    },
+    /// Show detailed summary of task(s)
+    Summary {
+        /// Task ID, range, or list (e.g., "1", "1-3", "1,3,5")
+        id_or_filter: String,
     },
 }
 
@@ -348,6 +353,33 @@ pub fn run() -> Result<()> {
         }
     }
     
+    // Check if this is task <id|filter> summary pattern
+    if args.len() >= 2 {
+        if let Some(summary_pos) = args.iter().position(|a| a == "summary") {
+            if summary_pos > 0 {
+                // We have task <id|filter> summary
+                let id_or_filter = args[0].clone();
+                return handle_task_summary(id_or_filter);
+            }
+        }
+    }
+    
+    // Check if this is task <id> pattern (no subcommand) - treat as summary
+    if args.len() == 1 {
+        let first_arg = &args[0];
+        // Check if it's a numeric ID or ID spec (not a global subcommand)
+        let is_global_subcommand = matches!(first_arg.as_str(), 
+            "projects" | "stack" | "clock" | "recur" | "templates" | "sessions" | "add" | "list" | "modify" | "annotate" | "done" | "delete" | "summary");
+        
+        if !is_global_subcommand {
+            // Try to parse as task ID spec
+            if parse_task_id_spec(first_arg).is_ok() || validate_task_id(first_arg).is_ok() {
+                // It's a valid task ID or ID spec - show summary
+                return handle_task_summary(first_arg.clone());
+            }
+        }
+    }
+    
     // Check if this is task <id|filter> list pattern
     // But only if the first arg is NOT a known global subcommand
     if args.len() >= 2 {
@@ -487,6 +519,9 @@ pub fn run() -> Result<()> {
                             SessionsCommands::Show => handle_task_sessions_show(None),
                         }
                     }
+                    Commands::Summary { id_or_filter } => {
+                        handle_task_summary(id_or_filter)
+                    }
                 };
             }
         };
@@ -588,6 +623,9 @@ pub fn run() -> Result<()> {
                 SessionsCommands::List { json } => handle_task_sessions_list(None, json),
                 SessionsCommands::Show => handle_task_sessions_show(None),
             }
+        }
+        Commands::Summary { id_or_filter } => {
+            handle_task_summary(id_or_filter)
         }
     }
 }
@@ -1804,6 +1842,97 @@ fn handle_annotation_add_with_filter(id_or_filter: String, note_args: Vec<String
         let annotation = AnnotationRepo::create(&conn, task_id, note.clone(), link_session_id)
             .context("Failed to create annotation")?;
         println!("Added annotation {} to task {}", annotation.id.unwrap(), task_id);
+    }
+    
+    Ok(())
+}
+
+fn handle_task_summary(id_or_filter: String) -> Result<()> {
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+    
+    // Parse task ID spec (single ID, range, or list)
+    let task_ids: Vec<i64> = match parse_task_id_spec(&id_or_filter) {
+        Ok(ids) => {
+            // Valid ID spec
+            ids
+        }
+        Err(_) => {
+            // Try single ID for backward compatibility
+            match validate_task_id(&id_or_filter) {
+                Ok(id) => vec![id],
+                Err(_) => {
+                    // Not an ID - treat as filter
+                    let filter_expr = match parse_filter(vec![id_or_filter.clone()]) {
+                        Ok(expr) => expr,
+                        Err(e) => user_error(&format!("Filter parse error: {}", e)),
+                    };
+                    let matching_tasks = filter_tasks(&conn, &filter_expr)
+                        .context("Failed to filter tasks")?;
+                    
+                    if matching_tasks.is_empty() {
+                        user_error("No matching tasks found");
+                    }
+                    
+                    matching_tasks.iter()
+                        .filter_map(|(task, _)| task.id)
+                        .collect()
+                }
+            }
+        }
+    };
+    
+    // Get default stack to check positions
+    let stack = StackRepo::get_or_create_default(&conn)?;
+    let stack_id = stack.id.unwrap();
+    let stack_items = StackRepo::get_items(&conn, stack_id)?;
+    let stack_map: std::collections::HashMap<i64, i32> = stack_items.iter()
+        .enumerate()
+        .map(|(idx, item)| (item.task_id, idx as i32))
+        .collect();
+    let stack_total = stack_items.len() as i32;
+    
+    // Process each task
+    let mut found_any = false;
+    let last_id = *task_ids.last().unwrap_or(&0);
+    for task_id in task_ids {
+        // Get task
+        let task = match TaskRepo::get_by_id(&conn, task_id)? {
+            Some(t) => t,
+            None => {
+                eprintln!("Task {} not found", task_id);
+                continue;
+            }
+        };
+        
+        found_any = true;
+        
+        // Get tags
+        let tags = TaskRepo::get_tags(&conn, task_id)?;
+        
+        // Get annotations
+        let annotations = AnnotationRepo::get_by_task(&conn, task_id)?;
+        
+        // Get sessions
+        let sessions = SessionRepo::get_by_task(&conn, task_id)?;
+        
+        // Get stack position
+        let stack_position = stack_map.get(&task_id)
+            .map(|&pos| (pos, stack_total));
+        
+        // Format and print summary
+        let summary = format_task_summary(&conn, &task, &tags, &annotations, &sessions, stack_position)?;
+        print!("{}", summary);
+        
+        // Add separator between multiple tasks
+        let is_last = task_id == last_id;
+        if !is_last {
+            println!();
+        }
+    }
+    
+    if !found_any {
+        user_error("No tasks found");
     }
     
     Ok(())
