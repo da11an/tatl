@@ -94,7 +94,7 @@ fn test_duration_integration() {
     
     // Create task with duration
     let mut cmd = get_task_cmd();
-    cmd.args(&["add", "Task 1", "alloc:1h30m"]).assert().success();
+    cmd.args(&["add", "Task 1", "allocation:1h30m"]).assert().success();
     
     // Create task with relative date
     let mut cmd = get_task_cmd();

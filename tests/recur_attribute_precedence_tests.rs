@@ -40,7 +40,7 @@ fn test_attribute_precedence_template_base_seed_overrides() {
     // Seed overrides: alloc_secs (30m = 1800s), adds tag "urgent"
     // Template provides: project_id, base tags
     get_task_cmd()
-        .args(&["add", "Daily standup", "template:standup", "recur:daily", "alloc:30m", "+urgent"])
+        .args(&["add", "Daily standup", "template:standup", "recur:daily", "allocation:30m", "+urgent"])
         .assert()
         .success();
     
@@ -87,7 +87,7 @@ fn test_attribute_precedence_seed_only_no_template() {
     
     // Create seed task without template
     get_task_cmd()
-        .args(&["add", "Daily task", "recur:daily", "alloc:1h", "+important"])
+        .args(&["add", "Daily task", "recur:daily", "allocation:1h", "+important"])
         .assert()
         .success();
     

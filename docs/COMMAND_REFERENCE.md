@@ -29,7 +29,7 @@ Add a new task with optional attributes.
 - `due:<expr>` - Set due date
 - `scheduled:<expr>` - Set scheduled date
 - `wait:<expr>` - Set wait date
-- `alloc:<duration>` - Set time allocation
+- `allocation:<duration>` - Set time allocation
 - `template:<name>` - Use template
 - `recur:<rule>` - Set recurrence rule
 - `+<tag>` - Add tag
@@ -44,7 +44,7 @@ task add Fix bug in authentication
 task add Review PR project:work +code-review +urgent
 
 # Task with due date and allocation
-task add Write documentation project:docs due:tomorrow alloc:2h
+task add Write documentation project:docs due:tomorrow allocation:2h
 
 # Task with template and recurrence
 task add Daily standup template:meeting recur:daily
@@ -95,7 +95,7 @@ task project:work modify description:Updated description
 task +urgent modify due:+1d --yes
 
 # Clear attributes
-task 10 modify project:none due:none alloc:none
+task 10 modify project:none due:none allocation:none
 ```
 
 ### `task [<id|filter>] done [--at <expr>] [--next] [--yes] [--interactive]`

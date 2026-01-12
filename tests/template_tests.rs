@@ -79,7 +79,7 @@ fn test_task_add_with_template() {
     
     // Create a task with template (template will be auto-created from task attributes)
     // Note: We don't need a project for this test
-    get_task_cmd().args(&["add", "Daily standup", "template:standup", "alloc:30m"]).assert().success();
+    get_task_cmd().args(&["add", "Daily standup", "template:standup", "allocation:30m"]).assert().success();
     
     // Verify template was created
     let conn = DbConnection::connect().unwrap();
@@ -98,10 +98,10 @@ fn test_recur_with_template() {
     let temp_dir = setup_test_env();
     
     // Create a template via task creation (without project to avoid project creation issues)
-    get_task_cmd().args(&["add", "Template task", "template:meeting", "alloc:1h", "+meeting"]).assert().success();
+    get_task_cmd().args(&["add", "Template task", "template:meeting", "allocation:1h", "+meeting"]).assert().success();
     
     // Create a seed task with template and recurrence
-    get_task_cmd().args(&["add", "Daily standup", "template:meeting", "recur:daily", "alloc:30m"]).assert().success();
+    get_task_cmd().args(&["add", "Daily standup", "template:meeting", "recur:daily", "allocation:30m"]).assert().success();
     
     // Run recurrence generation
     get_task_cmd().args(&["recur", "run"]).assert().success();
@@ -114,7 +114,7 @@ fn test_recur_with_template() {
         .collect();
     assert!(!instances.is_empty());
     
-    // Check that instance has template attributes (+meeting) but seed override (alloc:30m)
+    // Check that instance has template attributes (+meeting) but seed override (allocation:30m)
     let (instance, tags) = &instances[0];
     assert_eq!(instance.description, "Daily standup");
     // Verify template tag is present (from template)

@@ -732,7 +732,13 @@ fn handle_task_add(args: Vec<String>) -> Result<()> {
         user_error("Task description is required");
     }
     
-    let parsed = parse_task_args(args);
+    let parsed = match parse_task_args(args) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
     
     // Validate description
     if parsed.description.is_empty() {
@@ -776,8 +782,8 @@ fn handle_task_add(args: Vec<String>) -> Result<()> {
     };
     
     // Parse duration
-    let alloc_secs = if let Some(alloc) = parsed.alloc {
-        Some(parse_duration(&alloc).context("Failed to parse allocation duration")?)
+    let alloc_secs = if let Some(allocation) = parsed.allocation {
+        Some(parse_duration(&allocation).context("Failed to parse allocation duration")?)
     } else {
         None
     };
@@ -1011,7 +1017,13 @@ fn handle_task_modify(id_or_filter: String, args: Vec<String>, yes: bool, intera
 
 fn modify_single_task(conn: &Connection, task_id: i64, args: &[String]) -> Result<()> {
     // Parse modification arguments
-    let parsed = parse_task_args(args.to_vec());
+    let parsed = match parse_task_args(args.to_vec()) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
     
     // Parse description (optional)
     let description = if parsed.description.is_empty() {
@@ -1068,11 +1080,11 @@ fn modify_single_task(conn: &Connection, task_id: i64, args: &[String]) -> Resul
     };
     
     // Parse duration (handle clearing)
-    let alloc_secs = if let Some(alloc) = &parsed.alloc {
-        if alloc == "none" {
+    let alloc_secs = if let Some(allocation) = &parsed.allocation {
+        if allocation == "none" {
             Some(None)
         } else {
-            Some(Some(parse_duration(alloc).context("Failed to parse allocation duration")?))
+            Some(Some(parse_duration(allocation).context("Failed to parse allocation duration")?))
         }
     } else {
         None
