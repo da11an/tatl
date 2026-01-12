@@ -17,22 +17,6 @@ use anyhow::{Context, Result};
 #[derive(Parser)]
 #[command(name = "task")]
 #[command(about = "Task Ninja - A powerful command-line task management tool")]
-#[command(
-    long_about = "Task Ninja - A powerful command-line task management tool\n\n\
-    Task Subcommands (use with task <id> <subcommand>):\n\
-      enqueue    Add task to end of stack (also: task stack enqueue <id>)\n\
-      modify     Modify task attributes\n\
-      done       Mark task as completed\n\
-      delete     Permanently delete task\n\
-      annotate   Add annotation to task\n\
-      summary    Show detailed task summary\n\n\
-    Command Patterns:\n\
-      - Filter before command: task <filter> <command> (e.g., task project:work list)\n\
-      - Task ID default: task <id> (shows summary, same as task <id> summary)\n\
-      - Alternative stack syntax: task stack <index> pick (same as task stack pick <index>)\n\
-      - Task-specific clock: task <id> clock in (pushes to top and starts timing)\n\n\
-    Explore commands with: task <command> --help"
-)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -60,11 +44,15 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Show detailed summary of task(s)
+    Show {
+        /// Task ID, range, or filter
+        target: String,
+    },
     /// Modify tasks
-    /// You can also use: task <id|filter> modify (e.g., task 1 modify or task +urgent modify)
     Modify {
-        /// Task ID or filter (for now, only ID supported)
-        id_or_filter: String,
+        /// Task ID or filter
+        target: String,
         /// Modification arguments (description, fields, tags)
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -75,27 +63,20 @@ pub enum Commands {
         #[arg(long)]
         interactive: bool,
     },
-    /// Stack management commands
-    /// The stack is a revolving queue of tasks. The task at position 0 (stack[0]) is the "active" task.
-    /// Stack operations (pick, roll, drop) affect which task is active. Clock operations time the active task.
-    /// 
-    /// To add tasks to the stack:
-    ///   - `task stack enqueue <id>` (canonical form, adds to end)
-    ///   - `task <id> enqueue` (syntactic sugar, equivalent)
-    ///   - `task <id> clock in` (pushes to top and starts timing)
-    Stack {
-        #[command(subcommand)]
-        subcommand: StackCommands,
-    },
     /// Clock management commands
-    /// You can also use: task <id> clock in (pushes task to top and starts timing)
+    /// The clock stack is a queue of tasks. The task at position 0 (clock[0]) is the "active" task.
+    /// Clock operations (pick, roll, drop) affect which task is active. Clock in/out controls timing.
     Clock {
         #[command(subcommand)]
         subcommand: ClockCommands,
+        /// Task ID (optional, defaults to clock[0] for in/out)
+        #[arg(long)]
+        task: Option<String>,
     },
     /// Annotate a task
-    /// You can also use: task <id|filter> annotate <note> (e.g., task 1 annotate \"note\")
     Annotate {
+        /// Task ID or filter
+        target: String,
         /// Annotation note text
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         note: Vec<String>,
@@ -104,14 +85,13 @@ pub enum Commands {
         delete: Option<String>,
     },
     /// Mark task(s) as done
-    /// You can also use: task <id|filter> done (e.g., task 1 done or task project:work done)
     Done {
-        /// Task ID or filter (optional, defaults to stack\[0\])
-        id_or_filter: Option<String>,
+        /// Task ID or filter (optional, defaults to clock[0])
+        target: Option<String>,
         /// End time for session (date expression, defaults to now)
         #[arg(long)]
         at: Option<String>,
-        /// Start next task in stack after completion
+        /// Start next task in clock after completion
         #[arg(long)]
         next: bool,
         /// Complete all matching tasks without confirmation
@@ -122,10 +102,9 @@ pub enum Commands {
         interactive: bool,
     },
     /// Permanently delete task(s)
-    /// You can also use: task <id|filter> delete (e.g., task 1 delete or task +old delete)
     Delete {
-        /// Task ID or filter (required)
-        id_or_filter: String,
+        /// Task ID or filter
+        target: String,
         /// Delete all matching tasks without confirmation
         #[arg(long)]
         yes: bool,
@@ -142,11 +121,9 @@ pub enum Commands {
     Sessions {
         #[command(subcommand)]
         subcommand: SessionsCommands,
-    },
-    /// Show detailed summary of task(s)
-    Summary {
-        /// Task ID, range, or list (e.g., "1", "1-3", "1,3,5")
-        id_or_filter: String,
+        /// Task ID or filter (optional)
+        #[arg(long)]
+        task: Option<String>,
     },
 }
 
@@ -188,61 +165,6 @@ pub enum ProjectCommands {
     },
 }
 
-#[derive(Subcommand)]
-pub enum StackCommands {
-    /// Show current stack
-    Show {
-        /// Output in JSON format
-        #[arg(long)]
-        json: bool,
-    },
-    /// Add task to end of stack
-    Enqueue {
-        /// Task ID to enqueue
-        task_id: i64,
-    },
-    /// Move task at position to top
-    Pick {
-        /// Stack position/index (0 = top, -1 = end)
-        index: i32,
-        /// Ensure clock is running after operation
-        #[arg(long)]
-        clock_in: bool,
-        /// Ensure clock is stopped after operation
-        #[arg(long)]
-        clock_out: bool,
-    },
-    /// Rotate stack
-    Roll {
-        /// Number of positions to rotate (default: 1)
-        #[arg(default_value = "1")]
-        n: i32,
-        /// Ensure clock is running after operation
-        #[arg(long)]
-        clock_in: bool,
-        /// Ensure clock is stopped after operation
-        #[arg(long)]
-        clock_out: bool,
-    },
-    /// Remove task at position
-    /// You can also use: task stack <index> drop (alternative syntax)
-    Drop {
-        /// Stack position/index (0 = top, -1 = end)
-        index: i32,
-        /// Ensure clock is running after operation
-        #[arg(long)]
-        clock_in: bool,
-        /// Ensure clock is stopped after operation
-        #[arg(long)]
-        clock_out: bool,
-    },
-    /// Clear all tasks from stack
-    Clear {
-        /// Ensure clock is stopped after operation
-        #[arg(long)]
-        clock_out: bool,
-    },
-}
 
 #[derive(Subcommand)]
 pub enum RecurCommands {
@@ -265,8 +187,9 @@ pub enum SessionsCommands {
     /// Show detailed session information
     Show,
     /// Modify session start/end times
-    /// Syntax: task sessions <session_id> modify [start:<expr>] [end:<expr>]
     Modify {
+        /// Session ID
+        session_id: i64,
         /// Modification arguments (start:<expr>, end:<expr>)
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -278,8 +201,9 @@ pub enum SessionsCommands {
         force: bool,
     },
     /// Delete a session
-    /// Syntax: task sessions <session_id> delete
     Delete {
+        /// Session ID
+        session_id: i64,
         /// Delete without confirmation
         #[arg(long)]
         yes: bool,
@@ -288,14 +212,45 @@ pub enum SessionsCommands {
 
 #[derive(Subcommand)]
 pub enum ClockCommands {
-    /// Start timing the current task (stack\[0\])
-    /// You can also use: task <id> clock in (pushes task to top and starts timing)
+    /// Show current clock stack
+    Show {
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+    },
+    /// Add task to end of clock stack
+    Enqueue {
+        /// Task ID to enqueue
+        task_id: i64,
+    },
+    /// Move task at position to top
+    Pick {
+        /// Clock position/index (0 = top, -1 = end)
+        index: i32,
+    },
+    /// Rotate clock stack
+    Roll {
+        /// Number of positions to rotate (default: 1)
+        #[arg(default_value = "1")]
+        n: i32,
+    },
+    /// Remove task at position
+    Drop {
+        /// Clock position/index (0 = top, -1 = end)
+        index: i32,
+    },
+    /// Clear all tasks from clock stack
+    Clear,
+    /// Start timing (optionally with task)
     In {
+        /// Task ID (optional, defaults to clock[0])
+        #[arg(long)]
+        task: Option<i64>,
         /// Start time (date expression, defaults to "now")
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    /// Stop timing the current task
+    /// Stop timing
     Out {
         /// End time (date expression, defaults to "now")
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -304,7 +259,7 @@ pub enum ClockCommands {
 }
 
 pub fn run() -> Result<()> {
-    // Get raw args to handle special syntax patterns
+    // Get raw args
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     
     // Expand command abbreviations before processing
@@ -315,229 +270,19 @@ pub fn run() -> Result<()> {
         }
     };
     
-    // Check if this is task <id|filter> done pattern
-    if args.len() >= 2 {
-        if let Some(done_pos) = args.iter().position(|a| a == "done") {
-            if done_pos > 0 {
-                // We have task <id|filter> done
-                let id_or_filter = args[0].clone();
-                let done_args = args[done_pos + 1..].to_vec();
-                
-                // Parse flags
-                let at = done_args.iter().position(|a| a == "--at")
-                    .and_then(|pos| done_args.get(pos + 1).cloned());
-                let next = done_args.contains(&"--next".to_string());
-                let yes = done_args.contains(&"--yes".to_string());
-                let interactive = done_args.contains(&"--interactive".to_string());
-                
-                return handle_task_done(Some(id_or_filter), at, next, yes, interactive);
-            }
-        }
-    }
-    
-    // Check if this is task sessions <session_id> modify/delete pattern
-    // This must come BEFORE task <id|filter> delete pattern to avoid conflicts
-    if args.len() >= 3 && args[0] == "sessions" {
-        if let Ok(session_id) = args[1].parse::<i64>() {
-            if args[2] == "modify" {
-                let modify_args = args[3..].to_vec();
-                let yes = modify_args.contains(&"--yes".to_string());
-                let force = modify_args.contains(&"--force".to_string());
-                return handle_sessions_modify(session_id, modify_args, yes, force);
-            } else if args[2] == "delete" {
-                let delete_args = args[3..].to_vec();
-                let yes = delete_args.contains(&"--yes".to_string());
-                return handle_sessions_delete(session_id, yes);
-            }
-        }
-    }
-    
-    // Check if this is task <id|filter> delete pattern
-    if args.len() >= 2 {
-        if let Some(delete_pos) = args.iter().position(|a| a == "delete") {
-            if delete_pos > 0 {
-                // We have task <id|filter> delete
-                let id_or_filter = args[0].clone();
-                let delete_args = args[delete_pos + 1..].to_vec();
-                
-                // Parse flags
-                let yes = delete_args.contains(&"--yes".to_string());
-                let interactive = delete_args.contains(&"--interactive".to_string());
-                
-                return handle_task_delete(id_or_filter, yes, interactive);
-            }
-        }
-    }
-    
-    // Check if this is task <id|filter> annotate pattern
-    if args.len() >= 2 {
-        if let Some(annotate_pos) = args.iter().position(|a| a == "annotate") {
-            if annotate_pos > 0 {
-                // We have task <id|filter> annotate
-                let id_or_filter = args[0].clone();
-                let note_args = args[annotate_pos + 1..].to_vec();
-                // Check for --delete flag
-                if let Some(delete_pos) = note_args.iter().position(|a| a == "--delete") {
-                    if delete_pos + 1 < note_args.len() {
-                        let annotation_id = note_args[delete_pos + 1].clone();
-                        // Delete only works with task ID, not filter
-                        return handle_annotation_delete(id_or_filter, annotation_id);
-                    }
-                } else {
-                    // Parse flags
-                    let yes = note_args.contains(&"--yes".to_string());
-                    let interactive = note_args.contains(&"--interactive".to_string());
-                    // Filter out flags from note args
-                    let note_args_filtered: Vec<String> = note_args.iter()
-                        .filter(|a| a != &&"--yes".to_string() && a != &&"--interactive".to_string())
-                        .cloned()
-                        .collect();
-                    return handle_annotation_add_with_filter(id_or_filter, note_args_filtered, yes, interactive);
-                }
-            }
-        }
-    }
-    
-    // Check if this is task <id> clock in pattern
-    if args.len() >= 3 {
-        if let Some(clock_pos) = args.iter().position(|a| a == "clock") {
-            if clock_pos > 0 && clock_pos + 1 < args.len() {
-                if args[clock_pos + 1] == "in" {
-                    // We have task <id> clock in
-                    let task_id = args[0].clone();
-                    let clock_args = args[clock_pos + 2..].to_vec();
-                    return handle_task_clock_in(task_id, clock_args);
-                }
-            }
-        }
-    }
-    
-    // Check if this is task <id> enqueue pattern
-    // But NOT if it's task stack enqueue (which is handled by Clap)
-    if args.len() >= 2 {
-        if let Some(enqueue_pos) = args.iter().position(|a| a == "enqueue") {
-            if enqueue_pos > 0 && args[0] != "stack" {
-                // We have task <id> enqueue (syntactic sugar)
-                let task_id = args[0].clone();
-                return handle_task_enqueue(task_id);
-            }
-        }
-    }
-    
-    // Check if this is task <id|filter> summary pattern
-    if args.len() >= 2 {
-        if let Some(summary_pos) = args.iter().position(|a| a == "summary") {
-            if summary_pos > 0 {
-                // We have task <id|filter> summary
-                let id_or_filter = args[0].clone();
-                return handle_task_summary(id_or_filter);
-            }
-        }
-    }
-    
-    // Check if this is task <id> pattern (no subcommand) - treat as summary
+    // Optional: Handle implicit defaults (task 1 → task show 1)
+    // This is an optional extension - can be removed if not desired
     if args.len() == 1 {
         let first_arg = &args[0];
         // Check if it's a numeric ID or ID spec (not a global subcommand)
         let is_global_subcommand = matches!(first_arg.as_str(), 
-            "projects" | "stack" | "clock" | "recur" | "sessions" | "add" | "list" | "modify" | "annotate" | "done" | "delete" | "summary");
+            "projects" | "clock" | "recur" | "sessions" | "add" | "list" | "modify" | "annotate" | "done" | "delete" | "show");
         
         if !is_global_subcommand {
             // Try to parse as task ID spec
             if parse_task_id_spec(first_arg).is_ok() || validate_task_id(first_arg).is_ok() {
-                // It's a valid task ID or ID spec - show summary
-                return handle_task_summary(first_arg.clone());
-            }
-        }
-    }
-    
-    // Check if this is task [<id|filter>] sessions pattern
-    // But only if the first arg is NOT a known global subcommand (or if sessions_pos == 0)
-    if args.len() >= 2 {
-        if let Some(sessions_pos) = args.iter().position(|a| a == "sessions") {
-            if sessions_pos > 0 {
-                // Check if first arg is a task ID (numeric) or filter (not a global subcommand)
-                let first_arg = &args[0];
-                let is_global_subcommand = matches!(first_arg.as_str(), 
-                    "projects" | "stack" | "clock" | "recur" | "sessions");
-                
-                if !is_global_subcommand {
-                    // We have task <id|filter> sessions
-                    let id_or_filter = args[0].clone();
-                    let sessions_args = args[sessions_pos + 1..].to_vec();
-                    
-                    // Parse subcommand
-                    if let Some(subcmd) = sessions_args.first() {
-                        if subcmd == "list" {
-                            let json = sessions_args.contains(&"--json".to_string());
-                            return handle_task_sessions_list_with_filter(Some(id_or_filter), json);
-                        } else if subcmd == "show" {
-                            return handle_task_sessions_show_with_filter(Some(id_or_filter));
-                        }
-                    }
-                }
-            } else if sessions_pos == 0 {
-                // We have task sessions (no ID/filter)
-                let sessions_args = args[sessions_pos + 1..].to_vec();
-                
-                // Parse subcommand
-                if let Some(subcmd) = sessions_args.first() {
-                    if subcmd == "list" {
-                        let json = sessions_args.contains(&"--json".to_string());
-                        return handle_task_sessions_list_with_filter(None, json);
-                    } else if subcmd == "show" {
-                        return handle_task_sessions_show_with_filter(None);
-                    }
-                }
-            }
-        }
-    }
-    
-    // Check if this is task <id|filter> list pattern
-    // But only if the first arg is NOT a known global subcommand
-    if args.len() >= 2 {
-        let first_arg = &args[0];
-        let is_global_subcommand = matches!(first_arg.as_str(), 
-            "projects" | "stack" | "clock" | "recur" | "sessions");
-        
-        if !is_global_subcommand {
-            if let Some(list_pos) = args.iter().position(|a| a == "list") {
-                if list_pos > 0 {
-                    // We have task <filter> list
-                    let filter_args = args[0..list_pos].to_vec();
-                    let list_args = args[list_pos + 1..].to_vec();
-                    let json = list_args.contains(&"--json".to_string());
-                    return handle_task_list(filter_args, json);
-                }
-            }
-        }
-    }
-    
-    // Check if this is task <id|filter> modify pattern
-    if args.len() >= 2 {
-        // Look for "modify" subcommand
-        if let Some(modify_pos) = args.iter().position(|a| a == "modify") {
-            if modify_pos > 0 {
-                // We have task <id|filter> modify
-                let id_or_filter = args[0].clone();
-                let modify_args = args[modify_pos + 1..].to_vec();
-                
-                // Parse flags
-                let yes = modify_args.contains(&"--yes".to_string());
-                let interactive = modify_args.contains(&"--interactive".to_string());
-                
-                return handle_task_modify(id_or_filter, modify_args, yes, interactive);
-            }
-        }
-    }
-    
-    // Check if this is task stack <index> pick/drop pattern
-    if args.len() >= 3 && args[0] == "stack" {
-        if let Ok(index) = args[1].parse::<i32>() {
-            if args[2] == "pick" {
-                return handle_stack_pick(index);
-            } else if args[2] == "drop" {
-                return handle_stack_drop(index);
+                // It's a valid task ID or ID spec - prepend "show"
+                args.insert(0, "show".to_string());
             }
         }
     }
@@ -549,7 +294,7 @@ pub fn run() -> Result<()> {
     // Check if this is a command without subcommand (would show help)
     let is_command_without_subcommand = args.len() == 1 && matches!(
         args[0].as_str(),
-        "projects" | "stack" | "clock" | "recur" | "sessions"
+        "projects" | "clock" | "recur" | "sessions"
     );
     
     // If help would be shown, compute and display status first
@@ -559,47 +304,7 @@ pub fn run() -> Result<()> {
             Err(_) => {
                 // If DB connection fails, just show help normally
                 let cli = Cli::parse();
-                return match cli.command {
-                    Commands::Projects { subcommand } => handle_projects(subcommand),
-                    Commands::Add { args } => handle_task_add(args),
-                    Commands::List { filter, json } => handle_task_list(filter, json),
-                    Commands::Modify { id_or_filter, args, yes, interactive } => {
-                        handle_task_modify(id_or_filter, args, yes, interactive)
-                    }
-                    Commands::Stack { subcommand } => handle_stack(subcommand),
-                    Commands::Clock { subcommand } => handle_clock(subcommand),
-                    Commands::Annotate { note, delete } => {
-                        if let Some(_annotation_id) = delete {
-                            user_error("Task ID required when deleting annotation. Use: task <id> annotate --delete <annotation_id>");
-                        } else {
-                            handle_annotation_add(None, note)
-                        }
-                    }
-                    Commands::Done { id_or_filter, at, next, yes, interactive } => {
-                        handle_task_done(id_or_filter, at, next, yes, interactive)
-                    }
-                    Commands::Delete { id_or_filter, yes, interactive } => {
-                        handle_task_delete(id_or_filter, yes, interactive)
-                    }
-                    Commands::Recur { subcommand } => {
-                        handle_recur(subcommand)
-                    }
-                    Commands::Sessions { subcommand } => {
-                        match subcommand {
-                            SessionsCommands::List { json } => handle_task_sessions_list(None, json),
-                            SessionsCommands::Show => handle_task_sessions_show(None),
-                            SessionsCommands::Modify { args, yes, force } => {
-                                user_error("Session ID required. Use: task sessions <session_id> modify");
-                            }
-                            SessionsCommands::Delete { yes } => {
-                                user_error("Session ID required. Use: task sessions <session_id> delete");
-                            }
-                        }
-                    }
-                    Commands::Summary { id_or_filter } => {
-                        handle_task_summary(id_or_filter)
-                    }
-                };
+                return handle_command(cli);
             }
         };
         
@@ -625,7 +330,6 @@ pub fn run() -> Result<()> {
             // Command without subcommand - show command-specific status
             let status_line = match args[0].as_str() {
                 "projects" => status::compute_projects_status(&conn),
-                "stack" => status::compute_stack_status(&conn),
                 "clock" => status::compute_clock_status(&conn),
                 "recur" => status::compute_recur_status(&conn),
                 "sessions" => status::compute_sessions_status(&conn),
@@ -645,7 +349,7 @@ pub fn run() -> Result<()> {
         }
     }
     
-    // Otherwise use clap parsing with expanded args
+    // Use clap parsing with expanded args
     // Build args vector with program name for clap
     let clap_args = std::iter::once("task".to_string())
         .chain(args.iter().cloned())
@@ -658,18 +362,24 @@ pub fn run() -> Result<()> {
         }
     };
     
+    handle_command(cli)
+}
+
+fn handle_command(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Projects { subcommand } => handle_projects(subcommand),
         Commands::Add { args } => handle_task_add(args),
-        Commands::List { filter, json } => handle_task_list(filter, json),
-        Commands::Modify { id_or_filter, args, yes, interactive } => {
-            handle_task_modify(id_or_filter, args, yes, interactive)
+        Commands::List { filter, json } => {
+            handle_task_list(filter, json)
+        },
+        Commands::Show { target } => handle_task_summary(target),
+        Commands::Modify { target, args, yes, interactive } => {
+            handle_task_modify(target, args, yes, interactive)
         }
-        Commands::Stack { subcommand } => handle_stack(subcommand),
-        Commands::Clock { subcommand } => handle_clock(subcommand),
-        Commands::Annotate { note, delete } => {
-            if let Some(_annotation_id) = delete {
-                user_error("Task ID required when deleting annotation. Use: task <id> annotate --delete <annotation_id>");
+        Commands::Clock { subcommand, task } => handle_clock(subcommand, task),
+        Commands::Annotate { target, note, delete } => {
+            if let Some(annotation_id) = delete {
+                handle_annotation_delete(target, annotation_id)
             } else if note.is_empty() {
                 // Show status for annotate command without arguments
                 let conn = DbConnection::connect()
@@ -682,33 +392,33 @@ pub fn run() -> Result<()> {
                 let _ = Cli::try_parse_from(help_args);
                 Ok(())
             } else {
-                handle_annotation_add(None, note)
+                handle_annotation_add_with_filter(target, note, false, false)
             }
         }
-                    Commands::Done { id_or_filter, at, next, yes, interactive } => {
-                        handle_task_done(id_or_filter, at, next, yes, interactive)
-                    }
-                    Commands::Delete { id_or_filter, yes, interactive } => {
-                        handle_task_delete(id_or_filter, yes, interactive)
-                    }
-                    Commands::Recur { subcommand } => {
-                        handle_recur(subcommand)
-                    }
-        Commands::Sessions { subcommand } => {
-            // Handle sessions without task ID
+        Commands::Done { target, at, next, yes, interactive } => {
+            handle_task_done(target, at, next, yes, interactive)
+        }
+        Commands::Delete { target, yes, interactive } => {
+            handle_task_delete(target, yes, interactive)
+        }
+        Commands::Recur { subcommand } => {
+            handle_recur(subcommand)
+        }
+        Commands::Sessions { subcommand, task } => {
             match subcommand {
-                SessionsCommands::List { json } => handle_task_sessions_list(None, json),
-                SessionsCommands::Show => handle_task_sessions_show(None),
-                SessionsCommands::Modify { args, yes, force } => {
-                    user_error("Session ID required. Use: task sessions <session_id> modify");
+                SessionsCommands::List { json } => {
+                    handle_task_sessions_list_with_filter(task, json)
                 }
-                SessionsCommands::Delete { yes } => {
-                    user_error("Session ID required. Use: task sessions <session_id> delete");
+                SessionsCommands::Show => {
+                    handle_task_sessions_show_with_filter(task)
+                }
+                SessionsCommands::Modify { session_id, args, yes, force } => {
+                    handle_sessions_modify(session_id, args, yes, force)
+                }
+                SessionsCommands::Delete { session_id, yes } => {
+                    handle_sessions_delete(session_id, yes)
                 }
             }
-        }
-        Commands::Summary { id_or_filter } => {
-            handle_task_summary(id_or_filter)
         }
     }
 }
@@ -1267,58 +977,6 @@ fn modify_single_task(conn: &Connection, task_id: i64, args: &[String]) -> Resul
     Ok(())
 }
 
-fn handle_stack(cmd: StackCommands) -> Result<()> {
-    let conn = DbConnection::connect()
-        .context("Failed to connect to database")?;
-    
-    match cmd {
-        StackCommands::Show { json } => {
-            let stack = StackRepo::get_or_create_default(&conn)?;
-            let stack_id = stack.id.unwrap();
-            let items = StackRepo::get_items(&conn, stack_id)?;
-            
-            if json {
-                // JSON output - enhanced schema
-                let json_items: Vec<serde_json::Value> = items.iter().enumerate().map(|(idx, item)| {
-                    // Get task description if available
-                    let task = TaskRepo::get_by_id(&conn, item.task_id).ok().flatten();
-                    let description = task.as_ref().map(|t| t.description.as_str());
-                    
-                    serde_json::json!({
-                        "index": idx,
-                        "task_id": item.task_id,
-                        "task_description": description,
-                        "ordinal": item.ordinal,
-                    })
-                }).collect();
-                println!("{}", serde_json::to_string_pretty(&json_items)?);
-            } else {
-                // Human-readable stack display
-                let stack_items: Vec<(i64, i32)> = items.iter()
-                    .map(|item| (item.task_id, item.ordinal))
-                    .collect();
-                let display = format_stack_display(&stack_items);
-                print!("{}", display);
-            }
-            Ok(())
-        }
-        StackCommands::Enqueue { task_id } => {
-            handle_task_enqueue(task_id.to_string())
-        }
-        StackCommands::Pick { index, clock_in, clock_out } => {
-            handle_stack_pick_with_clock(&conn, index, clock_in, clock_out)
-        }
-        StackCommands::Roll { n, clock_in, clock_out } => {
-            handle_stack_roll_with_clock(&conn, n, clock_in, clock_out)
-        }
-        StackCommands::Drop { index, clock_in, clock_out } => {
-            handle_stack_drop_with_clock(&conn, index, clock_in, clock_out)
-        }
-        StackCommands::Clear { clock_out } => {
-            handle_stack_clear_with_clock(&conn, clock_out)
-        }
-    }
-}
 
 /// Handle stack pick with clock state management
 fn handle_stack_pick_with_clock(conn: &Connection, index: i32, clock_in: bool, clock_out: bool) -> Result<()> {
@@ -1531,13 +1189,66 @@ fn handle_task_enqueue(task_id_str: String) -> Result<()> {
     Ok(())
 }
 
-fn handle_clock(cmd: ClockCommands) -> Result<()> {
+fn handle_clock(cmd: ClockCommands, task: Option<String>) -> Result<()> {
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
     
     match cmd {
-        ClockCommands::In { args } => {
-            handle_clock_in(&conn, args)
+        ClockCommands::Show { json } => {
+            let stack = StackRepo::get_or_create_default(&conn)?;
+            let stack_id = stack.id.unwrap();
+            let items = StackRepo::get_items(&conn, stack_id)?;
+            
+            if json {
+                // JSON output
+                let json_items: Vec<serde_json::Value> = items.iter().enumerate().map(|(idx, item)| {
+                    let task = TaskRepo::get_by_id(&conn, item.task_id).ok().flatten();
+                    let description = task.as_ref().map(|t| t.description.as_str());
+                    
+                    serde_json::json!({
+                        "index": idx,
+                        "task_id": item.task_id,
+                        "task_description": description,
+                        "ordinal": item.ordinal,
+                    })
+                }).collect();
+                println!("{}", serde_json::to_string_pretty(&json_items)?);
+            } else {
+                // Human-readable display
+                let stack_items: Vec<(i64, i32)> = items.iter()
+                    .map(|item| (item.task_id, item.ordinal))
+                    .collect();
+                let display = format_stack_display(&stack_items);
+                print!("{}", display);
+            }
+            Ok(())
+        }
+        ClockCommands::Enqueue { task_id } => {
+            handle_task_enqueue(task_id.to_string())
+        }
+        ClockCommands::Pick { index } => {
+            handle_stack_pick_with_clock(&conn, index, false, false)
+        }
+        ClockCommands::Roll { n } => {
+            handle_stack_roll_with_clock(&conn, n, false, false)
+        }
+        ClockCommands::Drop { index } => {
+            handle_stack_drop_with_clock(&conn, index, false, false)
+        }
+        ClockCommands::Clear => {
+            handle_stack_clear_with_clock(&conn, false)
+        }
+        ClockCommands::In { task: task_id_opt, args } => {
+            if let Some(task_id) = task_id_opt {
+                // Use specified task ID
+                handle_task_clock_in(task_id.to_string(), args)
+            } else if let Some(task_str) = task {
+                // Use task from --task flag
+                handle_task_clock_in(task_str, args)
+            } else {
+                // Use clock[0]
+                handle_clock_in(&conn, args)
+            }
         }
         ClockCommands::Out { args } => {
             handle_clock_out(&conn, args)
