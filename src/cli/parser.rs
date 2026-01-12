@@ -39,7 +39,7 @@ pub fn parse_task_args(args: Vec<String>) -> ParsedTaskArgs {
         // Check for field tokens (field:value)
         if let Some((field, value)) = parse_field_token(arg) {
             match field.as_str() {
-                "project" => parsed.project = Some(value),
+                "project" | "pro" => parsed.project = Some(value),
                 "due" => parsed.due = Some(value),
                 "scheduled" => parsed.scheduled = Some(value),
                 "wait" => parsed.wait = Some(value),
@@ -129,6 +129,14 @@ mod tests {
     #[test]
     fn test_parse_with_project() {
         let args = vec!["fix".to_string(), "bug".to_string(), "project:work".to_string()];
+        let parsed = parse_task_args(args);
+        assert_eq!(parsed.description, vec!["fix", "bug"]);
+        assert_eq!(parsed.project, Some("work".to_string()));
+    }
+    
+    #[test]
+    fn test_parse_with_project_abbreviation() {
+        let args = vec!["fix".to_string(), "bug".to_string(), "pro:work".to_string()];
         let parsed = parse_task_args(args);
         assert_eq!(parsed.description, vec!["fix", "bug"]);
         assert_eq!(parsed.project, Some("work".to_string()));
