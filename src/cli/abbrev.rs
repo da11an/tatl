@@ -54,6 +54,11 @@ pub const SESSIONS_COMMANDS: &[&str] = &[
     "list", "show"
 ];
 
+/// Task subcommands (used with task <id> <subcommand> pattern)
+pub const TASK_SUBCOMMANDS: &[&str] = &[
+    "enqueue", "modify", "done", "delete", "annotate", "summary"
+];
+
 /// Get subcommands for a given top-level command
 pub fn get_subcommands(command: &str) -> Option<&'static [&'static str]> {
     match command {
@@ -138,6 +143,41 @@ pub fn expand_command_abbreviations(args: Vec<String>) -> Result<Vec<String>, St
             }
         }
         
+        // Check if this is a task ID followed by a task subcommand
+        // Pattern: task <id> <subcommand>
+        if i == 0 && !arg.starts_with('-') && arg.parse::<i64>().is_ok() {
+            // First arg is a number (task ID)
+            if i + 1 < args.len() {
+                let next_arg = &args[i + 1];
+                // Check if next arg is a task subcommand (not a flag)
+                if !next_arg.starts_with('-') {
+                    match find_unique_command(next_arg, TASK_SUBCOMMANDS) {
+                        Ok(full_subcmd) => {
+                            expanded.push(arg.clone()); // Keep task ID
+                            expanded.push(full_subcmd.to_string());
+                            i += 2;
+                            continue;
+                        }
+                        Err(matches) => {
+                            if matches.is_empty() {
+                                // No match - might be a filter or other pattern, pass through
+                                expanded.push(arg.clone());
+                                i += 1;
+                                continue;
+                            } else {
+                                // Ambiguous task subcommand
+                                let match_list = matches.join(", ");
+                                return Err(format!(
+                                    "Ambiguous task subcommand '{}'. Did you mean one of: {}?",
+                                    next_arg, match_list
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
         // Not a command to expand, pass through
         expanded.push(arg.clone());
         i += 1;
@@ -200,5 +240,82 @@ mod tests {
         if let Err(msg) = result {
             assert!(msg.contains("Ambiguous subcommand"));
         }
+    }
+    
+    #[test]
+    fn test_task_subcommand_abbreviations() {
+        // Test enqueue abbreviation
+        assert_eq!(
+            expand_command_abbreviations(vec!["1".to_string(), "enq".to_string()]),
+            Ok(vec!["1".to_string(), "enqueue".to_string()])
+        );
+        
+        assert_eq!(
+            expand_command_abbreviations(vec!["1".to_string(), "enque".to_string()]),
+            Ok(vec!["1".to_string(), "enqueue".to_string()])
+        );
+        
+        assert_eq!(
+            expand_command_abbreviations(vec!["1".to_string(), "enqueue".to_string()]),
+            Ok(vec!["1".to_string(), "enqueue".to_string()])
+        );
+        
+        // Test modify abbreviation
+        assert_eq!(
+            expand_command_abbreviations(vec!["1".to_string(), "mod".to_string()]),
+            Ok(vec!["1".to_string(), "modify".to_string()])
+        );
+        
+        // Test done abbreviation
+        assert_eq!(
+            expand_command_abbreviations(vec!["1".to_string(), "don".to_string()]),
+            Ok(vec!["1".to_string(), "done".to_string()])
+        );
+        
+        // Test delete abbreviation
+        assert_eq!(
+            expand_command_abbreviations(vec!["1".to_string(), "del".to_string()]),
+            Ok(vec!["1".to_string(), "delete".to_string()])
+        );
+        
+        // Test annotate abbreviation
+        assert_eq!(
+            expand_command_abbreviations(vec!["1".to_string(), "ann".to_string()]),
+            Ok(vec!["1".to_string(), "annotate".to_string()])
+        );
+        
+        // Test summary abbreviation
+        assert_eq!(
+            expand_command_abbreviations(vec!["1".to_string(), "sum".to_string()]),
+            Ok(vec!["1".to_string(), "summary".to_string()])
+        );
+        
+        // Test ambiguous abbreviation (d matches done and delete)
+        let result = expand_command_abbreviations(vec!["1".to_string(), "d".to_string()]);
+        assert!(result.is_err());
+        if let Err(msg) = result {
+            assert!(msg.contains("Ambiguous task subcommand"));
+            assert!(msg.contains("done"));
+            assert!(msg.contains("delete"));
+        }
+        
+        // Test that "de" uniquely matches "delete" (not ambiguous)
+        // "de" matches "delete" but not "done" (which starts with "do")
+        assert_eq!(
+            expand_command_abbreviations(vec!["1".to_string(), "de".to_string()]),
+            Ok(vec!["1".to_string(), "delete".to_string()])
+        );
+        
+        // Test non-task-subcommand (should pass through)
+        assert_eq!(
+            expand_command_abbreviations(vec!["1".to_string(), "unknown".to_string()]),
+            Ok(vec!["1".to_string(), "unknown".to_string()])
+        );
+        
+        // Test with flags (should pass through)
+        assert_eq!(
+            expand_command_abbreviations(vec!["1".to_string(), "--yes".to_string()]),
+            Ok(vec!["1".to_string(), "--yes".to_string()])
+        );
     }
 }
