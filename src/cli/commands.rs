@@ -1,10 +1,11 @@
 use clap::{Parser, Subcommand, Command};
 use rusqlite::Connection;
 use crate::db::DbConnection;
+use crate::models::Task;
 use crate::repo::{ProjectRepo, TaskRepo, StackRepo, SessionRepo, AnnotationRepo, TemplateRepo};
 use crate::cli::parser::{parse_task_args, join_description};
 use crate::cli::commands_sessions::{handle_task_sessions_list, handle_task_sessions_show, handle_task_sessions_list_with_filter, handle_task_sessions_show_with_filter, handle_sessions_modify, handle_sessions_delete};
-use crate::cli::output::{format_task_list_table, format_stack_display, format_task_summary};
+use crate::cli::output::{format_task_list_table, format_stack_display, format_task_summary, format_clock_list_table};
 use crate::cli::error::{user_error, validate_task_id, validate_project_name, parse_task_id_spec};
 use crate::utils::{parse_date_expr, parse_duration, fuzzy};
 use crate::filter::{parse_filter, filter_tasks};
@@ -214,12 +215,6 @@ pub enum SessionsCommands {
 pub enum ClockCommands {
     /// List clock stack (shows all tasks in queue)
     List {
-        /// Output in JSON format
-        #[arg(long)]
-        json: bool,
-    },
-    /// Show current clock stack (alias for list)
-    Show {
         /// Output in JSON format
         #[arg(long)]
         json: bool,
@@ -1200,7 +1195,7 @@ fn handle_clock(cmd: ClockCommands, task: Option<String>) -> Result<()> {
         .context("Failed to connect to database")?;
     
     match cmd {
-        ClockCommands::List { json } | ClockCommands::Show { json } => {
+        ClockCommands::List { json } => {
             let stack = StackRepo::get_or_create_default(&conn)?;
             let stack_id = stack.id.unwrap();
             let items = StackRepo::get_items(&conn, stack_id)?;
@@ -1220,12 +1215,22 @@ fn handle_clock(cmd: ClockCommands, task: Option<String>) -> Result<()> {
                 }).collect();
                 println!("{}", serde_json::to_string_pretty(&json_items)?);
             } else {
-                // Human-readable display
-                let stack_items: Vec<(i64, i32)> = items.iter()
-                    .map(|item| (item.task_id, item.ordinal))
-                    .collect();
-                let display = format_stack_display(&stack_items);
-                print!("{}", display);
+                // Human-readable table display with full task details
+                // Fetch full task details for each item
+                let mut clock_tasks: Vec<(usize, Task, Vec<String>)> = Vec::new();
+                for (idx, item) in items.iter().enumerate() {
+                    if let Some(task) = TaskRepo::get_by_id(&conn, item.task_id)? {
+                        let tags = TaskRepo::get_tags(&conn, item.task_id)?;
+                        clock_tasks.push((idx, task, tags));
+                    }
+                }
+                
+                if clock_tasks.is_empty() {
+                    println!("Clock stack is empty.");
+                } else {
+                    let table = format_clock_list_table(&conn, &clock_tasks)?;
+                    print!("{}", table);
+                }
             }
             Ok(())
         }

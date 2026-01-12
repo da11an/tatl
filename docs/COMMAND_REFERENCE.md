@@ -262,20 +262,21 @@ task projects archive old-project
 
 The clock stack is a queue of tasks. The task at position 0 (clock[0]) is the "active" task. Clock operations (pick, roll, drop) affect which task is active. Clock in/out controls timing.
 
-### `task clock list` / `task clock show`
+### `task clock list`
 
-Display the current clock stack.
+Display the current clock stack with full task details.
 
 **Options:**
 - `--json` - Output in JSON format
 
+**Output:**
+- Shows clock stack position, task ID, description, status, project, tags, and due date
+- Tasks are sorted by clock stack position (0 = active task)
+
 **Examples:**
 ```bash
-# List clock stack
+# List clock stack with full details
 task clock list
-
-# Show clock stack (alias)
-task clock show
 
 # JSON output
 task clock list --json

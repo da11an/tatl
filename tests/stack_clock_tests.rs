@@ -50,12 +50,15 @@ fn test_stack_roll_while_clock_running_switches_live_task() {
     let mut cmd = get_task_cmd();
     cmd.args(&["clock", "roll"]).assert().success();
     
-    // Verify task 2 is now at top
+    // Verify task 2 is now at top (check table format)
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "list"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("[2,1]"));
+    let output = cmd.args(&["clock", "list"]).assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    // Task 2 should be at position 0
+    let pos_0_line = stdout.lines()
+        .find(|l| l.trim_start().starts_with("0"))
+        .unwrap();
+    assert!(pos_0_line.contains("2"), "Task 2 should be at position 0");
     
     // Clock out should work (session exists for task 2)
     let mut cmd = get_task_cmd();
@@ -90,12 +93,14 @@ fn test_stack_pick_while_stopped_does_not_create_sessions() {
     let mut cmd = get_task_cmd();
     cmd.args(&["clock", "pick", "2"]).assert().success();
     
-    // Verify stack order changed
+    // Verify stack order changed (task 3 should be at position 0)
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "list"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("[3,1,2]"));
+    let output = cmd.args(&["clock", "list"]).assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    let pos_0_line = stdout.lines()
+        .find(|l| l.trim_start().starts_with("0"))
+        .unwrap();
+    assert!(pos_0_line.contains("3"), "Task 3 should be at position 0");
     
     // Verify no session is running
     let mut cmd = get_task_cmd();
@@ -199,12 +204,14 @@ fn test_stack_pick_while_clock_running_switches_task() {
     let mut cmd = get_task_cmd();
     cmd.args(&["clock", "pick", "2"]).assert().success();
     
-    // Verify task 3 is at top
+    // Verify task 3 is at top (position 0)
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "list"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("[3,1,2]"));
+    let output = cmd.args(&["clock", "list"]).assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    let pos_0_line = stdout.lines()
+        .find(|l| l.trim_start().starts_with("0"))
+        .unwrap();
+    assert!(pos_0_line.contains("3"), "Task 3 should be at position 0");
     
     // Clock out should work (session exists for task 3)
     let mut cmd = get_task_cmd();

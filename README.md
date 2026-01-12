@@ -142,7 +142,7 @@ task projects archive old-project
 
 ```bash
 # View clock stack
-task clock list  # or: task clock show
+task clock list  # Shows clock stack with full task details
 
 # Do it now: push to top and start clock
 task clock in --task 10  # or: task clock in (uses clock[0])

@@ -1,7 +1,7 @@
 // Output formatting utilities
 
 use crate::models::Task;
-use crate::repo::{ProjectRepo, AnnotationRepo, SessionRepo, StackRepo};
+use crate::repo::{ProjectRepo, AnnotationRepo, SessionRepo, StackRepo, TaskRepo};
 use chrono::Local;
 use rusqlite::Connection;
 use anyhow::Result;
@@ -167,6 +167,125 @@ pub fn format_stack_display(items: &[(i64, i32)]) -> String {
     }
     
     output
+}
+
+/// Format clock list as a table with position and full task details
+pub fn format_clock_list_table(
+    conn: &Connection,
+    clock_tasks: &[(usize, Task, Vec<String>)],
+) -> Result<String> {
+    if clock_tasks.is_empty() {
+        return Ok("Clock stack is empty.".to_string());
+    }
+    
+    // Calculate column widths
+    let mut pos_width = 6; // "Pos" header
+    let mut id_width = 4;
+    let mut desc_width = 20;
+    let mut status_width = 10;
+    let mut project_width = 15;
+    let mut tags_width = 20;
+    let mut due_width = 12;
+    
+    // First pass: calculate widths
+    for (position, task, tags) in clock_tasks {
+        pos_width = pos_width.max(position.to_string().len());
+        id_width = id_width.max(task.id.map(|id| id.to_string().len()).unwrap_or(0));
+        desc_width = desc_width.max(task.description.len().min(50));
+        status_width = status_width.max(task.status.as_str().len());
+        
+        if let Some(project_id) = task.project_id {
+            if let Ok(Some(project)) = ProjectRepo::get_by_id(conn, project_id) {
+                project_width = project_width.max(project.name.len().min(15));
+            }
+        }
+        
+        if !tags.is_empty() {
+            let tag_str = tags.iter().map(|t| format!("+{}", t)).collect::<Vec<_>>().join(" ");
+            tags_width = tags_width.max(tag_str.len().min(30));
+        }
+        
+        if task.due_ts.is_some() {
+            due_width = due_width.max(12);
+        }
+    }
+    
+    // Build header
+    let mut output = String::new();
+    output.push_str(&format!(
+        "{:<pos$} {:<id$} {:<desc$} {:<status$} {:<project$} {:<tags$} {:<due$}\n",
+        "Pos", "ID", "Description", "Status", "Project", "Tags", "Due",
+        pos = pos_width,
+        id = id_width,
+        desc = desc_width,
+        status = status_width,
+        project = project_width,
+        tags = tags_width,
+        due = due_width
+    ));
+    
+    // Separator line
+    let total_width = pos_width + id_width + desc_width + status_width + project_width + tags_width + due_width + 6;
+    output.push_str(&format!("{}\n", "-".repeat(total_width)));
+    
+    // Build rows (already sorted by position)
+    for (position, task, tags) in clock_tasks {
+        let pos_str = position.to_string();
+        let id = task.id.map(|id| id.to_string()).unwrap_or_else(|| "?".to_string());
+        
+        let desc = if task.description.len() > desc_width {
+            format!("{}..", &task.description[..desc_width.saturating_sub(2)])
+        } else {
+            task.description.clone()
+        };
+        
+        let status = task.status.as_str();
+        
+        let project = if let Some(project_id) = task.project_id {
+            if let Ok(Some(proj)) = ProjectRepo::get_by_id(conn, project_id) {
+                if proj.name.len() > project_width {
+                    format!("{}..", &proj.name[..project_width.saturating_sub(2)])
+                } else {
+                    proj.name
+                }
+            } else {
+                format!("[{}]", project_id)
+            }
+        } else {
+            String::new()
+        };
+        
+        let tag_str = if !tags.is_empty() {
+            let full = tags.iter().map(|t| format!("+{}", t)).collect::<Vec<_>>().join(" ");
+            if full.len() > tags_width {
+                format!("{}..", &full[..tags_width.saturating_sub(2)])
+            } else {
+                full
+            }
+        } else {
+            String::new()
+        };
+        
+        let due = if let Some(due_ts) = task.due_ts {
+            format_date(due_ts)
+        } else {
+            String::new()
+        };
+        
+        output.push_str(&format!(
+            "{:<pos$} {:<id$} {:<desc$} {:<status$} {:<project$} {:<tags$} {:<due$}\n",
+            pos_str, id, desc, status, project, tag_str, due,
+            pos = pos_width,
+            id = id_width,
+            desc = desc_width,
+            status = status_width,
+            project = project_width,
+            tags = tags_width,
+            due = due_width
+        ));
+    }
+    
+    Ok(output)
 }
 
 /// Format clock transition message

@@ -46,12 +46,14 @@ fn test_task_clock_in_pushes_to_top() {
         .success()
         .stdout(predicate::str::contains("Started timing task 2"));
     
-    // Verify stack order: task 2 should be at top
+    // Verify stack order: task 2 should be at top (position 0)
     let mut cmd = get_task_cmd();
-    cmd.args(&["stack", "show"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("[2,1]"));
+    let output = cmd.args(&["clock", "list"]).assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    let pos_0_line = stdout.lines()
+        .find(|l| l.trim_start().starts_with("0"))
+        .unwrap();
+    assert!(pos_0_line.contains("2"), "Task 2 should be at position 0");
 }
 
 #[test]

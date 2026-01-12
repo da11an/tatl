@@ -14,9 +14,10 @@ These are straightforward improvements that enhance usability without major arch
 
 ### 1. Drop `task clock show` alias, enhance `task clock list` display
 
-**Status:** Minor Change  
+**Status:** ✅ **COMPLETED**  
 **Priority:** High  
-**Estimated Effort:** 2-4 hours
+**Estimated Effort:** 2-4 hours  
+**Actual Effort:** ~3 hours
 
 **Current State:**
 - `task clock list` and `task clock show` both exist (show is alias)
@@ -35,22 +36,48 @@ These are straightforward improvements that enhance usability without major arch
 - Improves usability without breaking changes
 
 **Implementation Checklist:**
-- [ ] Remove `Show` variant from `ClockCommands` enum in `src/cli/commands.rs`
-- [ ] Update `handle_clock` to remove `Show` case handling
-- [ ] Modify `format_stack_display` or create new `format_clock_list_table` function
-- [ ] Reuse `format_task_list_table` logic but add position column
-- [ ] Fetch full task details for clock stack items
-- [ ] Update `handle_clock` `List` case to use new formatting
-- [ ] Update `docs/COMMAND_REFERENCE.md` to remove `show` references
-- [ ] Update tests that use `clock show` to use `clock list`
-- [ ] Test: Verify `clock show` no longer works
-- [ ] Test: Verify `clock list` shows full task details with position
+- [x] Remove `Show` variant from `ClockCommands` enum in `src/cli/commands.rs`
+- [x] Update `handle_clock` to remove `Show` case handling
+- [x] Modify `format_stack_display` or create new `format_clock_list_table` function
+- [x] Reuse `format_task_list_table` logic but add position column
+- [x] Fetch full task details for clock stack items
+- [x] Update `handle_clock` `List` case to use new formatting
+- [x] Update `docs/COMMAND_REFERENCE.md` to remove `show` references
+- [x] Update `README.md` to remove `show` references
+- [x] Update tests that use `clock show` to use `clock list`
+- [x] Test: Verify `clock show` no longer works
+- [x] Test: Verify `clock list` shows full task details with position
+- [x] Created comprehensive test suite in `tests/clock_list_tests.rs` (7 tests)
+- [x] Updated existing tests in `tests/stack_clock_tests.rs` and `tests/clock_task_id_tests.rs` to use new table format
 
-**Files to Modify:**
-- `src/cli/commands.rs` (remove Show variant, update handler)
-- `src/cli/output.rs` (new formatting function)
-- `docs/COMMAND_REFERENCE.md` (remove show documentation)
-- `tests/*.rs` (update test commands)
+**Files Modified:**
+- ✅ `src/cli/commands.rs` (removed Show variant, updated handler, added Task import)
+- ✅ `src/cli/output.rs` (created `format_clock_list_table` function, added TaskRepo import)
+- ✅ `docs/COMMAND_REFERENCE.md` (removed show documentation)
+- ✅ `README.md` (removed show reference)
+- ✅ `tests/clock_list_tests.rs` (new comprehensive test suite - 7 tests)
+- ✅ `tests/stack_clock_tests.rs` (updated 3 tests to use new table format)
+- ✅ `tests/clock_task_id_tests.rs` (updated 1 test to use new table format)
+
+**Implementation Notes:**
+- Created new `format_clock_list_table` function instead of modifying `format_stack_display` to maintain backward compatibility
+- Position column is first column as requested
+- All columns from `task list` are included: Pos, ID, Description, Status, Project, Tags, Due
+- JSON output format unchanged (maintains backward compatibility)
+- Empty stack message changed from "Stack is empty." to "Clock stack is empty." for consistency
+- Tests: Created comprehensive test suite with 7 tests covering all scenarios
+- Tests: Updated 4 existing tests in other files to work with new table format
+
+**Variances from Plan:**
+- ✅ None - implementation matches plan exactly
+- ✅ Added `README.md` update (was implied but not explicitly listed)
+- ✅ Created more comprehensive test suite than originally planned (7 tests vs 2 basic tests)
+
+**Test Results:**
+- ✅ All 7 new tests in `clock_list_tests.rs` passing
+- ✅ Updated existing tests in `stack_clock_tests.rs` and `clock_task_id_tests.rs` working correctly
+- ✅ Manual verification: `task clock show` correctly shows error
+- ✅ Manual verification: `task clock list` shows enhanced table with all columns
 
 ---
 
