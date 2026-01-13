@@ -316,9 +316,10 @@ These are straightforward improvements that enhance usability without major arch
 
 ### 6. Add `--clock-in` flag to `task add`
 
-**Status:** Minor Change  
+**Status:** ✅ **COMPLETED**  
 **Priority:** Low  
-**Estimated Effort:** 2-3 hours
+**Estimated Effort:** 2-3 hours  
+**Actual Effort:** ~2 hours
 
 **Current State:**
 - `task add` creates task but doesn't clock in
@@ -334,17 +335,36 @@ These are straightforward improvements that enhance usability without major arch
 - Aligns with CLAP-native grammar
 
 **Implementation Checklist:**
-- [ ] Add `--clock-in` flag to `Add` command in `src/cli/commands.rs`
-- [ ] Modify `handle_task_add` to check flag
-- [ ] After task creation, call clock in logic
-- [ ] Update `docs/COMMAND_REFERENCE.md` with example
-- [ ] Test: `task add "description" --clock-in` clocks in new task
-- [ ] Test: `task add "description"` (no flag) doesn't clock in
-- [ ] Test: Verify task is pushed to clock[0] when flag used
+- [x] Add `--clock-in` flag to `Add` command in `src/cli/commands.rs`
+- [x] Modify `handle_task_add` to check flag
+- [x] After task creation, call clock in logic
+- [x] Update `docs/COMMAND_REFERENCE.md` with example
+- [x] Test: `task add --clock-in "description"` clocks in new task
+- [x] Test: `task add "description"` (no flag) doesn't clock in
+- [x] Test: Verify task is pushed to clock[0] when flag used
+- [x] Test: Verify existing session is closed when flag used
 
-**Files to Modify:**
-- `src/cli/commands.rs` (Add command, handle_task_add)
-- `docs/COMMAND_REFERENCE.md`
+**Files Modified:**
+- ✅ `src/cli/commands.rs` (added `--clock-in` flag to Add command, updated handle_task_add)
+- ✅ `docs/COMMAND_REFERENCE.md` (added flag documentation and examples)
+- ✅ `tests/add_clock_in_tests.rs` (created 4 new tests)
+
+**Implementation Notes:**
+- Flag must come before the description/args (due to `trailing_var_arg = true`)
+- Uses `handle_task_clock_in` which atomically pushes to stack and starts session
+- If existing session is running, it's closed before starting new one
+- Task is pushed to clock[0] position when flag is used
+
+**Variances from Plan:**
+- ✅ Flag must come before description: `task add --clock-in "description"` (not `task add "description" --clock-in`)
+- ✅ This is due to `trailing_var_arg = true` consuming flags that come after args
+- ✅ Added test for closing existing session when flag is used
+
+**Test Results:**
+- ✅ All 4 add_clock_in_tests passing
+- ✅ Manual verification: `task add --clock-in "description"` works
+- ✅ Manual verification: `task add "description"` (no flag) doesn't clock in
+- ✅ Manual verification: Task is pushed to clock[0] when flag used
 
 ---
 

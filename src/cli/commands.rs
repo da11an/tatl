@@ -32,6 +32,9 @@ pub enum Commands {
     },
     /// Add a new task
     Add {
+        /// Automatically clock in after creating task
+        #[arg(long = "clock-in")]
+        clock_in: bool,
         /// Task description and fields (e.g., "fix bug project:work +urgent")
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -368,7 +371,7 @@ pub fn run() -> Result<()> {
 fn handle_command(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Projects { subcommand } => handle_projects(subcommand),
-        Commands::Add { args } => handle_task_add(args),
+        Commands::Add { args, clock_in } => handle_task_add(args, clock_in),
         Commands::List { filter, json } => {
             handle_task_list(filter, json)
         },
@@ -566,7 +569,7 @@ fn handle_projects(cmd: ProjectCommands) -> Result<()> {
     }
 }
 
-fn handle_task_add(args: Vec<String>) -> Result<()> {
+fn handle_task_add(args: Vec<String>, clock_in: bool) -> Result<()> {
     if args.is_empty() {
         user_error("Task description is required");
     }
@@ -683,7 +686,16 @@ fn handle_task_add(args: Vec<String>) -> Result<()> {
     )
     .context("Failed to create task")?;
     
-    println!("Created task {}: {}", task.id.unwrap(), description);
+    let task_id = task.id.unwrap();
+    println!("Created task {}: {}", task_id, description);
+    
+    // If --clock-in flag is set, clock in the newly created task
+    if clock_in {
+        // handle_task_clock_in will push to stack and clock in atomically
+        handle_task_clock_in(task_id.to_string(), Vec::new())
+            .context("Failed to clock in task")?;
+    }
+    
     Ok(())
 }
 

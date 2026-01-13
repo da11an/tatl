@@ -17,11 +17,14 @@ Complete reference for all Task Ninja commands with examples and usage patterns.
 
 ## Task Commands
 
-### `task add <description> [attributes...]`
+### `task add [--clock-in] <description> [attributes...]`
 
 Add a new task with optional attributes.
 
 **Description:** The task description is the first argument or all non-attribute tokens.
+
+**Options:**
+- `--clock-in` - Automatically clock in after creating task (pushes to clock[0] and starts timing)
 
 **Attributes:**
 - `project:<name>` - Assign to project
@@ -50,6 +53,10 @@ task add Daily standup template:meeting recur:daily
 
 # Task with UDA
 task add Customer call uda.client:acme uda.priority:high
+
+# Task with --clock-in (automatically starts timing)
+task add --clock-in Start working on feature
+task add --clock-in "Fix urgent bug" project:work +urgent
 ```
 
 ### `task list [filter] [--json]`
