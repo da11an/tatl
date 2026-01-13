@@ -70,9 +70,6 @@ pub enum Commands {
     Clock {
         #[command(subcommand)]
         subcommand: ClockCommands,
-        /// Task ID (optional, defaults to clock[0] for in/out)
-        #[arg(long)]
-        task: Option<String>,
     },
     /// Annotate a task
     Annotate {
@@ -248,8 +245,7 @@ pub enum ClockCommands {
     /// Start timing (optionally with task)
     In {
         /// Task ID (optional, defaults to clock[0])
-        #[arg(long)]
-        task: Option<i64>,
+        task_id: Option<String>,
         /// Start time (date expression, defaults to "now")
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -380,7 +376,7 @@ fn handle_command(cli: Cli) -> Result<()> {
         Commands::Modify { target, args, yes, interactive } => {
             handle_task_modify(target, args, yes, interactive)
         }
-        Commands::Clock { subcommand, task } => handle_clock(subcommand, task),
+        Commands::Clock { subcommand } => handle_clock(subcommand),
         Commands::Annotate { target, note, delete } => {
             if let Some(annotation_id) = delete {
                 handle_annotation_delete(target, annotation_id)
@@ -1201,7 +1197,7 @@ fn handle_task_enqueue(task_id_str: String) -> Result<()> {
     Ok(())
 }
 
-fn handle_clock(cmd: ClockCommands, task: Option<String>) -> Result<()> {
+fn handle_clock(cmd: ClockCommands) -> Result<()> {
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
     
@@ -1260,13 +1256,17 @@ fn handle_clock(cmd: ClockCommands, task: Option<String>) -> Result<()> {
         ClockCommands::Clear => {
             handle_stack_clear_with_clock(&conn, false)
         }
-        ClockCommands::In { task: task_id_opt, args } => {
-            if let Some(task_id) = task_id_opt {
-                // Use specified task ID
-                handle_task_clock_in(task_id.to_string(), args)
-            } else if let Some(task_str) = task {
-                // Use task from --task flag
-                handle_task_clock_in(task_str, args)
+        ClockCommands::In { task_id: task_id_opt, mut args } => {
+            if let Some(task_id_str) = task_id_opt {
+                // Check if it's a valid task ID (numeric) or if it's actually a time expression
+                if let Ok(task_id) = task_id_str.parse::<i64>() {
+                    // Valid task ID - use it
+                    handle_task_clock_in(task_id_str, args)
+                } else {
+                    // Not a valid task ID - treat as time expression, use clock[0]
+                    args.insert(0, task_id_str);
+                    handle_clock_in(&conn, args)
+                }
             } else {
                 // Use clock[0]
                 handle_clock_in(&conn, args)

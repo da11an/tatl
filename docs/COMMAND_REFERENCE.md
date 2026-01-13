@@ -353,16 +353,20 @@ Clear all tasks from clock stack.
 task clock clear
 ```
 
-### `task clock in [--task <id>] [<start>|<start..end>]`
+### `task clock in [<id>] [<start>|<start..end>]`
 
 Start timing the current clock[0] task, or a specific task.
 
 **Behavior:**
-- If `--task <id>` provided: pushes task to top and starts timing
-- If `--task` omitted: uses clock[0]
+- If `<id>` provided: pushes task to top and starts timing
+- If `<id>` omitted: uses clock[0]
 - If no time arguments: starts at "now"
 - If single time: starts at specified time
 - If interval (`start..end`): creates closed session
+
+**Notes:**
+- Task ID is always treated as a task ID (not a clock stack position)
+- To clock in by position, use: `task clock pick <index> && task clock in`
 
 **Overlap Prevention:**
 If another session starts before the end time of a closed interval, the interval's end time is automatically amended.
@@ -379,14 +383,14 @@ task clock in 09:00
 task clock in 09:00..11:00
 task clock in today..eod
 
-# Push task 5 to top and start timing
-task clock in --task 5
+# Push task 5 to top and start timing (new positional syntax)
+task clock in 5
 
 # Push task 10 to top and start at specific time
-task clock in --task 10 09:00
+task clock in 10 09:00
 
 # Push task 10 to top and create interval
-task clock in --task 10 09:00..11:00
+task clock in 10 09:00..11:00
 ```
 
 ### `task clock out [<end>]`

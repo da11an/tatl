@@ -78,7 +78,7 @@ fn acceptance_clock_in_pushes_to_top() {
     given.stack_contains(&[task1, task2]);
     
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["clock", "in", "--task", &task3.to_string()]);
+    when.execute_success(&["clock", "in", &task3.to_string()]);
     
     let then = ThenBuilder::new(&ctx, None);
     then.stack_order_is(&[task3, task1, task2]);
@@ -276,7 +276,7 @@ fn acceptance_interval_end_time_amended_on_overlap() {
     given.closed_session_exists(task10, "2026-01-10T09:00", "2026-01-10T10:30");
     
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["clock", "in", "--task", &task11.to_string(), "2026-01-10T09:45"]);
+    when.execute_success(&["clock", "in", &task11.to_string(), "2026-01-10T09:45"]);
     
     let then = ThenBuilder::new(&ctx, None);
     // Verify task 10's session was amended

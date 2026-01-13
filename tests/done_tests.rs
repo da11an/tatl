@@ -129,7 +129,7 @@ fn test_done_with_task_id() {
     
     // Clock in Task 1
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in", "--task", "1"]).assert().success();
+    cmd.args(&["clock", "in", "1"]).assert().success();
     
     // Complete Task 1 using ID
     let mut cmd = get_task_cmd(&temp_dir);
