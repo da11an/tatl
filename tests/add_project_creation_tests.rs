@@ -114,24 +114,34 @@ fn test_add_with_new_project_prompt_cancel() {
 }
 
 #[test]
-fn test_add_with_new_project_prompt_default_cancel() {
+fn test_add_with_new_project_prompt_default_yes() {
     let temp_dir = setup_test_env();
     
-    // Add task with new project, respond with empty line (default: cancel)
+    // Add task with new project, respond with empty line (default: yes, create project)
     let mut cmd = get_task_cmd(&temp_dir);
     cmd.args(&["add", "Test task", "project:newproject"])
         .write_stdin("\n")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Cancelled"))
-        .stdout(predicates::str::contains("Created task").not());
+        .stdout(predicate::str::contains("Created project 'newproject'"))
+        .stdout(predicate::str::contains("Created task"));
     
-    // Verify task was NOT created
+    // Verify project was created
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["list"])
+    cmd.args(&["projects", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("No tasks found"));
+        .stdout(predicate::str::contains("newproject"));
+    
+    // Verify task was created with project - check by listing the task
+    let mut cmd = get_task_cmd(&temp_dir);
+    let output = cmd.args(&["list", "--json"]).assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    // Task should exist
+    assert!(stdout.contains("Test task"), "Task should exist");
+    // Project should be present (either as project_id or project name in JSON)
+    // The JSON format may have project_id, so we check that the task exists and project was created
+    // We already verified project exists above, so this is sufficient
 }
 
 #[test]

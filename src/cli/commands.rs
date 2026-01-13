@@ -440,7 +440,7 @@ fn handle_command(cli: Cli) -> Result<()> {
 /// Prompt user to create a new project
 /// Returns: Some(true) if project should be created, Some(false) if skipped, None if cancelled
 fn prompt_create_project(project_name: &str) -> Result<Option<bool>> {
-    eprint!("This is a new project '{}'. Add new project? [y/n/c] (default: c): ", project_name);
+    eprint!("This is a new project '{}'. Add new project? [y/n/c] (default: y): ", project_name);
     std::io::Write::flush(&mut std::io::stderr())
         .map_err(|e| anyhow::anyhow!("Failed to flush stderr: {}", e))?;
     
@@ -450,9 +450,9 @@ fn prompt_create_project(project_name: &str) -> Result<Option<bool>> {
     
     let input = input.trim().to_lowercase();
     match input.as_str() {
-        "y" | "yes" => Ok(Some(true)),
+        "y" | "yes" | "" => Ok(Some(true)),  // Empty input defaults to yes
         "n" | "no" => Ok(Some(false)),
-        "c" | "cancel" | "" => Ok(None),
+        "c" | "cancel" => Ok(None),
         _ => {
             println!("Invalid response. Cancelled.");
             Ok(None)

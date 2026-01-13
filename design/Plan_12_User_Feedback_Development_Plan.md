@@ -429,7 +429,7 @@ These require more implementation work but don't fundamentally change the archit
 
 **Implementation Notes:**
 - Prompt function `prompt_create_project` handles y/n/c responses
-- Default response (empty input) is 'c' (cancel)
+- Default response (empty input) is 'y' (yes, create project)
 - `--auto-create-project` flag bypasses prompt and automatically creates project
 - Project validation still occurs before creation
 - Existing projects don't trigger prompt (checked via `ProjectRepo::get_by_name`)
@@ -439,6 +439,7 @@ These require more implementation work but don't fundamentally change the archit
 - ✅ No changes to `parse_task_args` - detection happens in `handle_task_add` when resolving project
 - ✅ Tag creation deferred to future (as planned)
 - ✅ Fuzzy matching not implemented (as planned - nice-to-have)
+- ✅ Default response changed from 'c' (cancel) to 'y' (yes, create project) - user requested change
 
 **Test Results:**
 - ✅ All 8 add_project_creation_tests passing

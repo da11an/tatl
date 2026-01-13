@@ -61,10 +61,10 @@ task add --clock-in "Fix urgent bug" project:work +urgent
 
 # Task with new project (interactive prompt)
 task add "New feature" project:newproject
-# Prompts: "This is a new project 'newproject'. Add new project? [y/n/c] (default: c):"
-# - y: Create project and continue
+# Prompts: "This is a new project 'newproject'. Add new project? [y/n/c] (default: y):"
+# - y: Create project and continue (default)
 # - n: Skip project, create task without it
-# - c: Cancel task creation (default)
+# - c: Cancel task creation
 
 # Task with --auto-create-project (non-interactive)
 task add --auto-create-project "New feature" project:newproject
