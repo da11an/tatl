@@ -46,4 +46,29 @@ Drop `task clock show` alias. We want to have a tight syntax with one right way 
 
 ### 11. Add a plot or show option for every list option
 
-### 12. Support more statuses, and list by status 
+### 12. Support more statuses, and list by status
+
+---
+
+## Addendum: Version Management
+
+### Version Command
+
+Added `task --version` (or `task -V`) command to display the current version of the application.
+
+**Implementation:**
+- Version is read from `Cargo.toml` using `env!("CARGO_PKG_VERSION")`
+- Automatically displayed via clap's built-in version handling
+- Current version: **0.2.0**
+
+**Version History:**
+- **0.2.0** - User feedback improvements (Plan 12):
+  - Enhanced `task clock list` with full task details
+  - Added allocation column to `task list`
+  - Applied filtering to `task sessions list`
+  - Allowed `task done` without clock requirement
+  - Simplified `task clock in` syntax (removed `--task` flag)
+  - Added `--clock-in` flag to `task add`
+  - Added interactive project creation during task creation
+  - Added `--version` command
+- **0.1.0** - Initial release 

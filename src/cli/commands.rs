@@ -18,6 +18,7 @@ use anyhow::{Context, Result};
 #[derive(Parser)]
 #[command(name = "task")]
 #[command(about = "Task Ninja - A powerful command-line task management tool")]
+#[command(version = env!("CARGO_PKG_VERSION"))]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
