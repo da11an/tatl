@@ -102,23 +102,32 @@ task 10 modify project:none due:none allocation:none
 Complete one or more tasks.
 
 **Behavior:**
-1. Closes running session at `--at` or now
-2. Marks task as completed
-3. Removes from clock stack
-4. If `--next` and clock stack non-empty: starts session for new clock[0]
+1. If task has running session: closes session at `--at` or now
+2. If task has no running session: marks task as completed (no session to close)
+3. Marks task as completed
+4. Removes from clock stack
+5. If `--next` and clock stack non-empty: starts session for new clock[0]
+
+**Notes:**
+- `task done` (without ID/filter) requires clock[0] and a running session
+- `task done <id>` or `task done <filter>` works even if task is not clocked in
+- If a session exists for the task, it will be closed when completing
 
 **Options:**
-- `--at <expr>` - End session at specific time
-- `--next` - Automatically start next task in clock stack
+- `--at <expr>` - End session at specific time (only applies if session exists)
+- `--next` - Automatically start next task in clock stack (only if session was closed)
 - `--yes` - Complete all matching tasks without confirmation
 - `--interactive` - Confirm each task one by one
 
 **Examples:**
 ```bash
-# Complete current task (if clocked in)
+# Complete current task (requires clocked in)
 task done
 
-# Complete specific task
+# Complete specific task (works even if not clocked in)
+task done 10
+
+# Complete task with running session (closes session)
 task done 10
 
 # Complete with --next

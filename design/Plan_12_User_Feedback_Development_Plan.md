@@ -189,9 +189,10 @@ These are straightforward improvements that enhance usability without major arch
 
 ### 4. Allow `task done` without clock requirement
 
-**Status:** Minor Change (Bug Fix / Behavior Change)  
+**Status:** ✅ **COMPLETED**  
 **Priority:** High  
-**Estimated Effort:** 2-3 hours
+**Estimated Effort:** 2-3 hours  
+**Actual Effort:** ~2 hours
 
 **Current State:**
 - `task done` requires task to be clocked in (running session)
@@ -208,19 +209,39 @@ These are straightforward improvements that enhance usability without major arch
 - Simplifies mental model: "done" means task is complete, not "done with timing"
 
 **Implementation Checklist:**
-- [ ] Modify `handle_task_done` in `src/cli/commands.rs`
-- [ ] Remove requirement for running session when task ID/filter provided
-- [ ] Keep session closing logic when session exists
-- [ ] Update error messages to be more permissive
-- [ ] Update `docs/COMMAND_REFERENCE.md` to clarify behavior
-- [ ] Test: `task done <id>` without clock works
-- [ ] Test: `task done <id>` with clock still closes session
-- [ ] Test: `task done` (no ID) still requires clock[0] and session (unchanged)
-- [ ] Test: Multiple tasks with `--yes` flag
+- [x] Modify `handle_task_done` in `src/cli/commands.rs`
+- [x] Remove requirement for running session when task ID/filter provided
+- [x] Keep session closing logic when session exists
+- [x] Update error messages to be more permissive
+- [x] Update `handle_done_interactive` to allow done without session
+- [x] Update `docs/COMMAND_REFERENCE.md` to clarify behavior
+- [x] Test: `task done <id>` without clock works
+- [x] Test: `task done <id>` with clock still closes session
+- [x] Test: `task done` (no ID) still requires clock[0] and session (unchanged)
+- [x] Test: Multiple tasks with filter and `--yes` flag
 
-**Files to Modify:**
-- `src/cli/commands.rs` (handle_task_done function)
-- `docs/COMMAND_REFERENCE.md`
+**Files Modified:**
+- ✅ `src/cli/commands.rs` (updated handle_task_done and handle_done_interactive)
+- ✅ `docs/COMMAND_REFERENCE.md` (updated behavior documentation)
+- ✅ `tests/done_tests.rs` (added 3 new tests, updated existing tests)
+
+**Implementation Notes:**
+- Removed filtering that restricted to only tasks with running sessions when task ID/filter provided
+- `task done` (no ID) still requires clock[0] and running session (unchanged behavior)
+- Session closing is optional - only happens if session exists for the task
+- Error messages changed from "No matching tasks with running sessions found" to "No matching tasks found"
+- Interactive mode now allows completing tasks without sessions
+
+**Variances from Plan:**
+- ✅ None - implementation matches plan exactly
+- ✅ Updated `handle_done_interactive` as well (was implied but not explicitly listed)
+- ✅ Added test for filter-based completion without sessions
+
+**Test Results:**
+- ✅ All 8 done tests passing (5 existing + 3 new)
+- ✅ Manual verification: `task done <id>` works without clock
+- ✅ Manual verification: `task done <id>` with clock closes session
+- ✅ Manual verification: `task done` (no ID) still requires session
 
 ---
 

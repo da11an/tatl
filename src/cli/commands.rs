@@ -1812,27 +1812,28 @@ fn handle_task_done(
         match parse_task_id_spec(&id_or_filter) {
             Ok(ids) => {
                 // Valid ID spec (single, range, or list)
-                // Filter to only tasks with running sessions
-                let tasks_with_sessions: Vec<i64> = ids.iter()
-                    .filter(|&&task_id| running_task_id == Some(task_id))
-                    .copied()
-                    .collect();
-                
-                if tasks_with_sessions.is_empty() {
-                    user_error("No matching tasks with running sessions found.");
+                // Verify all tasks exist
+                let mut valid_ids = Vec::new();
+                for task_id in ids {
+                    if TaskRepo::get_by_id(&conn, task_id)?.is_some() {
+                        valid_ids.push(task_id);
+                    }
                 }
                 
-                tasks_with_sessions
+                if valid_ids.is_empty() {
+                    user_error("No matching tasks found.");
+                }
+                
+                valid_ids
             }
             Err(_) => {
                 // Not an ID spec - try single ID for backward compatibility
                 if let Ok(task_id) = id_or_filter.parse::<i64>() {
-                    // Single task ID
-                    if running_task_id == Some(task_id) {
-                        vec![task_id]
-                    } else {
-                        user_error("No matching tasks with running sessions found.");
+                    // Single task ID - verify it exists
+                    if TaskRepo::get_by_id(&conn, task_id)?.is_none() {
+                        user_error(&format!("Task {} not found", task_id));
                     }
+                    vec![task_id]
                 } else {
                     // Filter expression
                     let filter_expr = parse_filter(vec![id_or_filter])
@@ -1840,27 +1841,17 @@ fn handle_task_done(
                     let matching_tasks = filter_tasks(&conn, &filter_expr)
                         .context("Failed to filter tasks")?;
                     
-                    // Filter to only tasks with running sessions
-                    let tasks_with_sessions: Vec<i64> = matching_tasks
+                    // Extract task IDs from matching tasks
+                    let task_ids: Vec<i64> = matching_tasks
                         .iter()
-                        .filter_map(|(task, _)| {
-                            if let Some(task_id) = task.id {
-                                if running_task_id == Some(task_id) {
-                                    Some(task_id)
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        })
+                        .filter_map(|(task, _)| task.id)
                         .collect();
                     
-                    if tasks_with_sessions.is_empty() {
-                        user_error("No matching tasks with running sessions found.");
+                    if task_ids.is_empty() {
+                        user_error("No matching tasks found.");
                     }
                     
-                    tasks_with_sessions
+                    task_ids
                 }
             }
         }
@@ -1935,7 +1926,7 @@ fn handle_task_done(
             continue; // Continue processing other tasks
         }
         
-        // Check if session is running for this task
+        // Check if session is running for this task - close it if it exists
         if let Some(session) = &open_session {
             if session.task_id == *task_id {
                 // Close the session
@@ -1943,10 +1934,8 @@ fn handle_task_done(
                     .context("Failed to close session")?;
                 completed_stack_top = true;
             }
-        } else {
-            eprintln!("Warning: No session is running for task {}. Skipping.", task_id);
-            continue;
         }
+        // Note: We allow completing tasks even if no session is running
         
         // Mark task as completed
         TaskRepo::complete(&conn, *task_id)
@@ -1999,17 +1988,6 @@ fn handle_done_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64, nex
             continue; // Continue processing other tasks
         }
         let task = task.unwrap();
-        
-        // Check if session is running for this task
-        if let Some(session) = &open_session {
-            if session.task_id != *task_id {
-                println!("Task {}: No running session. Skipping.", task_id);
-                continue;
-            }
-        } else {
-            println!("Task {}: No running session. Skipping.", task_id);
-            continue;
-        }
         
         // Prompt for confirmation
         print!("Complete task {} ({})? (y/n): ", task_id, task.description);
