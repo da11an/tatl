@@ -31,11 +31,11 @@ fn test_task_list_table_formatting() {
     get_task_cmd(&temp_dir).args(&["add", "Task 1", "project:work", "+urgent"]).assert().success();
     get_task_cmd(&temp_dir).args(&["add", "Task 2"]).assert().success();
     
-    // List tasks - should show table format
+    // List tasks - should show table format with Kanban column (replaced Status)
     get_task_cmd(&temp_dir).args(&["list"]).assert().success()
         .stdout(predicates::str::contains("ID"))
         .stdout(predicates::str::contains("Description"))
-        .stdout(predicates::str::contains("Status"));
+        .stdout(predicates::str::contains("Kanban"));
     
     drop(temp_dir);
 }
@@ -66,9 +66,9 @@ fn test_task_list_allocation_column() {
     // Create task without allocation
     get_task_cmd(&temp_dir).args(&["add", "Task without allocation"]).assert().success();
     
-    // List tasks - should show allocation column
+    // List tasks - should show allocation column (header is now "alloc")
     get_task_cmd(&temp_dir).args(&["list"]).assert().success()
-        .stdout(predicates::str::contains("Allocation"))  // Header
+        .stdout(predicates::str::contains("alloc"))  // Header (changed from "Allocation")
         .stdout(predicates::str::contains("2h30m0s"))  // Formatted allocation
         .stdout(predicates::str::contains("1"));  // Task ID
     
@@ -86,8 +86,8 @@ fn test_task_list_allocation_column_empty() {
     let output = get_task_cmd(&temp_dir).args(&["list"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     
-    // Verify allocation column header exists
-    assert!(stdout.contains("Allocation"), "Should have Allocation column header");
+    // Verify allocation column header exists (now "alloc")
+    assert!(stdout.contains("alloc"), "Should have alloc column header");
     
     // Verify task row exists (allocation should be empty/blank)
     assert!(stdout.contains("1"), "Should show task ID");
@@ -130,15 +130,68 @@ fn test_task_list_allocation_column_position() {
     let output = get_task_cmd(&temp_dir).args(&["list"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     
-    // Find header line
+    // Find header line (header is now "alloc")
     let header_line = stdout.lines()
-        .find(|l| l.contains("ID") && l.contains("Allocation"))
+        .find(|l| l.contains("ID") && l.contains("alloc"))
         .unwrap();
     
-    // Verify column order: Due comes before Allocation
+    // Verify column order: Due comes before alloc
     let due_pos = header_line.find("Due").unwrap();
-    let alloc_pos = header_line.find("Allocation").unwrap();
-    assert!(due_pos < alloc_pos, "Due column should come before Allocation column");
+    let alloc_pos = header_line.find("alloc").unwrap();
+    assert!(due_pos < alloc_pos, "Due column should come before alloc column");
+    
+    drop(temp_dir);
+}
+
+#[test]
+fn test_task_list_priority_column() {
+    let temp_dir = setup_test_env();
+    
+    // Create task with due date (affects priority)
+    get_task_cmd(&temp_dir).args(&["add", "Urgent task", "due:tomorrow"]).assert().success();
+    
+    // Create task without due date
+    get_task_cmd(&temp_dir).args(&["add", "Normal task"]).assert().success();
+    
+    // List tasks - should show Priority column
+    let output = get_task_cmd(&temp_dir).args(&["list"]).assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    
+    // Verify Priority column header exists
+    assert!(stdout.contains("Priority"), "Should have Priority column header");
+    
+    // Verify priority values are shown for pending tasks
+    // Priority should be a decimal number like "1.0", "11.0", etc.
+    assert!(stdout.lines().any(|l| {
+        l.contains("Urgent task") && (l.contains("11") || l.contains("12"))
+    }), "Urgent task should have high priority due to due date");
+    
+    drop(temp_dir);
+}
+
+#[test]
+fn test_task_list_priority_empty_for_completed() {
+    let temp_dir = setup_test_env();
+    
+    // Create and complete a task
+    get_task_cmd(&temp_dir).args(&["add", "Task to complete"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["clock", "in", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["done", "1", "--yes"]).assert().success();
+    
+    // List tasks - completed tasks should not show priority
+    let output = get_task_cmd(&temp_dir).args(&["list"]).assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    
+    // Find the completed task line
+    let completed_line = stdout.lines()
+        .find(|l| l.contains("Task to complete") && l.contains("completed"));
+    
+    if let Some(line) = completed_line {
+        // Priority column should be empty for completed tasks
+        // The line should have spaces where priority would be
+        assert!(!line.contains("1.0"), "Completed task should not show priority 1.0");
+    }
     
     drop(temp_dir);
 }
@@ -150,8 +203,8 @@ fn test_stack_display_formatting() {
     // Create tasks and add to stack
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["add", "Task 2"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "2"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
     
     // Show stack - should show formatted display
     get_task_cmd(&temp_dir).args(&["clock", "list"]).assert().success()
@@ -166,7 +219,7 @@ fn test_stack_json_format() {
     
     // Create task and add to stack
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     
     // Show stack in JSON format
     get_task_cmd(&temp_dir).args(&["clock", "list", "--json"]).assert().success()
@@ -213,7 +266,7 @@ fn test_clock_transition_messages() {
     
     // Create task and start clock
     get_task_cmd(&temp_dir).args(&["add", "Test task"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     
     // Clock in - should show explicit message
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success()

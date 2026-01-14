@@ -105,6 +105,7 @@ pub enum FilterTerm {
     Scheduled(String),
     Wait(String),
     Waiting,
+    Kanban(String), // Kanban status filter (proposed, paused, queued, working, NEXT, LIVE, done)
 }
 
 /// Parse a single filter term token
@@ -159,6 +160,11 @@ fn parse_filter_term(token: &str) -> Option<FilterTerm> {
     // waiting (derived filter)
     if token == "waiting" {
         return Some(FilterTerm::Waiting);
+    }
+    
+    // kanban:<status> (derived filter)
+    if let Some(status) = token.strip_prefix("kanban:") {
+        return Some(FilterTerm::Kanban(status.to_lowercase()));
     }
     
     None

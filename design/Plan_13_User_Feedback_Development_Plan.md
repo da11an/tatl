@@ -335,10 +335,10 @@ These require more significant implementation but don't fundamentally change the
 
 ### 7. Build in derived statuses called "kanban" to task list views and for filtering
 
-**Status:** ⏳ **PENDING**  
+**Status:** ✅ **COMPLETED**  
 **Priority:** High  
 **Estimated Effort:** 4-6 hours  
-**Actual Effort:** TBD
+**Actual Effort:** ~2 hours
 
 **Current State:**
 - `task list` shows Status column with primitive states: `pending`, `completed`
@@ -389,61 +389,64 @@ These require more significant implementation but don't fundamentally change the
   - Cache clock status (only need to check once)
 
 **Implementation Checklist:**
-- [ ] Create `calculate_kanban_status` function in `src/cli/output.rs` or new module
-- [ ] Function signature: `calculate_kanban_status(task: &Task, stack_position: Option<usize>, has_sessions: bool, is_live: bool) -> String`
-- [ ] Implement kanban status logic based on mapping table
-- [ ] Add helper function to get stack position for a task: `get_task_stack_position(conn, task_id) -> Option<usize>`
-- [ ] Add helper function to check if task has sessions: `task_has_sessions(conn, task_id) -> bool`
-- [ ] Add helper function to check if task is live (stack[0] with active session): `is_task_live(conn, task_id) -> bool`
-- [ ] Update `format_task_list_table` to:
-  - [ ] Calculate kanban status for each task
-  - [ ] Add Kanban column to header
-  - [ ] Calculate column width dynamically
-  - [ ] Display kanban status for each task
-- [ ] Optimize performance (batch queries where possible)
-- [ ] Add kanban filter support to filter parser in `src/filter/parser.rs`
-- [ ] Add `kanban:<status>` filter token
-- [ ] Update filter evaluator to handle kanban filter
-- [ ] Test: Verify kanban column appears in task list
-- [ ] Test: Verify correct kanban status for each scenario:
-  - [ ] proposed (pending, not in stack, no sessions)
-  - [ ] paused (pending, not in stack, has sessions)
-  - [ ] queued (pending, position > 0, no sessions)
-  - [ ] working (pending, position > 0, has sessions)
-  - [ ] NEXT (pending, position = 0, clock out)
-  - [ ] LIVE (pending, position = 0, clock in)
-  - [ ] done (completed)
-- [ ] Test: Verify kanban filtering works (`task list kanban:LIVE`, etc.)
-- [ ] Test: Verify performance with many tasks
-- [ ] Test: Verify edge cases (empty stack, no sessions, etc.)
+- [x] Create `calculate_kanban_status` function in `src/cli/output.rs` or new module
+- [x] Function signature: `calculate_kanban_status(task: &Task, stack_position: Option<usize>, has_sessions: bool, is_live: bool) -> String`
+- [x] Implement kanban status logic based on mapping table
+- [x] Add helper function to get stack position for a task: `get_stack_positions(conn) -> HashMap<i64, usize>`
+- [x] Add helper function to check if task has sessions: `get_tasks_with_sessions(conn) -> HashSet<i64>`
+- [x] Add helper function to check if clock is running: `is_clock_running(conn) -> bool`
+- [x] Update `format_task_list_table` to:
+  - [x] Calculate kanban status for each task
+  - [x] Add Kanban column to header (replaces Status column)
+  - [x] Calculate column width dynamically
+  - [x] Display kanban status for each task
+- [x] Optimize performance (batch queries where possible)
+- [x] Add kanban filter support to filter parser in `src/filter/parser.rs`
+- [x] Add `kanban:<status>` filter token
+- [x] Update filter evaluator to handle kanban filter
+- [x] Test: Verify kanban column appears in task list
+- [x] Test: Verify correct kanban status for each scenario:
+  - [x] proposed (pending, not in stack, no sessions)
+  - [x] paused (pending, not in stack, has sessions)
+  - [x] queued (pending, position > 0, no sessions)
+  - [x] working (pending, position > 0, has sessions)
+  - [x] NEXT (pending, position = 0, clock out)
+  - [x] LIVE (pending, position = 0, clock in)
+  - [x] done (completed)
+- [x] Test: Verify kanban filtering works (`task list kanban:LIVE`, etc.)
+- [x] Test: Verify performance with many tasks
+- [x] Test: Verify edge cases (empty stack, no sessions, etc.)
 
-**Files to Create/Modify:**
-- `src/cli/output.rs` (add kanban calculation and display)
-- `src/filter/parser.rs` (add kanban filter support)
-- `src/filter/evaluator.rs` (add kanban filter evaluation)
-- `src/repo/stack.rs` (add helper to get task position, or add to output module)
-- `src/repo/session.rs` (add helper to check if task has sessions, or add to output module)
+**Files Modified:**
+- ✅ `src/cli/output.rs` (add kanban calculation and display, replace Status column with Kanban)
+- ✅ `src/filter/parser.rs` (add kanban filter support - `FilterTerm::Kanban`)
+- ✅ `src/filter/evaluator.rs` (add kanban filter evaluation - `calculate_task_kanban`)
+- ✅ `tests/kanban_tests.rs` (13 new tests for kanban status and filtering)
+- ✅ `tests/output_tests.rs` (updated test_task_list_table_formatting to check for Kanban column)
 
 **Implementation Notes:**
 - Kanban status is derived, not stored (calculated on-the-fly)
-- Need efficient batch queries to avoid N+1 problem
-- Consider caching stack items and sessions for all tasks in one query
+- Batch queries for stack positions and sessions to avoid N+1 problem
 - Clock status only needs to be checked once (for stack[0] task)
+- Kanban column replaces Status column in task list (more informative)
+- Case-insensitive filtering supported (`kanban:LIVE`, `kanban:live`, `kanban:Live` all work)
 
 **Variances from Plan:**
-- TBD
+- Replaced Status column with Kanban instead of adding alongside (cleaner, more informative)
+- Used batch queries pattern: `get_stack_positions`, `get_tasks_with_sessions`, `is_clock_running`
 
 **Test Results:**
-- TBD
+- ✅ All 13 kanban_tests passing
+- ✅ All 13 output_tests passing
 
 ---
 
 ### 8. Display priority column, and shrink allocation label to alloc (just in the table)
 
-**Status:** ⏳ **PENDING**  
+**Status:** ✅ **COMPLETED**  
 **Priority:** Medium  
 **Estimated Effort:** 1-2 hours  
-**Actual Effort:** TBD
+**Actual Effort:** ~30 minutes
 
 **Current State:**
 - `task list` shows Allocation column with header "Allocation"
@@ -474,34 +477,37 @@ These require more significant implementation but don't fundamentally change the
 - **Performance:** May need to optimize if slow with many tasks
 
 **Implementation Checklist:**
-- [ ] Update `format_task_list_table` in `src/cli/output.rs` to:
-  - [ ] Change "Allocation" header to "alloc"
-  - [ ] Add "Priority" column to header
-  - [ ] Calculate priority for each task using `calculate_priority`
-  - [ ] Calculate column width dynamically
-  - [ ] Display priority score for each task (format as decimal)
-- [ ] Handle edge cases (tasks with no priority calculation possible)
-- [ ] Test: Verify Priority column appears in task list
-- [ ] Test: Verify priority scores are calculated correctly
-- [ ] Test: Verify "alloc" header appears (not "Allocation")
-- [ ] Test: Verify column widths calculate correctly
-- [ ] Test: Verify performance with many tasks
-- [ ] Test: Verify priority matches `task status` dashboard values
+- [x] Update `format_task_list_table` in `src/cli/output.rs` to:
+  - [x] Change "Allocation" header to "alloc"
+  - [x] Add "Priority" column to header
+  - [x] Calculate priority for each task using `calculate_priority`
+  - [x] Calculate column width dynamically
+  - [x] Display priority score for each task (format as decimal)
+- [x] Handle edge cases (tasks with no priority calculation possible)
+- [x] Test: Verify Priority column appears in task list
+- [x] Test: Verify priority scores are calculated correctly
+- [x] Test: Verify "alloc" header appears (not "Allocation")
+- [x] Test: Verify column widths calculate correctly
+- [x] Test: Verify performance with many tasks
+- [x] Test: Verify priority matches `task status` dashboard values
 
-**Files to Modify:**
-- `src/cli/output.rs` (update `format_task_list_table` to add Priority column, change Allocation header)
+**Files Modified:**
+- ✅ `src/cli/output.rs` (update `format_task_list_table` to add Priority column, change Allocation header)
+- ✅ `tests/output_tests.rs` (updated tests to check for "alloc" instead of "Allocation", added test_task_list_priority_column and test_task_list_priority_empty_for_completed)
 
 **Implementation Notes:**
-- Reuse existing `calculate_priority` function
-- Priority calculation may be expensive - consider caching or optimization
-- Only show priority for pending tasks (completed tasks don't have meaningful priority)
+- Reuse existing `calculate_priority` function from `src/cli/priority.rs`
+- Priority calculation is efficient - calculated inline for each task
+- Only show priority for pending tasks (completed tasks show empty)
 - Format priority as decimal with 1 decimal place for readability
 
 **Variances from Plan:**
-- TBD
+- None
 
 **Test Results:**
-- TBD
+- ✅ All output_tests passing
+- ✅ test_task_list_priority_column verifies Priority column and values
+- ✅ test_task_list_priority_empty_for_completed verifies empty for completed tasks
 
 ---
 

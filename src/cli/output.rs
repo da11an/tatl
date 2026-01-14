@@ -2,9 +2,87 @@
 
 use crate::models::{Task, TaskStatus};
 use crate::repo::{ProjectRepo, AnnotationRepo, SessionRepo, StackRepo, TaskRepo};
+use crate::cli::priority::calculate_priority;
 use chrono::Local;
 use rusqlite::Connection;
 use anyhow::Result;
+use std::collections::{HashMap, HashSet};
+
+/// Kanban status values (derived from task state)
+/// 
+/// | Kanban    | Status    | Clock stack      | Sessions list                  | Clock status |
+/// | --------- | --------- | ---------------- | ------------------------------ | ------------ |
+/// | proposed  | pending   | Not in stack     | Task id not in sessions list   | N/A          |
+/// | paused    | pending   | Not in stack     | Task id in sessions list       | N/A          |
+/// | queued    | pending   | Position > 0     | Task id not in sessions list   | N/A          |
+/// | working   | pending   | Position > 0     | Task id in sessions list       | N/A          |
+/// | NEXT      | pending   | Position = 0     | N/A                            | Out          |
+/// | LIVE      | pending   | Position = 0     | (Task id in sessions list)     | In           |
+/// | done      | completed | (ineligible)     | N/A                            | N/A          |
+pub fn calculate_kanban_status(
+    task: &Task,
+    stack_position: Option<usize>,
+    has_sessions: bool,
+    is_live: bool,
+) -> &'static str {
+    // Completed tasks are "done"
+    if task.status == TaskStatus::Completed {
+        return "done";
+    }
+    
+    // At this point, task is pending
+    match stack_position {
+        Some(0) => {
+            // Position 0 = top of stack
+            if is_live {
+                "LIVE"
+            } else {
+                "NEXT"
+            }
+        }
+        Some(_pos) => {
+            // Position > 0 = in stack but not at top
+            if has_sessions {
+                "working"
+            } else {
+                "queued"
+            }
+        }
+        None => {
+            // Not in stack
+            if has_sessions {
+                "paused"
+            } else {
+                "proposed"
+            }
+        }
+    }
+}
+
+/// Get stack positions for all task IDs as a map (task_id -> position)
+fn get_stack_positions(conn: &Connection) -> Result<HashMap<i64, usize>> {
+    let stack = StackRepo::get_or_create_default(conn)?;
+    let items = StackRepo::get_items(conn, stack.id.unwrap())?;
+    
+    let mut positions = HashMap::new();
+    for (idx, item) in items.iter().enumerate() {
+        positions.insert(item.task_id, idx);
+    }
+    
+    Ok(positions)
+}
+
+/// Get set of task IDs that have any sessions
+fn get_tasks_with_sessions(conn: &Connection) -> Result<HashSet<i64>> {
+    let all_sessions = SessionRepo::list_all(conn)?;
+    let task_ids: HashSet<i64> = all_sessions.iter().map(|s| s.task_id).collect();
+    Ok(task_ids)
+}
+
+/// Check if clock is currently running (has open session)
+fn is_clock_running(conn: &Connection) -> Result<bool> {
+    Ok(SessionRepo::get_open(conn)?.is_some())
+}
 
 /// Format timestamp for display
 pub fn format_timestamp(ts: i64) -> String {
@@ -88,21 +166,26 @@ pub fn format_task_list_table(
         return Ok("No tasks found.".to_string());
     }
     
+    // Pre-compute kanban-related data for all tasks (batch queries for performance)
+    let stack_positions = get_stack_positions(conn)?;
+    let tasks_with_sessions = get_tasks_with_sessions(conn)?;
+    let clock_running = is_clock_running(conn)?;
+    
     // Calculate column widths
     let mut id_width = 4;
     let mut desc_width = 20;
-    let mut status_width = 10;
+    let mut kanban_width = 8; // "proposed" is longest (8 chars)
     let mut project_width = 15;
     let mut tags_width = 20;
     let mut due_width = 12;
-    let mut alloc_width = 10; // "Allocation" header
+    let mut alloc_width = 5; // "alloc" header (changed from "Allocation")
     let mut clock_width = 5; // "Clock" header
+    let mut priority_width = 7; // "Priority" header
     
     // First pass: calculate widths
     for (task, tags) in tasks {
         id_width = id_width.max(task.id.map(|id| id.to_string().len()).unwrap_or(0));
         desc_width = desc_width.max(task.description.len().min(50));
-        status_width = status_width.max(task.status.as_str().len());
         
         if let Some(project_id) = task.project_id {
             if let Ok(Some(project)) = ProjectRepo::get_by_id(conn, project_id) {
@@ -135,25 +218,34 @@ pub fn format_task_list_table(
                 clock_width = clock_width.max(clock_str.len());
             }
         }
+        
+        // Calculate priority width
+        if task.status == TaskStatus::Pending {
+            if let Ok(priority) = calculate_priority(task, conn) {
+                let priority_str = format!("{:.1}", priority);
+                priority_width = priority_width.max(priority_str.len());
+            }
+        }
     }
     
     // Build header
     let mut output = String::new();
     output.push_str(&format!(
-        "{:<id$} {:<desc$} {:<status$} {:<project$} {:<tags$} {:<due$} {:<alloc$} {:<clock$}\n",
-        "ID", "Description", "Status", "Project", "Tags", "Due", "Allocation", "Clock",
+        "{:<id$} {:<desc$} {:<kanban$} {:<project$} {:<tags$} {:<due$} {:<alloc$} {:<priority$} {:<clock$}\n",
+        "ID", "Description", "Kanban", "Project", "Tags", "Due", "alloc", "Priority", "Clock",
         id = id_width,
         desc = desc_width,
-        status = status_width,
+        kanban = kanban_width,
         project = project_width,
         tags = tags_width,
         due = due_width,
         alloc = alloc_width,
+        priority = priority_width,
         clock = clock_width
     ));
     
     // Separator line
-    let total_width = id_width + desc_width + status_width + project_width + tags_width + due_width + alloc_width + clock_width + 7;
+    let total_width = id_width + desc_width + kanban_width + project_width + tags_width + due_width + alloc_width + priority_width + clock_width + 8;
     output.push_str(&format!("{}\n", "-".repeat(total_width)));
     
     // Build rows
@@ -166,7 +258,12 @@ pub fn format_task_list_table(
             task.description.clone()
         };
         
-        let status = task.status.as_str();
+        // Calculate kanban status
+        let task_id = task.id.unwrap_or(0);
+        let stack_pos = stack_positions.get(&task_id).copied();
+        let has_sessions = tasks_with_sessions.contains(&task_id);
+        let is_live = stack_pos == Some(0) && clock_running;
+        let kanban = calculate_kanban_status(task, stack_pos, has_sessions, is_live);
         
         let project = if let Some(project_id) = task.project_id {
             if let Ok(Some(proj)) = ProjectRepo::get_by_id(conn, project_id) {
@@ -223,16 +320,28 @@ pub fn format_task_list_table(
             "0s".to_string()
         };
         
+        // Calculate priority (only for pending tasks)
+        let priority = if task.status == TaskStatus::Pending {
+            if let Ok(prio) = calculate_priority(task, conn) {
+                format!("{:.1}", prio)
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+        
         output.push_str(&format!(
-            "{:<id$} {:<desc$} {:<status$} {:<project$} {:<tags$} {:<due$} {:<alloc$} {:<clock$}\n",
-            id, desc, status, project, tag_str, due, alloc, clock,
+            "{:<id$} {:<desc$} {:<kanban$} {:<project$} {:<tags$} {:<due$} {:<alloc$} {:<priority$} {:<clock$}\n",
+            id, desc, kanban, project, tag_str, due, alloc, priority, clock,
             id = id_width,
             desc = desc_width,
-            status = status_width,
+            kanban = kanban_width,
             project = project_width,
             tags = tags_width,
             due = due_width,
             alloc = alloc_width,
+            priority = priority_width,
             clock = clock_width
         ));
     }

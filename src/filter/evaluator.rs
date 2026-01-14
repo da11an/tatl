@@ -18,12 +18,14 @@
 //! - `scheduled:<expr>` - Match by scheduled date
 //! - `wait:<expr>` - Match by wait date
 //! - `waiting` - Derived: matches tasks with wait_ts in the future
+//! - `kanban:<status>` - Derived: matches tasks by kanban status (proposed, paused, queued, working, NEXT, LIVE, done)
 
-use crate::models::Task;
-use crate::repo::TaskRepo;
+use crate::models::{Task, TaskStatus};
+use crate::repo::{TaskRepo, SessionRepo, StackRepo};
 use crate::filter::parser::FilterTerm;
 use rusqlite::Connection;
 use anyhow::Result;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 pub enum FilterExpr {
@@ -185,6 +187,59 @@ impl FilterTerm {
             }
             FilterTerm::Waiting => {
                 Ok(task.is_waiting())
+            }
+            FilterTerm::Kanban(status) => {
+                // Calculate kanban status for the task
+                let task_kanban = calculate_task_kanban(task, conn)?;
+                // Case-insensitive comparison
+                Ok(task_kanban.to_lowercase() == *status)
+            }
+        }
+    }
+}
+
+/// Calculate the kanban status for a task
+/// This is a helper function for filter evaluation
+fn calculate_task_kanban(task: &Task, conn: &Connection) -> Result<String> {
+    // Completed tasks are "done"
+    if task.status == TaskStatus::Completed {
+        return Ok("done".to_string());
+    }
+    
+    let task_id = task.id.unwrap_or(0);
+    
+    // Get stack position
+    let stack = StackRepo::get_or_create_default(conn)?;
+    let items = StackRepo::get_items(conn, stack.id.unwrap())?;
+    let stack_position = items.iter().position(|item| item.task_id == task_id);
+    
+    // Check if task has sessions
+    let all_sessions = SessionRepo::list_all(conn)?;
+    let has_sessions = all_sessions.iter().any(|s| s.task_id == task_id);
+    
+    // Check if clock is running
+    let is_clock_running = SessionRepo::get_open(conn)?.is_some();
+    
+    match stack_position {
+        Some(0) => {
+            if is_clock_running {
+                Ok("live".to_string())
+            } else {
+                Ok("next".to_string())
+            }
+        }
+        Some(_pos) => {
+            if has_sessions {
+                Ok("working".to_string())
+            } else {
+                Ok("queued".to_string())
+            }
+        }
+        None => {
+            if has_sessions {
+                Ok("paused".to_string())
+            } else {
+                Ok("proposed".to_string())
             }
         }
     }
