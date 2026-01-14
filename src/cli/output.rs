@@ -24,6 +24,45 @@ pub fn format_date(ts: i64) -> String {
     dt.format("%Y-%m-%d").to_string()
 }
 
+/// Format date as relative time (e.g., "2 days ago", "in 3 days", "today", "overdue")
+pub fn format_relative_date(ts: i64) -> String {
+    use chrono::{Local, TimeZone, Datelike};
+    let now = Local::now();
+    let due_dt = Local.timestamp_opt(ts, 0)
+        .single()
+        .unwrap_or_else(|| Local.timestamp_opt(0, 0).single().unwrap());
+    
+    let today = now.date_naive();
+    let due_date = due_dt.date_naive();
+    let days_diff = (due_date - today).num_days();
+    
+    if days_diff < 0 {
+        // Past date
+        if days_diff >= -30 {
+            // Within last 30 days - show "X days ago"
+            let days = (-days_diff) as u32;
+            if days == 1 {
+                "overdue".to_string()
+            } else {
+                format!("{} days ago", days)
+            }
+        } else {
+            // More than 30 days ago - show "overdue"
+            "overdue".to_string()
+        }
+    } else if days_diff == 0 {
+        "today".to_string()
+    } else if days_diff == 1 {
+        "tomorrow".to_string()
+    } else if days_diff <= 365 {
+        // Within a year - show "in X days"
+        format!("in {} days", days_diff)
+    } else {
+        // More than a year in future - show absolute date
+        format_date(ts)
+    }
+}
+
 /// Format duration for display
 pub fn format_duration(secs: i64) -> String {
     let hours = secs / 3600;
@@ -43,6 +82,7 @@ pub fn format_duration(secs: i64) -> String {
 pub fn format_task_list_table(
     conn: &Connection,
     tasks: &[(Task, Vec<String>)],
+    use_relative_time: bool,
 ) -> Result<String> {
     if tasks.is_empty() {
         return Ok("No tasks found.".to_string());
@@ -56,6 +96,7 @@ pub fn format_task_list_table(
     let mut tags_width = 20;
     let mut due_width = 12;
     let mut alloc_width = 10; // "Allocation" header
+    let mut clock_width = 5; // "Clock" header
     
     // First pass: calculate widths
     for (task, tags) in tasks {
@@ -82,24 +123,37 @@ pub fn format_task_list_table(
             let alloc_str = format_duration(alloc_secs);
             alloc_width = alloc_width.max(alloc_str.len());
         }
+        
+        // Calculate clock width (total logged time)
+        if let Some(task_id) = task.id {
+            if let Ok(total_logged) = TaskRepo::get_total_logged_time(conn, task_id) {
+                let clock_str = if total_logged > 0 {
+                    format_duration(total_logged)
+                } else {
+                    "0s".to_string()
+                };
+                clock_width = clock_width.max(clock_str.len());
+            }
+        }
     }
     
     // Build header
     let mut output = String::new();
     output.push_str(&format!(
-        "{:<id$} {:<desc$} {:<status$} {:<project$} {:<tags$} {:<due$} {:<alloc$}\n",
-        "ID", "Description", "Status", "Project", "Tags", "Due", "Allocation",
+        "{:<id$} {:<desc$} {:<status$} {:<project$} {:<tags$} {:<due$} {:<alloc$} {:<clock$}\n",
+        "ID", "Description", "Status", "Project", "Tags", "Due", "Allocation", "Clock",
         id = id_width,
         desc = desc_width,
         status = status_width,
         project = project_width,
         tags = tags_width,
         due = due_width,
-        alloc = alloc_width
+        alloc = alloc_width,
+        clock = clock_width
     ));
     
     // Separator line
-    let total_width = id_width + desc_width + status_width + project_width + tags_width + due_width + alloc_width + 6;
+    let total_width = id_width + desc_width + status_width + project_width + tags_width + due_width + alloc_width + clock_width + 7;
     output.push_str(&format!("{}\n", "-".repeat(total_width)));
     
     // Build rows
@@ -140,7 +194,11 @@ pub fn format_task_list_table(
         };
         
         let due = if let Some(due_ts) = task.due_ts {
-            format_date(due_ts)
+            if use_relative_time {
+                format_relative_date(due_ts)
+            } else {
+                format_date(due_ts)
+            }
         } else {
             String::new()
         };
@@ -151,16 +209,31 @@ pub fn format_task_list_table(
             String::new()
         };
         
+        let clock = if let Some(task_id) = task.id {
+            if let Ok(total_logged) = TaskRepo::get_total_logged_time(conn, task_id) {
+                if total_logged > 0 {
+                    format_duration(total_logged)
+                } else {
+                    "0s".to_string()
+                }
+            } else {
+                "0s".to_string()
+            }
+        } else {
+            "0s".to_string()
+        };
+        
         output.push_str(&format!(
-            "{:<id$} {:<desc$} {:<status$} {:<project$} {:<tags$} {:<due$} {:<alloc$}\n",
-            id, desc, status, project, tag_str, due, alloc,
+            "{:<id$} {:<desc$} {:<status$} {:<project$} {:<tags$} {:<due$} {:<alloc$} {:<clock$}\n",
+            id, desc, status, project, tag_str, due, alloc, clock,
             id = id_width,
             desc = desc_width,
             status = status_width,
             project = project_width,
             tags = tags_width,
             due = due_width,
-            alloc = alloc_width
+            alloc = alloc_width,
+            clock = clock_width
         ));
     }
     

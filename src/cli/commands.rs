@@ -4,7 +4,7 @@ use crate::db::DbConnection;
 use crate::models::Task;
 use crate::repo::{ProjectRepo, TaskRepo, StackRepo, SessionRepo, AnnotationRepo, TemplateRepo};
 use crate::cli::parser::{parse_task_args, join_description};
-use crate::cli::commands_sessions::{handle_task_sessions_list, handle_task_sessions_show, handle_task_sessions_list_with_filter, handle_task_sessions_show_with_filter, handle_sessions_modify, handle_sessions_delete};
+use crate::cli::commands_sessions::{handle_task_sessions_list, handle_task_sessions_show, handle_task_sessions_list_with_filter, handle_task_sessions_show_with_filter, handle_sessions_modify, handle_sessions_delete, handle_sessions_add};
 use crate::cli::output::{format_task_list_table, format_stack_display, format_task_summary, format_clock_list_table};
 use crate::cli::error::{user_error, validate_task_id, validate_project_name, parse_task_id_spec};
 use crate::utils::{parse_date_expr, parse_duration, fuzzy};
@@ -52,6 +52,9 @@ pub enum Commands {
         /// Output in JSON format
         #[arg(long)]
         json: bool,
+        /// Show Due dates as relative time (e.g., "2 days ago", "in 3 days")
+        #[arg(long)]
+        relative: bool,
     },
     /// Show detailed summary of task(s)
     Show {
@@ -72,9 +75,7 @@ pub enum Commands {
         #[arg(long)]
         interactive: bool,
     },
-    /// Clock management commands
-    /// The clock stack is a queue of tasks. The task at position 0 (clock[0]) is the "active" task.
-    /// Clock operations (pick, roll, drop) affect which task is active. Clock in/out controls timing.
+    /// Start and stop timing or manage clock timing queue
     Clock {
         #[command(subcommand)]
         subcommand: ClockCommands,
@@ -117,6 +118,11 @@ pub enum Commands {
         /// Confirm each task one by one
         #[arg(long)]
         interactive: bool,
+    },
+    /// Add task to end of clock stack
+    Enqueue {
+        /// Task ID to enqueue
+        task_id: i64,
     },
     /// Recurrence management commands
     Recur {
@@ -223,6 +229,14 @@ pub enum SessionsCommands {
         #[arg(long)]
         yes: bool,
     },
+    /// Add a manual session (for sessions not recorded via clock)
+    /// Syntax: task sessions add task:<id> start:<time> end:<time> [note:<note>]
+    /// Or: task sessions add <id> <start> <end> [<note>]
+    Add {
+        /// Arguments: task:<id> start:<time> end:<time> [note:<note>] or positional <id> <start> <end> [<note>]
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -232,11 +246,6 @@ pub enum ClockCommands {
         /// Output in JSON format
         #[arg(long)]
         json: bool,
-    },
-    /// Add task to end of clock stack
-    Enqueue {
-        /// Task ID to enqueue
-        task_id: i64,
     },
     /// Move task at position to top
     Pick {
@@ -353,8 +362,8 @@ fn handle_command(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Projects { subcommand } => handle_projects(subcommand),
         Commands::Add { args, clock_in, auto_create_project } => handle_task_add(args, clock_in, auto_create_project),
-        Commands::List { filter, json } => {
-            handle_task_list(filter, json)
+        Commands::List { filter, json, relative } => {
+            handle_task_list(filter, json, relative)
         },
         Commands::Show { target } => handle_task_summary(target),
         Commands::Modify { target, args, yes, interactive } => {
@@ -378,6 +387,9 @@ fn handle_command(cli: Cli) -> Result<()> {
         }
         Commands::Delete { target, yes, interactive } => {
             handle_task_delete(target, yes, interactive)
+        }
+        Commands::Enqueue { task_id } => {
+            handle_task_enqueue(task_id.to_string())
         }
         Commands::Recur { subcommand } => {
             handle_recur(subcommand)
@@ -403,6 +415,9 @@ fn handle_command(cli: Cli) -> Result<()> {
                 }
                 SessionsCommands::Delete { session_id, yes } => {
                     handle_sessions_delete(session_id, yes)
+                }
+                SessionsCommands::Add { args } => {
+                    handle_sessions_add(args)
                 }
             }
         }
@@ -733,7 +748,7 @@ fn handle_task_add(args: Vec<String>, clock_in: bool, auto_create_project: bool)
     Ok(())
 }
 
-fn handle_task_list(filter_args: Vec<String>, json: bool) -> Result<()> {
+fn handle_task_list(filter_args: Vec<String>, json: bool, relative: bool) -> Result<()> {
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
     
@@ -793,7 +808,7 @@ fn handle_task_list(filter_args: Vec<String>, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&json_tasks)?);
     } else {
         // Human-readable table output
-        let table = format_task_list_table(&conn, &tasks)?;
+        let table = format_task_list_table(&conn, &tasks, relative)?;
         print!("{}", table);
     }
     
@@ -1286,9 +1301,6 @@ fn handle_clock(cmd: ClockCommands) -> Result<()> {
                 }
             }
             Ok(())
-        }
-        ClockCommands::Enqueue { task_id } => {
-            handle_task_enqueue(task_id.to_string())
         }
         ClockCommands::Pick { index } => {
             handle_stack_pick_with_clock(&conn, index, false, false)

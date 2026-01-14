@@ -677,3 +677,113 @@ pub fn handle_sessions_delete(session_id: i64, yes: bool) -> Result<()> {
     println!("Deleted session {}.", session_id);
     Ok(())
 }
+
+/// Parse session add arguments (supports both labeled and positional formats)
+/// Labeled: task:<id> start:<time> end:<time> [note:<note>]
+/// Positional: <id> <start> <end> [<note>]
+fn parse_session_add_args(args: Vec<String>) -> Result<(i64, i64, i64, Option<String>)> {
+    if args.is_empty() {
+        return Err(anyhow::anyhow!("Missing required arguments. Use: task sessions add task:<id> start:<time> end:<time> [note:<note>] or task sessions add <id> <start> <end> [<note>]"));
+    }
+    
+    // Check if first argument starts with "task:" (labeled format)
+    let is_labeled = args[0].starts_with("task:");
+    
+    if is_labeled {
+        // Labeled format: task:<id> start:<time> end:<time> [note:<note>]
+        let mut task_id: Option<i64> = None;
+        let mut start_ts: Option<i64> = None;
+        let mut end_ts: Option<i64> = None;
+        let mut note: Option<String> = None;
+        
+        for arg in args {
+            if arg.starts_with("task:") {
+                let task_str = &arg[5..];
+                task_id = Some(task_str.parse()
+                    .map_err(|_| anyhow::anyhow!("Invalid task ID: {}", task_str))?);
+            } else if arg.starts_with("start:") {
+                let expr = &arg[6..];
+                start_ts = Some(parse_date_expr(expr)
+                    .context(format!("Failed to parse start time: {}", expr))?);
+            } else if arg.starts_with("end:") {
+                let expr = &arg[4..];
+                end_ts = Some(parse_date_expr(expr)
+                    .context(format!("Failed to parse end time: {}", expr))?);
+            } else if arg.starts_with("note:") {
+                note = Some(arg[5..].to_string());
+            } else {
+                return Err(anyhow::anyhow!("Invalid argument: {}. Expected task:<id>, start:<time>, end:<time>, or note:<note>", arg));
+            }
+        }
+        
+        let task_id = task_id.ok_or_else(|| anyhow::anyhow!("Missing required argument: task:<id>"))?;
+        let start_ts = start_ts.ok_or_else(|| anyhow::anyhow!("Missing required argument: start:<time>"))?;
+        let end_ts = end_ts.ok_or_else(|| anyhow::anyhow!("Missing required argument: end:<time>"))?;
+        
+        Ok((task_id, start_ts, end_ts, note))
+    } else {
+        // Positional format: <id> <start> <end> [<note>]
+        if args.len() < 3 {
+            return Err(anyhow::anyhow!("Missing required arguments. Expected: task sessions add <id> <start> <end> [<note>]"));
+        }
+        
+        let task_id = args[0].parse()
+            .map_err(|_| anyhow::anyhow!("Invalid task ID: {}", args[0]))?;
+        let start_ts = parse_date_expr(&args[1])
+            .context(format!("Failed to parse start time: {}", args[1]))?;
+        let end_ts = parse_date_expr(&args[2])
+            .context(format!("Failed to parse end time: {}", args[2]))?;
+        let note = if args.len() > 3 {
+            Some(args[3..].join(" ")) // Join remaining args as note
+        } else {
+            None
+        };
+        
+        Ok((task_id, start_ts, end_ts, note))
+    }
+}
+
+/// Handle `task sessions add task:<id> start:<time> end:<time> [note:<note>]`
+/// Or: `task sessions add <id> <start> <end> [<note>]`
+pub fn handle_sessions_add(args: Vec<String>) -> Result<()> {
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+    
+    // Parse arguments
+    let (task_id, start_ts, end_ts, note) = parse_session_add_args(args)?;
+    
+    // Validate task exists
+    let task = TaskRepo::get_by_id(&conn, task_id)?
+        .ok_or_else(|| anyhow::anyhow!("Task {} not found", task_id))?;
+    
+    // Validate start < end
+    if start_ts >= end_ts {
+        return Err(anyhow::anyhow!("Start time must be before end time. Start: {}, End: {}", 
+            format_timestamp(start_ts), format_timestamp(end_ts)));
+    }
+    
+    // Create closed session
+    let session = SessionRepo::create_closed(&conn, task_id, start_ts, end_ts)
+        .context("Failed to create session")?;
+    
+    let session_id = session.id.unwrap();
+    
+    // Create annotation if note provided
+    if let Some(note_text) = note {
+        if !note_text.trim().is_empty() {
+            AnnotationRepo::create(&conn, task_id, note_text, Some(session_id))
+                .context("Failed to create annotation")?;
+        }
+    }
+    
+    let duration = end_ts - start_ts;
+    println!("Added session {} for task {} ({}): {} - {} ({})", 
+        session_id,
+        task_id,
+        task.description,
+        format_timestamp(start_ts),
+        format_timestamp(end_ts),
+        format_duration(duration));
+    
+    Ok(())
+}

@@ -54,9 +54,9 @@ fn acceptance_enqueue_adds_to_end() {
     given.stack_is_empty();
     
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["clock", "enqueue", &task1.to_string()]);
-    when.execute_success(&["clock", "enqueue", &task2.to_string()]);
-    when.execute_success(&["clock", "enqueue", &task3.to_string()]);
+    when.execute_success(&["enqueue", &task1.to_string()]);
+    when.execute_success(&["enqueue", &task2.to_string()]);
+    when.execute_success(&["enqueue", &task3.to_string()]);
     
     let then = ThenBuilder::new(&ctx, None);
     then.stack_order_is(&[task1, task2, task3]);
