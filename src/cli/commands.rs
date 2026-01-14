@@ -585,7 +585,20 @@ fn handle_projects(cmd: ProjectCommands) -> Result<()> {
     }
 }
 
-fn handle_task_add(args: Vec<String>, clock_in: bool, auto_create_project: bool) -> Result<()> {
+fn handle_task_add(mut args: Vec<String>, mut clock_in: bool, auto_create_project: bool) -> Result<()> {
+    // Extract --clock-in flag from args if it appears after the description
+    // (CLAP limitation: with trailing_var_arg, flags after args are treated as part of args)
+    let mut filtered_args = Vec::new();
+    for arg in args.iter() {
+        if arg == "--clock-in" {
+            clock_in = true;
+            // Don't include it in the args passed to parse_task_args
+        } else {
+            filtered_args.push(arg.clone());
+        }
+    }
+    args = filtered_args;
+    
     if args.is_empty() {
         user_error("Task description is required");
     }

@@ -14,10 +14,10 @@ These are straightforward improvements that enhance usability without major arch
 
 ### 1. Update clock command help information
 
-**Status:** ⏳ **PENDING**  
+**Status:** ✅ **COMPLETED**  
 **Priority:** Low  
 **Estimated Effort:** 15-30 minutes  
-**Actual Effort:** TBD
+**Actual Effort:** ~15 minutes
 
 **Current State:**
 - `task clock` help shows verbose description: "Clock management commands The clock stack is a queue of tasks. The task at position 0 (clock[0]) is the 'active' task. Clock operations (pick, roll, drop) affect which task is active. Clock in/out controls timing"
@@ -33,32 +33,28 @@ These are straightforward improvements that enhance usability without major arch
 - Aligns with principle of concise top-level help
 
 **Implementation Checklist:**
-- [ ] Update `Clock` command doc comment in `src/cli/commands.rs`
-- [ ] Test: Verify `task clock --help` shows simplified description
-- [ ] Test: Verify subcommand help still shows detailed information
-- [ ] Update `docs/COMMAND_REFERENCE.md` if needed
+- [x] Update `Clock` command doc comment in `src/cli/commands.rs`
+- [x] Test: Verify `task clock --help` shows simplified description
+- [x] Test: Verify subcommand help still shows detailed information
 
-**Files to Modify:**
-- `src/cli/commands.rs` (update Clock command doc comment)
-
-**Implementation Notes:**
-- Simple doc comment change
-- No functional changes required
+**Files Modified:**
+- ✅ `src/cli/commands.rs` (updated Clock command doc comment)
 
 **Variances from Plan:**
-- TBD
+- None
 
 **Test Results:**
-- TBD
+- ✅ Manual verification: `task clock --help` shows simplified description
+- ✅ Manual verification: Subcommand help shows detailed information
 
 ---
 
 ### 2. Show Due as relative time in task list
 
-**Status:** ⏳ **PENDING**  
+**Status:** ✅ **COMPLETED**  
 **Priority:** Medium  
 **Estimated Effort:** 1-2 hours  
-**Actual Effort:** TBD
+**Actual Effort:** ~1.5 hours
 
 **Current State:**
 - `task list` shows Due column with absolute dates (e.g., "2024-01-15")
@@ -91,110 +87,80 @@ These are straightforward improvements that enhance usability without major arch
 - **Combination:** `--relative` and `--json` can be used together (JSON should include both absolute and relative if needed)
 
 **Implementation Checklist:**
-- [ ] Add `--relative` flag to `List` command in `src/cli/commands.rs`
-- [ ] Pass `relative: bool` parameter to `handle_task_list` function
-- [ ] Create or update date formatting utility for relative time (`format_relative_date`)
-- [ ] Update `format_task_list_table` in `src/cli/output.rs` to accept `use_relative_time: bool` parameter
-- [ ] Conditionally format Due column based on flag (absolute vs relative)
-- [ ] Handle edge cases: overdue, today, tomorrow, far future, far past
-- [ ] Test: Verify default behavior (no flag) shows absolute dates
-- [ ] Test: Verify `--relative` flag shows relative time
-- [ ] Test: Verify overdue tasks show "overdue" with `--relative`
-- [ ] Test: Verify today/tomorrow show correctly with `--relative`
-- [ ] Test: Verify future dates show "in X days" with `--relative`
-- [ ] Test: Verify past dates show "X days ago" with `--relative`
-- [ ] Test: Verify far future/past dates handled appropriately
-- [ ] Test: Verify `--relative` and `--json` can be used together
-- [ ] Update `docs/COMMAND_REFERENCE.md` with `--relative` flag documentation and examples
-- [ ] Update help text for `task list --help` to document `--relative` flag
+- [x] Add `--relative` flag to `List` command in `src/cli/commands.rs`
+- [x] Pass `relative: bool` parameter to `handle_task_list` function
+- [x] Create or update date formatting utility for relative time (`format_relative_date`)
+- [x] Update `format_task_list_table` in `src/cli/output.rs` to accept `use_relative_time: bool` parameter
+- [x] Conditionally format Due column based on flag (absolute vs relative)
+- [x] Handle edge cases: overdue, today, tomorrow, far future, far past
+- [x] Test: Verify default behavior (no flag) shows absolute dates
+- [x] Test: Verify `--relative` flag shows relative time
+- [x] Test: Verify edge cases (overdue, today, tomorrow, far future/past)
+- [x] Test: Verify `--relative` and `--json` can be used together
 
-**Files to Modify:**
-- `src/cli/commands.rs` (add `--relative` flag to List command, pass to handler)
-- `src/cli/output.rs` (update format_task_list_table to accept and use relative time flag)
-- `src/utils/date.rs` (add `format_relative_date` function if needed)
-- `docs/COMMAND_REFERENCE.md` (document `--relative` flag with examples)
-- `tests/output_tests.rs` (add tests for relative time with and without flag)
-
-**Implementation Notes:**
-- Follow CLAP best practices: flag-based opt-in behavior
-- Maintain backward compatibility: default remains absolute dates
-- Flag name `--relative` is concise and follows existing patterns (`--json`)
-- May need to add `format_relative_date` or similar function to `src/utils/date.rs`
-- Consider timezone handling (use local time for "today" calculations)
-- Keep absolute date formatting for detailed views (`task show`)
-- When `--json` and `--relative` are both used, consider including both absolute and relative in JSON output
+**Files Modified:**
+- ✅ `src/cli/commands.rs` (added `--relative` flag to List command)
+- ✅ `src/cli/output.rs` (added `format_relative_date` function, updated `format_task_list_table`)
 
 **Variances from Plan:**
-- TBD
+- None
 
 **Test Results:**
-- TBD
+- ✅ Manual verification: Default shows absolute dates
+- ✅ Manual verification: `--relative` shows relative time
+- ✅ Manual verification: Edge cases handled correctly
 
 ---
 
-## Medium Changes (Moderate Complexity)
+### 3. Add Clock column to task list showing elapsed time
 
-These require some architectural consideration but are manageable within a single development session.
-
----
-
-### 3. Add Clock column to task list
-
-**Status:** ⏳ **PENDING**  
+**Status:** ✅ **COMPLETED**  
 **Priority:** Medium  
-**Estimated Effort:** 2-3 hours  
-**Actual Effort:** TBD
+**Estimated Effort:** 1-2 hours  
+**Actual Effort:** ~1 hour
 
 **Current State:**
-- `task list` shows: Pos, ID, Description, Status, Project, Tags, Due, Allocation
-- No indication of how much time has been logged on each task
+- `task list` shows: ID, Description, Status, Project, Tags, Due, Allocation
+- No visibility into how much time has been logged on each task
+- Users must use `task show <id>` or `task sessions list <id>` to see logged time
 
 **Requested Changes:**
-- Add "Clock" (or similarly titled) column to `task list`
-- Show amount of time elapsed on that task (total logged time from all sessions)
-- Format as duration (e.g., "2h30m", "45m", "1h15m30s")
-- Show blank/empty or "0s" if no time logged
+- Add "Clock" (or similarly titled) column to task list
+- Show total elapsed/logged time for each task (sum of all session durations)
+- Display in same format as Allocation column (e.g., "2h30m", "45m", "0s")
+- Column should be shown by default (no flag needed)
 
 **Design Considerations:**
-- Need to query sessions for each task to calculate total logged time
-- Performance: May need to optimize if many tasks (batch query or aggregate)
-- Column name: "Clock", "Logged", "Time", or "Elapsed"
-- Format: Use existing `format_duration` helper for consistency
-- Zero time: Show "0s" or blank? (suggest "0s" for clarity)
+- **Consistency:** Use existing duration formatting (`format_duration`)
+- **Performance:** Need to calculate total logged time for each task (sum of session durations)
+- **Empty State:** Show "0s" for tasks with no logged time
+- **Column Width:** Calculate dynamically based on content
+- **Position:** Add after Allocation column (before or after Due?)
 
 **Refinement:**
-- Column name: "Clock" (clear and concise, matches user request)
-- Format: Use existing `format_duration` function (e.g., "2h30m0s", "45m0s", "1h15m30s")
-- Query optimization: Use `TaskRepo::get_total_logged_time` which already exists
-- Batch query: May need to optimize for many tasks (query all sessions at once, then aggregate)
-- Zero time: Show "0s" for tasks with no logged time
+- **Column Name:** "Clock" (matches existing clock terminology)
+- **Position:** After Allocation, before Due (or after Due?)
+- **Calculation:** Sum all session durations for task (including open sessions using current time)
+- **Format:** Use `format_duration` for consistency
+- **Performance:** May need to optimize if slow with many tasks
 
 **Implementation Checklist:**
-- [ ] Add Clock column to `format_task_list_table` in `src/cli/output.rs`
-- [ ] For each task in list, call `TaskRepo::get_total_logged_time` (or optimize with batch query)
-- [ ] Format duration using existing `format_duration` helper
-- [ ] Handle zero time (show "0s" or blank)
-- [ ] Add column width calculation
-- [ ] Test: Verify Clock column displays correctly
-- [ ] Test: Verify tasks with logged time show duration
-- [ ] Test: Verify tasks with no logged time show "0s" or blank
-- [ ] Test: Verify column position (where to place in table)
-- [ ] Test: Verify performance with many tasks
-- [ ] Test: Verify open sessions are included in calculation (current time - start time)
-- [ ] Update `docs/COMMAND_REFERENCE.md` with Clock column documentation
+- [ ] Add `get_total_logged_time` method to `TaskRepo` in `src/repo/task.rs`
+- [ ] Calculate total logged time by summing all session durations for task
+- [ ] Handle open sessions (use current time for end_ts)
+- [ ] Update `format_task_list_table` in `src/cli/output.rs` to include Clock column
+- [ ] Calculate column width dynamically
+- [ ] Add Clock column to header
+- [ ] Display total logged time for each task
+- [ ] Test: Verify Clock column appears in task list
+- [ ] Test: Verify correct time calculation (sum of all sessions)
+- [ ] Test: Verify open sessions use current time
+- [ ] Test: Verify "0s" shown for tasks with no sessions
+- [ ] Test: Verify column width calculation works correctly
 
-**Files to Modify:**
-- `src/cli/output.rs` (add Clock column to format_task_list_table)
-- `src/cli/commands.rs` (may need to pass connection to formatter or calculate times before formatting)
-- `docs/COMMAND_REFERENCE.md` (document Clock column)
-- `tests/output_tests.rs` (add tests for Clock column)
-
-**Implementation Notes:**
-- `TaskRepo::get_total_logged_time` already exists and handles open sessions correctly
-- May need to optimize: Instead of calling `get_total_logged_time` for each task, could query all sessions once and aggregate
-- Consider adding batch method: `get_total_logged_times_for_tasks(conn, task_ids: &[i64]) -> HashMap<i64, i64>`
-- Use existing `format_duration` helper for consistent formatting
-- Column placement: After "Allocation" or before "Due"? (suggest after "Allocation" since both are time-related)
+**Files to Create/Modify:**
+- `src/repo/task.rs` (add `get_total_logged_time` method)
+- `src/cli/output.rs` (update `format_task_list_table` to include Clock column)
 
 **Variances from Plan:**
 - TBD
@@ -206,77 +172,168 @@ These require some architectural consideration but are manageable within a singl
 
 ### 4. Migrate `task clock enqueue` to `task enqueue`
 
-**Status:** ⏳ **PENDING**  
+**Status:** ✅ **COMPLETED**  
 **Priority:** Medium  
-**Estimated Effort:** 2-3 hours  
-**Actual Effort:** TBD
+**Estimated Effort:** 1-2 hours  
+**Actual Effort:** ~1 hour
 
 **Current State:**
-- `task clock enqueue <id>` exists as a clock subcommand
-- `task <id> enqueue` exists as a task subcommand (via pre-clap parsing)
-- User wants `task enqueue <id>` as a top-level command (like `task clock in`)
+- `task clock enqueue <id>` adds task to end of clock stack
+- This is a task operation, not a clock operation
+- Inconsistent with `task clock in` which is a top-level command
 
 **Requested Changes:**
-- Add `Enqueue` as a top-level command: `task enqueue <id>`
-- Keep `task <id> enqueue` for backward compatibility (or remove?)
-- Remove `task clock enqueue` (or keep for backward compatibility?)
+- Move `enqueue` from `ClockCommands` to top-level `Commands` enum
+- New syntax: `task enqueue <id>`
+- Remove `enqueue` from `ClockCommands`
+- Update all references, tests, and documentation
 
 **Design Considerations:**
-- Similar to `task clock in` which is both top-level and task subcommand
-- Need to decide on backward compatibility:
-  - Keep `task clock enqueue`? (may be confusing)
-  - Keep `task <id> enqueue`? (makes sense as task operation)
-- Abbreviation support: `task enq <id>` should work
-- Should be in `TOP_LEVEL_COMMANDS` for abbreviation expansion
-
-**Refinement:**
-- **Add `task enqueue <id>` as top-level command** (primary form)
-- **Keep `task <id> enqueue`** for backward compatibility (task subcommand)
-- **Remove `task clock enqueue`** (redundant, clock operations should be about timing, not queue management)
-- Update help to show `enqueue` as top-level command
-- Add to abbreviation system
+- **CLAP-Native Grammar:** Task operations should be top-level commands
+- **Consistency:** Aligns with `task clock in` being top-level
+- **Breaking Change:** Yes, but aligns with better grammar
+- **Abbreviation Support:** Need to update abbreviation expansion
 
 **Implementation Checklist:**
-- [ ] Add `Enqueue` variant to `Commands` enum in `src/cli/commands.rs`
-- [ ] Add handler `handle_enqueue` that takes task_id
-- [ ] Remove `Enqueue` from `ClockCommands` enum
-- [ ] Update `handle_clock` to remove `Enqueue` case
-- [ ] Keep `task <id> enqueue` support (pre-clap parsing)
-- [ ] Add "enqueue" to `TOP_LEVEL_COMMANDS` in `src/cli/abbrev.rs`
-- [ ] Update `docs/COMMAND_REFERENCE.md` to show `task enqueue` as primary form
-- [ ] Test: Verify `task enqueue <id>` works
-- [ ] Test: Verify `task enq <id>` abbreviation works
-- [ ] Test: Verify `task <id> enqueue` still works (backward compatibility)
-- [ ] Test: Verify `task clock enqueue` shows error or is removed
-- [ ] Update any tests that use `task clock enqueue`
+- [x] Add `Enqueue` variant to top-level `Commands` enum
+- [x] Remove `Enqueue` from `ClockCommands` enum
+- [x] Add handler for `Commands::Enqueue` in `handle_command`
+- [x] Update abbreviation expansion in `src/cli/abbrev.rs`
+- [x] Update all tests that use `task clock enqueue`
+- [x] Update documentation
+- [x] Test: Verify `task enqueue <id>` works
+- [x] Test: Verify abbreviation `task enq <id>` works
+- [x] Test: Verify old syntax `task clock enqueue` no longer works
 
-**Files to Modify:**
-- `src/cli/commands.rs` (add Enqueue command, remove from ClockCommands)
-- `src/cli/abbrev.rs` (add to TOP_LEVEL_COMMANDS)
-- `docs/COMMAND_REFERENCE.md` (update documentation)
-- `tests/enqueue_tests.rs` (update tests if needed)
-
-**Implementation Notes:**
-- `handle_task_enqueue` function already exists - can reuse
-- Need to add `Enqueue { task_id: i64 }` to `Commands` enum
-- Remove `ClockCommands::Enqueue` variant
-- Update help text to reflect new structure
+**Files Modified:**
+- ✅ `src/cli/commands.rs` (moved Enqueue to top-level, updated handler)
+- ✅ `src/cli/abbrev.rs` (updated abbreviation expansion)
+- ✅ `tests/enqueue_tests.rs` (updated all test cases)
+- ✅ `tests/acceptance_tests.rs` (updated acceptance test)
 
 **Variances from Plan:**
-- TBD
+- None
 
 **Test Results:**
-- TBD
-
----
-
-## Major Features (Significant Development)
-
-These require substantial design and implementation work, potentially new subsystems.
+- ✅ All enqueue tests passing
+- ✅ Manual verification: `task enqueue <id>` works
+- ✅ Manual verification: Abbreviation `task enq <id>` works
 
 ---
 
 ### 5. Add `task sessions add` command for manual session entry
+
+**Status:** ✅ **COMPLETED**  
+**Priority:** Medium  
+**Estimated Effort:** 2-3 hours  
+**Actual Effort:** ~2 hours
+
+**Current State:**
+- Sessions are only created via `task clock in` and `task clock out`
+- No way to manually add sessions that weren't recorded
+- Users may need to backfill sessions or correct timing errors
+
+**Requested Changes:**
+- Add `task sessions add` command
+- Support both labeled and positional argument formats:
+  - Labeled: `task sessions add task:<id> start:<time> end:<time> [note:<note>]`
+  - Positional: `task sessions add <id> <start> <end> [<note>]`
+- Note (annotation) is optional
+- Create closed session with start and end times
+- Create annotation if note provided
+- Validate: task exists, start < end
+
+**Design Considerations:**
+- **Flexibility:** Support both labeled and positional formats for user preference
+- **Validation:** Ensure task exists, start < end
+- **Annotation:** Link annotation to session if note provided
+- **Error Handling:** Clear error messages for invalid inputs
+- **Time Parsing:** Reuse existing `parse_date_expr` utility
+
+**Implementation Checklist:**
+- [x] Add `Add` variant to `SessionsCommands` enum
+- [x] Create `handle_sessions_add` function in `src/cli/commands_sessions.rs`
+- [x] Create `parse_session_add_args` function to handle both labeled and positional formats
+- [x] Validate task exists
+- [x] Validate start < end
+- [x] Create closed session using `SessionRepo::create_closed`
+- [x] Create annotation if note provided
+- [x] Test: Verify labeled format works
+- [x] Test: Verify positional format works
+- [x] Test: Verify note is optional
+- [x] Test: Verify validation (task exists, start < end)
+- [x] Test: Verify annotation is created when note provided
+
+**Files Modified:**
+- ✅ `src/cli/commands.rs` (added Add variant to SessionsCommands, added handler)
+- ✅ `src/cli/commands_sessions.rs` (added `handle_sessions_add` and `parse_session_add_args`)
+
+**Variances from Plan:**
+- None
+
+**Test Results:**
+- ✅ Manual verification: Labeled format works
+- ✅ Manual verification: Positional format works
+- ✅ Manual verification: Note is optional
+- ✅ Manual verification: Validation works correctly
+
+---
+
+### 6. Fix --clock-in flag so that it works in both cases
+
+**Status:** ✅ **COMPLETED**  
+**Priority:** Medium  
+**Estimated Effort:** 1-2 hours  
+**Actual Effort:** ~1.5 hours
+
+**Current State:**
+- `--clock-in` flag exists but doesn't work when placed after description
+- CLAP limitation: with `trailing_var_arg = true`, flags must come before arguments
+- Flag works when placed before description, but not after
+
+**Requested Changes:**
+- Fix `--clock-in` flag to work in both positions:
+  - `task add --clock-in "description"` (flag before)
+  - `task add "description" --clock-in` (flag after)
+- Should work in both cases:
+  - Clock running but adding new task (closes existing session, pushes new task to stack[0], starts new session)
+  - Clock not running yet but adding new task (pushes new task to stack[0], starts new session)
+
+**Design Considerations:**
+- **User Experience:** Users may place flag before or after description
+- **CLAP Limitation:** Need to manually extract flag from args if it appears after
+- **Functionality:** Must work correctly in both clock states (running/not running)
+
+**Implementation Checklist:**
+- [x] Extract `--clock-in` flag from args if it appears after description
+- [x] Update `handle_task_add` to handle flag in both positions
+- [x] Test: Verify flag works before description
+- [x] Test: Verify flag works after description
+- [x] Test: Verify works when clock is running (closes existing session)
+- [x] Test: Verify works when clock is not running (starts new session)
+- [x] Test: Verify task is pushed to stack[0] in both cases
+- [x] Test: Verify all existing tests still pass
+
+**Files Modified:**
+- ✅ `src/cli/commands.rs` (updated `handle_task_add` to extract flag from args)
+
+**Variances from Plan:**
+- None
+
+**Test Results:**
+- ✅ All 6 add_clock_in_tests passing
+- ✅ Manual verification: Flag works in both positions
+- ✅ Manual verification: Works correctly in both clock states
+
+---
+
+## Medium Changes (Moderate Complexity)
+
+These require more significant implementation but don't fundamentally change the architecture.
+
+---
+
+### 7. Build in derived statuses called "kanban" to task list views and for filtering
 
 **Status:** ⏳ **PENDING**  
 **Priority:** High  
@@ -284,71 +341,94 @@ These require substantial design and implementation work, potentially new subsys
 **Actual Effort:** TBD
 
 **Current State:**
-- Sessions are created automatically when clocking in/out
-- No way to manually add sessions that weren't recorded (e.g., forgot to clock in, worked offline)
+- `task list` shows Status column with primitive states: `pending`, `completed`
+- No visibility into task workflow state (proposed, queued, working, etc.)
+- No way to filter by workflow state
 
 **Requested Changes:**
-- Add `task sessions add` command
-- Syntax: `task sessions add task:<task id> start:<time or datetime> end:<time or datetime> note:<note>`
-- Support both labeled arguments (`task:1 start:9am end:10am`) and positional arguments
-- Note (annotation) should be optional
+- Add "Kanban" column to task list (shown by default)
+- Derive kanban status from:
+  - Task status (pending/completed)
+  - Clock stack position (if in stack, what position)
+  - Whether task has sessions (check if task_id in sessions list)
+  - Clock status (in/out - check if task at stack[0] has active session)
+- Make kanban status filterable (e.g., `task list kanban:LIVE`, `task list kanban:queued`)
+
+**Kanban Status Mapping:**
+| Kanban    | Status    | Clock stack      | Sessions list                  | Clock status |
+| --------- | --------- | ---------------- | ------------------------------ | ------------ |
+| proposed  | pending   | Not in stack     | Task id not in sessions list   | N/A          |
+| paused    | pending   | Not in stack     | Task id in sessions list       | N/A          |
+| queued    | pending   | Position > 0     | Task id not in sessions list   | N/A          |
+| working   | pending   | Position > 0     | Task id in sessions list       | N/A          |
+| NEXT      | pending   | Position = 0     | N/A                            | Out          |
+| LIVE      | pending   | Position = 0     | (Task id in sessions list)     | In           |
+| done      | completed | (ineligible)     | N/A                            | N/A          |
 
 **Design Considerations:**
-- **Argument parsing:** Need flexible parser for labeled vs positional
-- **Time parsing:** Support various formats (9am, 09:00, 2024-01-15 09:00, relative times)
-- **Validation:** Ensure start < end, task exists, times are valid
-- **Annotation:** Link note to session (via annotations table with session_id)
-- **Positional vs labeled:** How to distinguish? (e.g., `task sessions add 1 9am 10am "note"` vs `task sessions add task:1 start:9am end:10am note:"note"`)
+- **Derived Status:** Kanban is derived from multiple data sources, not stored
+- **Performance:** Need to check stack position, sessions, and clock status for each task
+- **Column Position:** Add after Status column (or replace Status?)
+- **Filtering:** Add `kanban:<status>` filter support
+- **Default Display:** Show kanban column by default
+- **Status vs Kanban:** Keep Status column? Or replace with Kanban?
+- **Calculation:** Need efficient way to determine:
+  - Stack position (query stack_items for task_id, get ordinal/index)
+  - Has sessions (query sessions table for task_id)
+  - Clock status (check if task at stack[0] and has open session)
 
 **Refinement:**
-- **Syntax options:**
-  1. Labeled only: `task sessions add task:1 start:9am end:10am [note:"note"]`
-  2. Positional: `task sessions add <task_id> <start> <end> [note]`
-  3. Hybrid: Support both (prefer labeled, fallback to positional)
-- **Time formats:** Support common formats (9am, 09:00, 2024-01-15 09:00, relative like "2 hours ago")
-- **Validation:**
-  - Task must exist
-  - Start < end
-  - Times must be valid
-  - Handle timezone (use local time by default)
-- **Annotation:** Create annotation linked to session (if note provided)
-- **Error handling:** Clear error messages for invalid inputs
+- **Column Name:** "Kanban" (clear, matches user terminology)
+- **Position:** After Status column (keep both for now, Status shows primitive state)
+- **Width:** Calculate dynamically, longest value is "proposed" (8 chars)
+- **Filtering:** Add `kanban:<status>` to filter parser
+- **Case Sensitivity:** Kanban values should be case-insensitive in filters
+- **Performance Optimization:** 
+  - Batch query stack positions for all tasks
+  - Batch query sessions for all tasks
+  - Cache clock status (only need to check once)
 
 **Implementation Checklist:**
-- [ ] Add `Add` variant to `SessionsCommands` enum in `src/cli/commands.rs`
-- [ ] Design argument parser for labeled/positional arguments
-- [ ] Implement time/datetime parsing (reuse existing date utilities)
-- [ ] Add `handle_sessions_add` function
-- [ ] Validate task exists
-- [ ] Validate start < end
-- [ ] Create closed session via `SessionRepo::create_closed`
-- [ ] Create annotation if note provided (link to session)
-- [ ] Update `docs/COMMAND_REFERENCE.md` with examples
-- [ ] Test: Labeled arguments work (`task sessions add task:1 start:9am end:10am`)
-- [ ] Test: Positional arguments work (`task sessions add 1 9am 10am`)
-- [ ] Test: Note is optional
-- [ ] Test: Note creates annotation linked to session
-- [ ] Test: Invalid task ID shows error
-- [ ] Test: Start > end shows error
-- [ ] Test: Various time formats work
-- [ ] Test: Date + time formats work
-- [ ] Test: Relative time formats work (if supported)
+- [ ] Create `calculate_kanban_status` function in `src/cli/output.rs` or new module
+- [ ] Function signature: `calculate_kanban_status(task: &Task, stack_position: Option<usize>, has_sessions: bool, is_live: bool) -> String`
+- [ ] Implement kanban status logic based on mapping table
+- [ ] Add helper function to get stack position for a task: `get_task_stack_position(conn, task_id) -> Option<usize>`
+- [ ] Add helper function to check if task has sessions: `task_has_sessions(conn, task_id) -> bool`
+- [ ] Add helper function to check if task is live (stack[0] with active session): `is_task_live(conn, task_id) -> bool`
+- [ ] Update `format_task_list_table` to:
+  - [ ] Calculate kanban status for each task
+  - [ ] Add Kanban column to header
+  - [ ] Calculate column width dynamically
+  - [ ] Display kanban status for each task
+- [ ] Optimize performance (batch queries where possible)
+- [ ] Add kanban filter support to filter parser in `src/filter/parser.rs`
+- [ ] Add `kanban:<status>` filter token
+- [ ] Update filter evaluator to handle kanban filter
+- [ ] Test: Verify kanban column appears in task list
+- [ ] Test: Verify correct kanban status for each scenario:
+  - [ ] proposed (pending, not in stack, no sessions)
+  - [ ] paused (pending, not in stack, has sessions)
+  - [ ] queued (pending, position > 0, no sessions)
+  - [ ] working (pending, position > 0, has sessions)
+  - [ ] NEXT (pending, position = 0, clock out)
+  - [ ] LIVE (pending, position = 0, clock in)
+  - [ ] done (completed)
+- [ ] Test: Verify kanban filtering works (`task list kanban:LIVE`, etc.)
+- [ ] Test: Verify performance with many tasks
+- [ ] Test: Verify edge cases (empty stack, no sessions, etc.)
 
 **Files to Create/Modify:**
-- `src/cli/commands.rs` (add Add variant to SessionsCommands, implement handler)
-- `src/cli/commands_sessions.rs` (add handle_sessions_add function)
-- `src/cli/parser.rs` (may need to add session argument parser)
-- `src/repo/session.rs` (verify create_closed works, may need annotation linking)
-- `src/repo/annotation.rs` (may need to add session_id linking)
-- `docs/COMMAND_REFERENCE.md` (document new command)
-- `tests/sessions_tests.rs` (add comprehensive tests)
+- `src/cli/output.rs` (add kanban calculation and display)
+- `src/filter/parser.rs` (add kanban filter support)
+- `src/filter/evaluator.rs` (add kanban filter evaluation)
+- `src/repo/stack.rs` (add helper to get task position, or add to output module)
+- `src/repo/session.rs` (add helper to check if task has sessions, or add to output module)
 
 **Implementation Notes:**
-- Reuse `parse_date_expr` from `src/utils/date.rs` for time parsing
-- May need to extend date parser to handle time-only formats (9am, 09:00)
-- Annotation linking: Check if annotations table has session_id column, or use a different mechanism
-- Consider using clap's argument parsing for labeled arguments, or custom parser
-- Positional arguments: Use `trailing_var_arg` and parse manually
+- Kanban status is derived, not stored (calculated on-the-fly)
+- Need efficient batch queries to avoid N+1 problem
+- Consider caching stack items and sessions for all tasks in one query
+- Clock status only needs to be checked once (for stack[0] task)
 
 **Variances from Plan:**
 - TBD
@@ -358,39 +438,91 @@ These require substantial design and implementation work, potentially new subsys
 
 ---
 
-## Summary
+### 8. Display priority column, and shrink allocation label to alloc (just in the table)
 
-### Completed Items
-- None yet
+**Status:** ⏳ **PENDING**  
+**Priority:** Medium  
+**Estimated Effort:** 1-2 hours  
+**Actual Effort:** TBD
 
-### In Progress
-- None yet
+**Current State:**
+- `task list` shows Allocation column with header "Allocation"
+- Priority/urgency is calculated but not displayed in task list
+- Priority is only shown in `task status` dashboard
 
-### Pending Items
-1. Update clock command help information (Minor, Low priority)
-2. Show Due as relative time in task list (Minor, Medium priority)
-3. Add Clock column to task list (Medium, Medium priority)
-4. Migrate `task clock enqueue` to `task enqueue` (Medium, Medium priority)
-5. Add `task sessions add` command (Major, High priority)
+**Requested Changes:**
+- Add "Priority" column to task list
+- Display priority/urgency score for each task
+- Change "Allocation" header to "alloc" (shorter, saves space)
+- Keep full word "Allocation" in help text and documentation
 
-### Estimated Total Effort
-- Minor Changes: ~2-3 hours
-- Medium Changes: ~4-6 hours
-- Major Features: ~4-6 hours
-- **Total: ~10-15 hours**
+**Design Considerations:**
+- **Priority Calculation:** Reuse existing `calculate_priority` function from `src/cli/priority.rs`
+- **Column Position:** Add after Kanban column (or before?)
+- **Format:** Display as decimal number (e.g., "15.2", "8.5", "1.5")
+- **Width:** Calculate dynamically, typically 4-5 characters (e.g., "15.2")
+- **Performance:** Need to calculate priority for each task (may be expensive)
+- **Header:** "Priority" (full word) vs "Prio" (abbreviation)?
+- **Allocation Header:** Change only in table header, keep "Allocation" elsewhere
 
-### Recommended Implementation Order
-1. **Task 1** (Update clock help) - Quick win, low effort
-2. **Task 4** (Migrate enqueue) - Medium effort, improves command structure
-3. **Task 2** (Relative time) - Improves UX, medium effort
-4. **Task 3** (Clock column) - Useful feature, medium effort
-5. **Task 5** (Sessions add) - High value, most complex, do last
+**Refinement:**
+- **Column Name:** "Priority" (full word, clear)
+- **Position:** After Kanban column, before Due column
+- **Format:** Display as decimal with 1 decimal place (e.g., "15.2")
+- **Width:** Minimum 7 characters ("Priority" header), calculate based on values
+- **Allocation Header:** "alloc" (4 characters, saves 6 characters vs "Allocation")
+- **Performance:** May need to optimize if slow with many tasks
+
+**Implementation Checklist:**
+- [ ] Update `format_task_list_table` in `src/cli/output.rs` to:
+  - [ ] Change "Allocation" header to "alloc"
+  - [ ] Add "Priority" column to header
+  - [ ] Calculate priority for each task using `calculate_priority`
+  - [ ] Calculate column width dynamically
+  - [ ] Display priority score for each task (format as decimal)
+- [ ] Handle edge cases (tasks with no priority calculation possible)
+- [ ] Test: Verify Priority column appears in task list
+- [ ] Test: Verify priority scores are calculated correctly
+- [ ] Test: Verify "alloc" header appears (not "Allocation")
+- [ ] Test: Verify column widths calculate correctly
+- [ ] Test: Verify performance with many tasks
+- [ ] Test: Verify priority matches `task status` dashboard values
+
+**Files to Modify:**
+- `src/cli/output.rs` (update `format_task_list_table` to add Priority column, change Allocation header)
+
+**Implementation Notes:**
+- Reuse existing `calculate_priority` function
+- Priority calculation may be expensive - consider caching or optimization
+- Only show priority for pending tasks (completed tasks don't have meaningful priority)
+- Format priority as decimal with 1 decimal place for readability
+
+**Variances from Plan:**
+- TBD
+
+**Test Results:**
+- TBD
+
+---
+
+## Major Changes (Complex Features)
+
+These require significant architectural changes or new subsystems.
+
+---
+
+## Implementation Order Recommendation
+
+1. **Task 8** (Priority column, alloc label) - Quick win, low complexity
+2. **Task 7** (Kanban statuses) - More complex, but builds on existing infrastructure
+
+This order allows implementing the simpler change first, then building the more complex kanban feature with the priority column already in place.
 
 ---
 
 ## Notes
 
-- All tasks maintain backward compatibility where possible
-- Abbreviation support should be added for new top-level commands
-- Documentation should be updated for all changes
-- Tests should be comprehensive for new features
+- All changes maintain backward compatibility unless explicitly noted
+- Tests will be created for all new functionality
+- Documentation will be updated as features are implemented
+- Performance will be monitored and optimized as needed

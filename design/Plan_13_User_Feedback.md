@@ -10,3 +10,27 @@ clock    start and stop timing or manage clock timing queue
 ### 4. Add Clock (or similarly titled) column to task list showing the amount of time elapsed on that task
 
 ### 5. In task list show Due as relative time
+
+### 6. Fix --clock-in flag so that it works in the following cases:
+
+- Clock running but adding new task
+- Clock not running yet but adding new task
+
+In either case, adding the flag should move the task to the top of the clock stack and toggle the clock in if not already
+
+### 7. Build in derived statuses called "kanban" to task list views and for filtering
+
+Proposed mapping:
+| Kanban    | Status    | Clock stack      | Sessions list                  | Clock status |
+| --------- | --------- | ---------------- | ------------------------------ | ------------ |
+| proposed  | pending   | Not in stack     | Task id not in sessions list   | N/A          |
+| paused    | pending   | Not in stack     | Task id in sessions list       | N/A          |
+| queued    | pending   | Position > 0     | Task id not in sessions list   | N/A          |
+| working   | pending   | Position > 0     | Task id in sessions list       | N/A          |
+| NEXT      | pending   | Position = 0     | N/A                            | Out          |
+| LIVE      | pending   | Position = 0     | (Task id in sessions list)     | In           |
+| done      | completed | (ineligible)     | N/A                            | N/A          |
+
+Status has two primative states: pending, completed. Now we will incorporate a "kanban" column that will be shown by default in the task list and will ideally be available for filtering.
+
+### 8. Display priority column, and shrink allocation label to alloc (just in the table)
