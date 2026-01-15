@@ -886,6 +886,7 @@ fn handle_task_list(filter_args: Vec<String>, json: bool, relative: bool) -> Res
             request.filter_tokens = view.filter_tokens;
             request.sort_columns = view.sort_columns;
             request.group_columns = view.group_columns;
+            request.hide_columns = view.hide_columns;
         }
     }
     
@@ -897,6 +898,7 @@ fn handle_task_list(filter_args: Vec<String>, json: bool, relative: bool) -> Res
             &request.filter_tokens,
             &request.sort_columns,
             &request.group_columns,
+            &request.hide_columns,
         )?;
         println!("Saved view '{}'.", alias);
     }

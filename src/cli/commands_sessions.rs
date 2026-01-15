@@ -199,6 +199,7 @@ struct ListRequest {
     filter_tokens: Vec<String>,
     sort_columns: Vec<String>,
     group_columns: Vec<String>,
+    hide_columns: Vec<String>,
     save_alias: Option<String>,
 }
 
@@ -206,6 +207,7 @@ fn parse_list_request(tokens: Vec<String>) -> ListRequest {
     let mut filter_tokens = Vec::new();
     let mut sort_columns = Vec::new();
     let mut group_columns = Vec::new();
+    let mut hide_columns = Vec::new();
     let mut save_alias: Option<String> = None;
     
     for token in tokens {
@@ -213,6 +215,8 @@ fn parse_list_request(tokens: Vec<String>) -> ListRequest {
             sort_columns.extend(spec.split(',').filter(|s| !s.is_empty()).map(|s| s.to_string()));
         } else if let Some(spec) = token.strip_prefix("group:") {
             group_columns.extend(spec.split(',').filter(|s| !s.is_empty()).map(|s| s.to_string()));
+        } else if let Some(spec) = token.strip_prefix("hide:") {
+            hide_columns.extend(spec.split(',').filter(|s| !s.is_empty()).map(|s| s.to_string()));
         } else if let Some(name) = token.strip_prefix("alias:") {
             if save_alias.is_none() && !name.is_empty() {
                 save_alias = Some(name.to_string());
@@ -226,6 +230,7 @@ fn parse_list_request(tokens: Vec<String>) -> ListRequest {
         filter_tokens,
         sort_columns,
         group_columns,
+        hide_columns,
         save_alias,
     }
 }
@@ -532,6 +537,7 @@ pub fn handle_task_sessions_list_with_filter(filter_args: Vec<String>, json: boo
             request.filter_tokens = view.filter_tokens;
             request.sort_columns = view.sort_columns;
             request.group_columns = view.group_columns;
+            request.hide_columns = view.hide_columns;
         }
     }
     
@@ -543,6 +549,7 @@ pub fn handle_task_sessions_list_with_filter(filter_args: Vec<String>, json: boo
             &request.filter_tokens,
             &request.sort_columns,
             &request.group_columns,
+            &request.hide_columns,
         )?;
         println!("Saved view '{}'.", alias);
     }
