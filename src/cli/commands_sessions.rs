@@ -1374,8 +1374,8 @@ pub fn handle_sessions_report(start: Option<String>, end: Option<String>) -> Res
     let period_days = ((period_end - period_start) / 86400).max(1) + 1;
     
     // Print report
-    let width = 80;
-    let project_width = 40;
+    let width = 50;
+    let project_width = 25;
     
     println!();
     println!("Time Report: {} to {}", start_date, end_date);
