@@ -455,10 +455,30 @@ pub fn format_task_list_table(
         .sum::<usize>() + (columns.len().saturating_sub(1));
     output.push_str(&format!("{}\n", "-".repeat(total_width)));
     
-    // Apply sorting
-    if !options.sort_columns.is_empty() {
+    // Apply sorting (ensure grouped rows are contiguous by sorting on group columns first)
+    let mut effective_sort_columns = options.group_columns.clone();
+    for sort_col in &options.sort_columns {
+        if !effective_sort_columns.iter().any(|c| c.eq_ignore_ascii_case(sort_col)) {
+            effective_sort_columns.push(sort_col.clone());
+        }
+    }
+    if !effective_sort_columns.is_empty() {
+        let group_columns_parsed: Vec<TaskListColumn> = options.group_columns.iter()
+            .filter_map(|name| parse_task_column(name))
+            .collect();
         rows.sort_by(|a, b| {
-            for col_name in &options.sort_columns {
+            if !group_columns_parsed.is_empty() {
+                let a_key: Vec<String> = group_columns_parsed.iter()
+                    .map(|column| normalize_group_value(*column, a.values.get(column).map(String::as_str).unwrap_or_default()))
+                    .collect();
+                let b_key: Vec<String> = group_columns_parsed.iter()
+                    .map(|column| normalize_group_value(*column, b.values.get(column).map(String::as_str).unwrap_or_default()))
+                    .collect();
+                if a_key != b_key {
+                    return a_key.cmp(&b_key);
+                }
+            }
+            for col_name in &effective_sort_columns {
                 if let Some(column) = parse_task_column(col_name) {
                     let ordering = compare_sort_values(
                         a.sort_values.get(&column).unwrap_or(&None),
@@ -474,21 +494,69 @@ pub fn format_task_list_table(
     }
     
     // Build rows with optional grouping
-    let mut last_group: Option<Vec<String>> = None;
-    for row in &rows {
-        if !options.group_columns.is_empty() {
-            let group_values: Vec<String> = options.group_columns.iter()
-                .filter_map(|name| parse_task_column(name))
-                .map(|column| row.values.get(&column).cloned().unwrap_or_default())
+    if options.group_columns.is_empty() {
+        for row in &rows {
+            for (idx, column) in columns.iter().enumerate() {
+                let width = *column_widths.get(column).unwrap_or(&4);
+                let raw_value = row.values.get(column).cloned().unwrap_or_default();
+                let value = if *column == TaskListColumn::Description && raw_value.len() > width {
+                    format!("{}..", &raw_value[..width.saturating_sub(2)])
+                } else if raw_value.len() > width {
+                    format!("{}..", &raw_value[..width.saturating_sub(2)])
+                } else {
+                    raw_value
+                };
+                if idx == columns.len() - 1 {
+                    output.push_str(&format!("{:<width$}\n", value, width = width));
+                } else {
+                    output.push_str(&format!("{:<width$} ", value, width = width));
+                }
+            }
+        }
+    } else {
+        let group_columns_parsed: Vec<TaskListColumn> = options.group_columns.iter()
+            .filter_map(|name| parse_task_column(name))
+            .collect();
+        let mut groups: Vec<(Vec<String>, Vec<&TaskRow>)> = Vec::new();
+        let mut group_index: HashMap<String, usize> = HashMap::new();
+        for row in &rows {
+            let group_values: Vec<String> = group_columns_parsed.iter()
+                .map(|column| {
+                    let value = row.values.get(column).cloned().unwrap_or_default();
+                    normalize_group_value(*column, &value)
+                })
                 .collect();
-            if last_group.as_ref() != Some(&group_values) {
-                output.push_str(&format!("{}\n", "-".repeat(total_width)));
+            let group_key = group_values.join("\u{1f}");
+            if let Some(existing_idx) = group_index.get(&group_key).copied() {
+                groups[existing_idx].1.push(row);
+            } else {
+                groups.push((group_values, vec![row]));
+                group_index.insert(group_key, groups.len() - 1);
+            }
+        }
+        
+        for (group_values, group_rows) in groups {
+            // Build group label from group values (joined with ":")
+            let group_label = group_values.iter()
+                .filter(|v| !v.is_empty())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(":");
+            
+            // Embed group label at the end of the divider line
+            let dash_count = total_width.saturating_sub(group_label.len());
+            output.push_str(&format!("{}{}\n", "-".repeat(dash_count), group_label));
+            
+            for row in group_rows {
                 for (idx, column) in columns.iter().enumerate() {
                     let width = *column_widths.get(column).unwrap_or(&4);
-                    let value = if options.group_columns.iter().any(|name| parse_task_column(name) == Some(*column)) {
-                        row.values.get(column).cloned().unwrap_or_default()
+                    let raw_value = row.values.get(column).cloned().unwrap_or_default();
+                    let value = if *column == TaskListColumn::Description && raw_value.len() > width {
+                        format!("{}..", &raw_value[..width.saturating_sub(2)])
+                    } else if raw_value.len() > width {
+                        format!("{}..", &raw_value[..width.saturating_sub(2)])
                     } else {
-                        String::new()
+                        raw_value
                     };
                     if idx == columns.len() - 1 {
                         output.push_str(&format!("{:<width$}\n", value, width = width));
@@ -496,29 +564,19 @@ pub fn format_task_list_table(
                         output.push_str(&format!("{:<width$} ", value, width = width));
                     }
                 }
-                last_group = Some(group_values);
-            }
-        }
-        
-        for (idx, column) in columns.iter().enumerate() {
-            let width = *column_widths.get(column).unwrap_or(&4);
-            let raw_value = row.values.get(column).cloned().unwrap_or_default();
-            let value = if *column == TaskListColumn::Description && raw_value.len() > width {
-                format!("{}..", &raw_value[..width.saturating_sub(2)])
-            } else if raw_value.len() > width {
-                format!("{}..", &raw_value[..width.saturating_sub(2)])
-            } else {
-                raw_value
-            };
-            if idx == columns.len() - 1 {
-                output.push_str(&format!("{:<width$}\n", value, width = width));
-            } else {
-                output.push_str(&format!("{:<width$} ", value, width = width));
             }
         }
     }
     
     Ok(output)
+}
+
+fn normalize_group_value(column: TaskListColumn, value: &str) -> String {
+    let trimmed = value.trim();
+    match column {
+        TaskListColumn::Status | TaskListColumn::Kanban => trimmed.to_lowercase(),
+        _ => trimmed.to_string(),
+    }
 }
 
 /// Format stack display
