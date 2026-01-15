@@ -4,7 +4,7 @@ use crate::db::DbConnection;
 use crate::models::Task;
 use crate::repo::{ProjectRepo, TaskRepo, StackRepo, SessionRepo, AnnotationRepo, TemplateRepo, ViewRepo};
 use crate::cli::parser::{parse_task_args, join_description};
-use crate::cli::commands_sessions::{handle_task_sessions_list_with_filter, handle_task_sessions_show_with_filter, handle_sessions_modify, handle_sessions_delete, handle_sessions_add};
+use crate::cli::commands_sessions::{handle_task_sessions_list_with_filter, handle_task_sessions_show_with_filter, handle_sessions_modify, handle_sessions_delete, handle_sessions_add, handle_sessions_report};
 use crate::cli::output::{format_task_list_table, format_task_summary, format_clock_list_table, TaskListOptions};
 use crate::cli::error::{user_error, validate_task_id, validate_project_name, parse_task_id_spec};
 use crate::utils::{parse_date_expr, parse_duration, fuzzy};
@@ -256,6 +256,15 @@ pub enum SessionsCommands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Generate a time report summarizing hours by project
+    Report {
+        /// Start date/time for report period (e.g., "2024-01-01", "-7d")
+        #[arg(value_name = "START", allow_hyphen_values = true)]
+        start: Option<String>,
+        /// End date/time for report period (defaults to now)
+        #[arg(value_name = "END", allow_hyphen_values = true)]
+        end: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -479,6 +488,9 @@ fn handle_command(cli: Cli) -> Result<()> {
                 }
                 SessionsCommands::Add { args } => {
                     handle_sessions_add(args)
+                }
+                SessionsCommands::Report { start, end } => {
+                    handle_sessions_report(start, end)
                 }
             }
         }

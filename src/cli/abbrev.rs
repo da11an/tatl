@@ -48,7 +48,7 @@ pub const RECUR_COMMANDS: &[&str] = &[
 
 /// Sessions subcommands
 pub const SESSIONS_COMMANDS: &[&str] = &[
-    "list", "show"
+    "list", "show", "modify", "delete", "add", "report"
 ];
 
 /// Task subcommands (used with task <id> <subcommand> pattern)

@@ -583,3 +583,115 @@ fn test_sessions_delete_running_session() {
     
     drop(temp_dir);
 }
+
+// ============================================================================
+// Time Report Tests
+// ============================================================================
+
+#[test]
+fn test_sessions_report_all_time() {
+    let (temp_dir, _guard) = setup_test_env();
+    
+    // Create task and add a session
+    get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["sessions", "add", "1", "2026-01-14T10:00", "2026-01-14T12:00"]).assert().success();
+    
+    // Run report (all time)
+    let output = get_task_cmd(&temp_dir).args(&["sessions", "report"]).assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    
+    // Should show time report header and totals
+    assert!(stdout.contains("Time Report:"), "Should have Time Report header");
+    assert!(stdout.contains("TOTAL"), "Should have TOTAL line");
+    assert!(stdout.contains("2h 00m"), "Should show 2 hours logged");
+    assert!(stdout.contains("100.0%"), "Should show 100%");
+    
+    drop(temp_dir);
+}
+
+#[test]
+fn test_sessions_report_date_range() {
+    let (temp_dir, _guard) = setup_test_env();
+    
+    // Create task and add sessions on different days
+    get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["sessions", "add", "1", "2026-01-10T10:00", "2026-01-10T12:00"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["sessions", "add", "1", "2026-01-15T10:00", "2026-01-15T11:00"]).assert().success();
+    
+    // Run report for a specific date range that includes only the first session
+    let output = get_task_cmd(&temp_dir).args(&["sessions", "report", "2026-01-10", "2026-01-11"]).assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    
+    // Should show only the first session (2h)
+    assert!(stdout.contains("2h 00m"), "Should show 2 hours");
+    assert!(stdout.contains("Sessions: 1"), "Should show 1 session");
+    
+    drop(temp_dir);
+}
+
+#[test]
+fn test_sessions_report_nested_projects() {
+    let (temp_dir, _guard) = setup_test_env();
+    
+    // Create tasks with nested projects
+    get_task_cmd(&temp_dir).args(&["add", "Frontend work", "project:client.web.frontend"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Backend work", "project:client.web.backend"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Mobile work", "project:client.mobile"]).assert().success();
+    
+    // Add sessions
+    get_task_cmd(&temp_dir).args(&["sessions", "add", "1", "2026-01-14T10:00", "2026-01-14T12:00"]).assert().success();  // 2h frontend
+    get_task_cmd(&temp_dir).args(&["sessions", "add", "2", "2026-01-14T13:00", "2026-01-14T14:00"]).assert().success();  // 1h backend
+    get_task_cmd(&temp_dir).args(&["sessions", "add", "3", "2026-01-14T14:00", "2026-01-14T15:00"]).assert().success();  // 1h mobile
+    
+    // Run report
+    let output = get_task_cmd(&temp_dir).args(&["sessions", "report"]).assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    
+    // Should show hierarchical structure
+    assert!(stdout.contains("client"), "Should show client top-level");
+    assert!(stdout.contains("web"), "Should show web sub-project");
+    assert!(stdout.contains("frontend"), "Should show frontend");
+    assert!(stdout.contains("backend"), "Should show backend");
+    assert!(stdout.contains("mobile"), "Should show mobile");
+    
+    // Total should be 4 hours
+    assert!(stdout.contains("4h 00m"), "Total should be 4 hours");
+    
+    drop(temp_dir);
+}
+
+#[test]
+fn test_sessions_report_no_sessions() {
+    let (temp_dir, _guard) = setup_test_env();
+    
+    // Just create a task with no sessions
+    get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
+    
+    // Run report
+    let output = get_task_cmd(&temp_dir).args(&["sessions", "report"]).assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    
+    // Should indicate no sessions
+    assert!(stdout.contains("No sessions found"), "Should indicate no sessions");
+    
+    drop(temp_dir);
+}
+
+#[test]
+fn test_sessions_report_with_relative_dates() {
+    let (temp_dir, _guard) = setup_test_env();
+    
+    // Create task and session
+    get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["sessions", "add", "1", "2026-01-14T10:00", "2026-01-14T12:00"]).assert().success();
+    
+    // Run report with relative dates
+    let output = get_task_cmd(&temp_dir).args(&["sessions", "report", "-30d", "today"]).assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    
+    // Should show the session
+    assert!(stdout.contains("Time Report:"), "Should have report header");
+    assert!(stdout.contains("TOTAL"), "Should have total");
+    
+    drop(temp_dir);
+}

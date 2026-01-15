@@ -1123,3 +1123,287 @@ pub fn handle_sessions_add(args: Vec<String>) -> Result<()> {
     
     Ok(())
 }
+
+// ============================================================================
+// Time Report
+// ============================================================================
+
+use std::collections::BTreeMap;
+
+/// Node in the project hierarchy tree for time reporting
+#[derive(Debug, Clone)]
+struct ProjectNode {
+    name: String,           // Just this segment (e.g., "frontend")
+    full_path: String,      // Full path (e.g., "client.projectA.frontend")
+    direct_secs: i64,       // Time from sessions directly on this project
+    total_secs: i64,        // Direct + all children (computed after tree is built)
+    children: BTreeMap<String, ProjectNode>,
+}
+
+impl ProjectNode {
+    fn new(name: &str, full_path: &str) -> Self {
+        ProjectNode {
+            name: name.to_string(),
+            full_path: full_path.to_string(),
+            direct_secs: 0,
+            total_secs: 0,
+            children: BTreeMap::new(),
+        }
+    }
+    
+    /// Recursively compute total_secs from direct_secs + children totals
+    fn compute_totals(&mut self) {
+        for child in self.children.values_mut() {
+            child.compute_totals();
+        }
+        let children_sum: i64 = self.children.values().map(|c| c.total_secs).sum();
+        self.total_secs = self.direct_secs + children_sum;
+    }
+}
+
+/// Calculate session duration within a given period
+fn session_duration_in_period(session: &Session, period_start: i64, period_end: i64) -> i64 {
+    let session_start = session.start_ts.max(period_start);
+    let now = chrono::Utc::now().timestamp();
+    let session_end = session.end_ts.unwrap_or(now).min(period_end);
+    
+    if session_start >= session_end {
+        0
+    } else {
+        session_end - session_start
+    }
+}
+
+/// Format duration as "Xh Ym" for readability
+fn format_duration_hm(secs: i64) -> String {
+    let hours = secs / 3600;
+    let minutes = (secs % 3600) / 60;
+    format!("{}h {:02}m", hours, minutes)
+}
+
+/// Format percentage with one decimal place
+fn format_percentage(part_secs: i64, total_secs: i64) -> String {
+    if total_secs == 0 {
+        "0.0%".to_string()
+    } else {
+        let pct = (part_secs as f64 / total_secs as f64) * 100.0;
+        format!("{:.1}%", pct)
+    }
+}
+
+/// Build project hierarchy tree from session data
+fn build_project_tree(
+    conn: &Connection,
+    sessions: &[Session],
+    period_start: i64,
+    period_end: i64,
+) -> (BTreeMap<String, ProjectNode>, i64) {
+    let mut roots: BTreeMap<String, ProjectNode> = BTreeMap::new();
+    let mut no_project_secs: i64 = 0;
+    
+    // Group sessions by task, then get project for each task
+    let mut task_projects: std::collections::HashMap<i64, Option<String>> = std::collections::HashMap::new();
+    
+    for session in sessions {
+        let duration = session_duration_in_period(session, period_start, period_end);
+        if duration == 0 {
+            continue;
+        }
+        
+        // Get project for this task (cache to avoid repeated lookups)
+        let project_name = task_projects.entry(session.task_id).or_insert_with(|| {
+            if let Ok(Some(task)) = TaskRepo::get_by_id(conn, session.task_id) {
+                task.project_id.and_then(|pid| {
+                    crate::repo::ProjectRepo::get_by_id(conn, pid)
+                        .ok()
+                        .flatten()
+                        .map(|p| p.name)
+                })
+            } else {
+                None
+            }
+        });
+        
+        match project_name {
+            Some(proj_name) => {
+                // Insert into hierarchy
+                let parts: Vec<&str> = proj_name.split('.').collect();
+                insert_into_tree(&mut roots, &parts, duration);
+            }
+            None => {
+                no_project_secs += duration;
+            }
+        }
+    }
+    
+    // Compute totals for all nodes
+    for node in roots.values_mut() {
+        node.compute_totals();
+    }
+    
+    (roots, no_project_secs)
+}
+
+/// Insert time into the project hierarchy tree
+fn insert_into_tree(roots: &mut BTreeMap<String, ProjectNode>, parts: &[&str], duration: i64) {
+    if parts.is_empty() {
+        return;
+    }
+    
+    let first = parts[0];
+    let full_path = parts.join(".");
+    
+    // Get or create root node
+    let root = roots.entry(first.to_string()).or_insert_with(|| {
+        ProjectNode::new(first, first)
+    });
+    
+    if parts.len() == 1 {
+        // This is the target node - add direct time
+        root.direct_secs += duration;
+    } else {
+        // Recurse into children
+        insert_into_children(root, &parts[1..], &full_path, duration);
+    }
+}
+
+/// Recursively insert into child nodes
+fn insert_into_children(parent: &mut ProjectNode, parts: &[&str], full_path: &str, duration: i64) {
+    if parts.is_empty() {
+        return;
+    }
+    
+    let first = parts[0];
+    // Build the full path for this node
+    let child_path = if parent.full_path.is_empty() {
+        first.to_string()
+    } else {
+        format!("{}.{}", parent.full_path, first)
+    };
+    
+    let child = parent.children.entry(first.to_string()).or_insert_with(|| {
+        ProjectNode::new(first, &child_path)
+    });
+    
+    if parts.len() == 1 {
+        // This is the target node
+        child.direct_secs += duration;
+    } else {
+        // Keep going deeper
+        insert_into_children(child, &parts[1..], full_path, duration);
+    }
+}
+
+/// Print project tree recursively with indentation
+fn print_project_tree(
+    node: &ProjectNode,
+    depth: usize,
+    total_secs: i64,
+    project_width: usize,
+) {
+    let indent = "  ".repeat(depth);
+    let name_display = format!("{}{}", indent, node.name);
+    let time_str = format_duration_hm(node.total_secs);
+    let pct_str = format_percentage(node.total_secs, total_secs);
+    
+    println!("{:<width$} {:>12} {:>8}", name_display, time_str, pct_str, width = project_width);
+    
+    for child in node.children.values() {
+        print_project_tree(child, depth + 1, total_secs, project_width);
+    }
+}
+
+/// Handle the sessions report command
+pub fn handle_sessions_report(start: Option<String>, end: Option<String>) -> Result<()> {
+    let conn = DbConnection::connect()?;
+    let now = chrono::Utc::now().timestamp();
+    
+    // Parse start date
+    let period_start = if let Some(start_expr) = start {
+        parse_date_expr(&start_expr)
+            .context(format!("Invalid start date: {}", start_expr))?
+    } else {
+        // Find earliest session
+        let sessions = SessionRepo::list_all(&conn)?;
+        sessions.iter().map(|s| s.start_ts).min().unwrap_or(now)
+    };
+    
+    // Parse end date
+    let period_end = if let Some(end_expr) = end {
+        // Parse the date and use end of day
+        let ts = parse_date_expr(&end_expr)
+            .context(format!("Invalid end date: {}", end_expr))?;
+        // Add 24 hours minus 1 second to include the full day
+        ts + 86400 - 1
+    } else {
+        now
+    };
+    
+    // Get all sessions that overlap with the period
+    let all_sessions = SessionRepo::list_all(&conn)?;
+    let sessions: Vec<_> = all_sessions.into_iter()
+        .filter(|s| {
+            let session_end = s.end_ts.unwrap_or(now);
+            // Session overlaps if it starts before period ends and ends after period starts
+            s.start_ts < period_end && session_end > period_start
+        })
+        .collect();
+    
+    if sessions.is_empty() {
+        println!("No sessions found for this period.");
+        return Ok(());
+    }
+    
+    // Build project hierarchy tree
+    let (roots, no_project_secs) = build_project_tree(&conn, &sessions, period_start, period_end);
+    
+    // Calculate grand total
+    let project_total: i64 = roots.values().map(|n| n.total_secs).sum();
+    let grand_total = project_total + no_project_secs;
+    
+    // Format date range
+    let start_date = Local.timestamp_opt(period_start, 0)
+        .single()
+        .map(|dt| dt.format("%Y-%m-%d").to_string())
+        .unwrap_or_default();
+    let end_date = Local.timestamp_opt(period_end, 0)
+        .single()
+        .map(|dt| dt.format("%Y-%m-%d").to_string())
+        .unwrap_or_default();
+    
+    let period_days = ((period_end - period_start) / 86400).max(1);
+    
+    // Print report
+    let width = 80;
+    let project_width = 40;
+    
+    println!();
+    println!("Time Report: {} to {}", start_date, end_date);
+    println!("{}", "=".repeat(width));
+    println!();
+    println!("{:<width$} {:>12} {:>8}", "Project", "Time", "%", width = project_width);
+    println!("{}", "-".repeat(width));
+    
+    // Print project hierarchy
+    for node in roots.values() {
+        print_project_tree(node, 0, grand_total, project_width);
+    }
+    
+    // Print no-project time if any
+    if no_project_secs > 0 {
+        let time_str = format_duration_hm(no_project_secs);
+        let pct_str = format_percentage(no_project_secs, grand_total);
+        println!("{:<width$} {:>12} {:>8}", "(no project)", time_str, pct_str, width = project_width);
+    }
+    
+    println!("{}", "-".repeat(width));
+    
+    // Print grand total
+    let total_time_str = format_duration_hm(grand_total);
+    println!("{:<width$} {:>12} {:>8}", "TOTAL", total_time_str, "100.0%", width = project_width);
+    println!();
+    println!("Sessions: {} | Period: {} days", sessions.len(), period_days);
+    println!();
+    
+    Ok(())
+}
