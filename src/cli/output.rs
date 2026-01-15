@@ -515,22 +515,29 @@ pub fn format_task_list_table(
             effective_sort_specs.push(spec);
         }
     }
-    if !effective_sort_specs.is_empty() {
-        let group_columns_parsed: Vec<TaskListColumn> = options.group_columns.iter()
-            .filter_map(|name| parse_task_column(&parse_sort_spec(name).column))
-            .collect();
+    // Parse group columns as SortSpecs to support negation (descending order)
+    let group_specs: Vec<SortSpec> = options.group_columns.iter()
+        .map(|name| parse_sort_spec(name))
+        .collect();
+    let group_columns_parsed: Vec<TaskListColumn> = group_specs.iter()
+        .filter_map(|spec| parse_task_column(&spec.column))
+        .collect();
+    
+    if !effective_sort_specs.is_empty() || !group_specs.is_empty() {
         rows.sort_by(|a, b| {
-            if !group_columns_parsed.is_empty() {
-                let a_key: Vec<String> = group_columns_parsed.iter()
-                    .map(|column| normalize_group_value(*column, a.values.get(column).map(String::as_str).unwrap_or_default()))
-                    .collect();
-                let b_key: Vec<String> = group_columns_parsed.iter()
-                    .map(|column| normalize_group_value(*column, b.values.get(column).map(String::as_str).unwrap_or_default()))
-                    .collect();
-                if a_key != b_key {
-                    return a_key.cmp(&b_key);
+            // First sort by group columns (using ordinal sort values and respecting descending flag)
+            for (idx, spec) in group_specs.iter().enumerate() {
+                if let Some(column) = group_columns_parsed.get(idx) {
+                    let ordering = compare_sort_values(
+                        a.sort_values.get(column).unwrap_or(&None),
+                        b.sort_values.get(column).unwrap_or(&None),
+                    );
+                    if ordering != Ordering::Equal {
+                        return if spec.descending { ordering.reverse() } else { ordering };
+                    }
                 }
             }
+            // Then sort by explicit sort columns
             for spec in &effective_sort_specs {
                 if let Some(column) = parse_task_column(&spec.column) {
                     let ordering = compare_sort_values(
@@ -567,9 +574,7 @@ pub fn format_task_list_table(
             }
         }
     } else {
-        let group_columns_parsed: Vec<TaskListColumn> = options.group_columns.iter()
-            .filter_map(|name| parse_task_column(name))
-            .collect();
+        // Use the group_columns_parsed from earlier (already handles negation prefix)
         let mut groups: Vec<(Vec<String>, Vec<&TaskRow>)> = Vec::new();
         let mut group_index: HashMap<String, usize> = HashMap::new();
         for row in &rows {
