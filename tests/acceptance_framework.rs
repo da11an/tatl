@@ -5,6 +5,7 @@ use assert_cmd::Command;
 use tempfile::TempDir;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock, MutexGuard};
 use task_ninja::db::DbConnection;
 use task_ninja::repo::{TaskRepo, ProjectRepo, StackRepo, SessionRepo};
 use chrono::{Local, TimeZone};
@@ -15,11 +16,13 @@ pub struct AcceptanceTestContext {
     temp_dir: TempDir,
     db_path: PathBuf,
     conn: rusqlite::Connection,
+    _env_guard: MutexGuard<'static, ()>,
 }
 
 impl AcceptanceTestContext {
     /// Create a new test context with a fresh database
     pub fn new() -> Self {
+        let env_guard = lock_test_env();
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
         
@@ -39,6 +42,7 @@ impl AcceptanceTestContext {
             temp_dir,
             db_path,
             conn,
+            _env_guard: env_guard,
         }
     }
     
@@ -58,6 +62,14 @@ impl AcceptanceTestContext {
     pub fn temp_dir(&self) -> &TempDir {
         &self.temp_dir
     }
+}
+
+fn lock_test_env() -> MutexGuard<'static, ()> {
+    static TEST_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    TEST_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
 }
 
 impl Drop for AcceptanceTestContext {

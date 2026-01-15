@@ -13,8 +13,8 @@ use rusqlite::Connection;
 
 #[test]
 fn test_stack_roll_with_clock_atomic() {
-    // Test that stack roll + clock state change is atomic
-    // If clock state change fails, stack roll should rollback
+    // Test that clock next + clock state change is atomic
+    // If clock state change fails, clock next should rollback
     
     let ctx = AcceptanceTestContext::new();
     let given = GivenBuilder::new(&ctx);
@@ -24,12 +24,12 @@ fn test_stack_roll_with_clock_atomic() {
     given.stack_contains(&[task1, task2]);
     given.clock_running_on_task_since(task1, "2026-01-10T09:00");
     
-    // Roll stack - this should atomically:
+    // Move to next task - this should atomically:
     // 1. Roll stack (task2 becomes stack[0])
     // 2. Close task1 session
     // 3. Start task2 session
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["stack", "roll", "1"]);
+    when.execute_success(&["clock", "next", "1"]);
     
     // Verify atomicity: all changes should be applied together
     let then = ThenBuilder::new(&ctx, None);
@@ -42,8 +42,8 @@ fn test_stack_roll_with_clock_atomic() {
 }
 
 #[test]
-fn test_done_next_atomic() {
-    // Test that done --next is atomic:
+fn test_finish_next_atomic() {
+    // Test that finish --next is atomic:
     // 1. Close current session
     // 2. Complete task
     // 3. Remove from stack
@@ -60,7 +60,7 @@ fn test_done_next_atomic() {
     
     // Complete task1 with --next
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["done", "--next"]);
+    when.execute_success(&["finish", "--next"]);
     
     // Verify atomicity: all changes applied together
     let then = ThenBuilder::new(&ctx, None);
@@ -160,8 +160,8 @@ fn test_rollback_on_stack_operation_failure() {
 // ============================================================================
 
 #[test]
-fn test_no_partial_state_on_done_failure() {
-    // Test that if done operation fails partway through,
+fn test_no_partial_state_on_finish_failure() {
+    // Test that if finish operation fails partway through,
     // no partial state changes remain
     
     let ctx = AcceptanceTestContext::new();
@@ -178,12 +178,12 @@ fn test_no_partial_state_on_done_failure() {
     let initial_session = SessionRepo::get_open(ctx.db()).unwrap();
     
     // Try to complete non-existent task
-    // Note: The done command may succeed (exit code 0) even when task is not found,
+    // Note: The finish command may succeed (exit code 0) even when task is not found,
     // because it prints an error but doesn't fail the entire operation.
     // The important thing is that no state changes are made.
     let mut when = WhenBuilder::new(&ctx);
     // Execute the command - it may succeed or fail, but state should be unchanged
-    let result = ctx.cmd().args(&["999", "done"]).output().unwrap();
+    let result = ctx.cmd().args(&["999", "finish"]).output().unwrap();
     // Don't assert on exit code - just verify state is unchanged
     
     // Verify state is unchanged (regardless of exit code)
@@ -236,11 +236,11 @@ fn test_transaction_isolation() {
     let task2 = given.task_exists("Task 2");
     given.stack_contains(&[task1, task2]);
     
-    // Perform an atomic operation (stack roll)
+    // Perform an atomic operation (clock next)
     // This operation is wrapped in a transaction, ensuring all changes
     // are applied atomically
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["stack", "roll", "1"]);
+    when.execute_success(&["clock", "next", "1"]);
     
     // Verify the operation completed atomically
     let then = ThenBuilder::new(&ctx, None);

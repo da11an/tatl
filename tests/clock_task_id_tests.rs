@@ -2,9 +2,11 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use std::fs;
+mod test_env;
 
 /// Helper to create a temporary database and set it as the data location
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     
@@ -16,8 +18,7 @@ fn setup_test_env() -> TempDir {
     
     // Set HOME to temp_dir so the config file is found
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd(temp_dir: &TempDir) -> Command {
@@ -28,7 +29,7 @@ fn get_task_cmd(temp_dir: &TempDir) -> Command {
 
 #[test]
 fn test_task_clock_in_pushes_to_top() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create two tasks
     let mut cmd = get_task_cmd(&temp_dir);
@@ -39,7 +40,7 @@ fn test_task_clock_in_pushes_to_top() {
     
     // Enqueue task 1
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "enqueue", "1"]).assert().success();
+    cmd.args(&["enqueue", "1"]).assert().success();
     
     // Use task 2 clock in - should push task 2 to top
     let mut cmd = get_task_cmd(&temp_dir);
@@ -60,7 +61,7 @@ fn test_task_clock_in_pushes_to_top() {
 
 #[test]
 fn test_task_clock_in_closes_previous_session() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create two tasks
     let mut cmd = get_task_cmd(&temp_dir);
@@ -90,7 +91,7 @@ fn test_task_clock_in_closes_previous_session() {
 
 #[test]
 fn test_task_clock_in_same_timestamp() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create two tasks
     let mut cmd = get_task_cmd(&temp_dir);
@@ -119,7 +120,7 @@ fn test_task_clock_in_same_timestamp() {
 
 #[test]
 fn test_task_clock_in_with_start_time() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task
     let mut cmd = get_task_cmd(&temp_dir);
@@ -138,7 +139,7 @@ fn test_task_clock_in_with_start_time() {
 
 #[test]
 fn test_task_clock_in_default_now() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task
     let mut cmd = get_task_cmd(&temp_dir);
@@ -158,7 +159,7 @@ fn test_task_clock_in_default_now() {
 
 #[test]
 fn test_clock_in_positional_syntax() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task
     let mut cmd = get_task_cmd(&temp_dir);
@@ -178,14 +179,14 @@ fn test_clock_in_positional_syntax() {
 
 #[test]
 fn test_clock_in_no_args_uses_clock_zero() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task and enqueue
     let mut cmd = get_task_cmd(&temp_dir);
     cmd.args(&["add", "Test task"]).assert().success();
     
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "enqueue", "1"]).assert().success();
+    cmd.args(&["enqueue", "1"]).assert().success();
     
     // Clock in without args (should use clock[0])
     let mut cmd = get_task_cmd(&temp_dir);
@@ -201,7 +202,7 @@ fn test_clock_in_no_args_uses_clock_zero() {
 
 #[test]
 fn test_clock_in_positional_with_time() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task
     let mut cmd = get_task_cmd(&temp_dir);

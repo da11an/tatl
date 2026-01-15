@@ -2,9 +2,12 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use std::fs;
+use std::sync::MutexGuard;
+mod test_env;
 
 /// Helper to create a temporary database and set it as the data location
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     
@@ -17,7 +20,7 @@ fn setup_test_env() -> TempDir {
     // Set HOME to temp_dir so the config file is found
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
     
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd() -> Command {
@@ -26,7 +29,7 @@ fn get_task_cmd() -> Command {
 
 #[test]
 fn test_annotation_with_task_id() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create task
     let mut cmd = get_task_cmd();
@@ -42,7 +45,7 @@ fn test_annotation_with_task_id() {
 
 #[test]
 fn test_annotation_without_id_when_clocked_in() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create task and enqueue
     let mut cmd = get_task_cmd();
@@ -65,7 +68,7 @@ fn test_annotation_without_id_when_clocked_in() {
 
 #[test]
 fn test_annotation_without_id_when_not_clocked_in() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create task
     let mut cmd = get_task_cmd();
@@ -80,8 +83,46 @@ fn test_annotation_without_id_when_not_clocked_in() {
 }
 
 #[test]
+fn test_annotation_invalid_id_falls_back_to_live_task() {
+    let (_temp_dir, _guard) = setup_test_env();
+    
+    let mut cmd = get_task_cmd();
+    cmd.args(&["add", "test task"]).assert().success();
+    
+    let mut cmd = get_task_cmd();
+    cmd.args(&["1", "enqueue"]).assert().success();
+    
+    let mut cmd = get_task_cmd();
+    cmd.args(&["clock", "in"]).assert().success();
+    
+    let output = get_task_cmd()
+        .args(&["annotate", "999", "Fallback note"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(output).unwrap();
+    assert!(stdout.contains("task 1"));
+}
+
+#[test]
+fn test_annotation_invalid_id_without_clock_errors() {
+    let (_temp_dir, _guard) = setup_test_env();
+    
+    let mut cmd = get_task_cmd();
+    cmd.args(&["add", "test task"]).assert().success();
+    
+    let mut cmd = get_task_cmd();
+    cmd.args(&["annotate", "999", "No session"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Task 999 not found"));
+}
+
+#[test]
 fn test_annotation_session_linking() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create task and enqueue
     let mut cmd = get_task_cmd();
@@ -113,7 +154,7 @@ fn test_annotation_session_linking() {
 
 #[test]
 fn test_annotation_delete() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create task
     let mut cmd = get_task_cmd();

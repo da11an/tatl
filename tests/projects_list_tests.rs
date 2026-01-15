@@ -1,3 +1,4 @@
+mod test_env;
 // Tests for task projects list command
 
 use assert_cmd::Command;
@@ -6,7 +7,8 @@ use tempfile::TempDir;
 use std::fs;
 
 /// Helper to create a temporary database and set it as the data location
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     
@@ -15,8 +17,7 @@ fn setup_test_env() -> TempDir {
     fs::create_dir_all(&config_dir).unwrap();
     let config_file = config_dir.join("rc");
     fs::write(&config_file, format!("data.location={}\n", db_path.display())).unwrap();
-    
-    temp_dir
+    (temp_dir, guard)
 }
 
 /// Helper to create a new command with test environment
@@ -28,7 +29,7 @@ fn new_cmd(temp_dir: &TempDir) -> Command {
 
 #[test]
 fn test_projects_list_basic() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create some projects
     new_cmd(&temp_dir)
@@ -54,7 +55,7 @@ fn test_projects_list_basic() {
 
 #[test]
 fn test_projects_list_empty() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Test: task projects list with no projects
     new_cmd(&temp_dir)
@@ -66,7 +67,7 @@ fn test_projects_list_empty() {
 
 #[test]
 fn test_projects_list_json() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a project
     new_cmd(&temp_dir)
@@ -87,7 +88,7 @@ fn test_projects_list_json() {
 
 #[test]
 fn test_projects_list_archived() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create projects
     new_cmd(&temp_dir)
@@ -123,7 +124,7 @@ fn test_projects_list_archived() {
 
 #[test]
 fn test_projects_list_not_intercepted_by_filter_handler() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a project
     new_cmd(&temp_dir)

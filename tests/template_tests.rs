@@ -5,8 +5,10 @@ use std::fs;
 use task_ninja::db::DbConnection;
 use task_ninja::repo::{TaskRepo, TemplateRepo};
 use std::collections::HashMap;
+mod test_env;
 
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     let config_dir = temp_dir.path().join(".taskninja");
@@ -14,7 +16,7 @@ fn setup_test_env() -> TempDir {
     let config_file = config_dir.join("rc");
     fs::write(&config_file, format!("data.location={}\n", db_path.display())).unwrap();
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd() -> Command {
@@ -23,7 +25,7 @@ fn get_task_cmd() -> Command {
 
 #[test]
 fn test_template_create_and_get() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     let conn = DbConnection::connect().unwrap();
     
     let mut payload = HashMap::new();
@@ -41,7 +43,7 @@ fn test_template_create_and_get() {
 
 #[test]
 fn test_template_merge_attributes() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     let conn = DbConnection::connect().unwrap();
     
     // Create template
@@ -75,7 +77,7 @@ fn test_template_merge_attributes() {
 
 #[test]
 fn test_task_add_with_template() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a task with template (template will be auto-created from task attributes)
     // Note: We don't need a project for this test
@@ -95,7 +97,7 @@ fn test_task_add_with_template() {
 
 #[test]
 fn test_recur_with_template() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a template via task creation (without project to avoid project creation issues)
     get_task_cmd().args(&["add", "Template task", "template:meeting", "allocation:1h", "+meeting"]).assert().success();

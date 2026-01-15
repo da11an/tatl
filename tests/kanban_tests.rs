@@ -2,8 +2,10 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use std::fs;
+mod test_env;
 
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     let config_dir = temp_dir.path().join(".taskninja");
@@ -11,7 +13,7 @@ fn setup_test_env() -> TempDir {
     let config_file = config_dir.join("rc");
     fs::write(&config_file, format!("data.location={}\n", db_path.display())).unwrap();
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd(temp_dir: &TempDir) -> Command {
@@ -22,7 +24,7 @@ fn get_task_cmd(temp_dir: &TempDir) -> Command {
 
 #[test]
 fn test_kanban_column_appears_in_list() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a task
     get_task_cmd(&temp_dir).args(&["add", "Test task"]).assert().success();
@@ -36,7 +38,7 @@ fn test_kanban_column_appears_in_list() {
 
 #[test]
 fn test_kanban_status_proposed() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a task (not in stack, no sessions)
     get_task_cmd(&temp_dir).args(&["add", "Proposed task"]).assert().success();
@@ -50,7 +52,7 @@ fn test_kanban_status_proposed() {
 
 #[test]
 fn test_kanban_status_queued() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create two tasks
     get_task_cmd(&temp_dir).args(&["add", "First task"]).assert().success();
@@ -77,7 +79,7 @@ fn test_kanban_status_queued() {
 
 #[test]
 fn test_kanban_status_next() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a task and add to stack (position 0)
     get_task_cmd(&temp_dir).args(&["add", "Next task"]).assert().success();
@@ -92,7 +94,7 @@ fn test_kanban_status_next() {
 
 #[test]
 fn test_kanban_status_live() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a task, add to stack, and clock in
     get_task_cmd(&temp_dir).args(&["add", "Live task"]).assert().success();
@@ -110,14 +112,35 @@ fn test_kanban_status_live() {
 }
 
 #[test]
+fn test_kanban_status_next_when_live_in_front() {
+    let (temp_dir, _guard) = setup_test_env();
+    
+    // Create two tasks, enqueue both, and clock in
+    get_task_cmd(&temp_dir).args(&["add", "Live task"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Next task"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
+    
+    let output = get_task_cmd(&temp_dir).args(&["list"]).assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    assert!(stdout.lines().any(|l| l.contains("Live task") && l.contains("LIVE")));
+    assert!(stdout.lines().any(|l| l.contains("Next task") && l.contains("NEXT")));
+    
+    // Clean up
+    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    drop(temp_dir);
+}
+
+#[test]
 fn test_kanban_status_done() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a task, add to stack, clock in, complete
     get_task_cmd(&temp_dir).args(&["add", "Done task"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["done", "1", "--yes"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["finish", "1", "--yes"]).assert().success();
     
     // Should show as "done"
     get_task_cmd(&temp_dir).args(&["list"]).assert().success()
@@ -128,7 +151,7 @@ fn test_kanban_status_done() {
 
 #[test]
 fn test_kanban_filter_proposed() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create two tasks - one proposed, one in stack
     get_task_cmd(&temp_dir).args(&["add", "Proposed task"]).assert().success();
@@ -147,7 +170,7 @@ fn test_kanban_filter_proposed() {
 
 #[test]
 fn test_kanban_filter_next() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a task and add to stack
     get_task_cmd(&temp_dir).args(&["add", "Next task"]).assert().success();
@@ -166,7 +189,7 @@ fn test_kanban_filter_next() {
 
 #[test]
 fn test_kanban_filter_live() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create two tasks - one live, one proposed
     get_task_cmd(&temp_dir).args(&["add", "Live task"]).assert().success();
@@ -189,14 +212,14 @@ fn test_kanban_filter_live() {
 
 #[test]
 fn test_kanban_filter_done() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create two tasks - one completed, one pending
     get_task_cmd(&temp_dir).args(&["add", "Done task"]).assert().success();
     get_task_cmd(&temp_dir).args(&["add", "Pending task"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["done", "1", "--yes"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["finish", "1", "--yes"]).assert().success();
     
     // Filter by kanban:done should only show first task
     let output = get_task_cmd(&temp_dir).args(&["list", "kanban:done"]).assert().success();
@@ -210,7 +233,7 @@ fn test_kanban_filter_done() {
 
 #[test]
 fn test_kanban_filter_case_insensitive() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a task
     get_task_cmd(&temp_dir).args(&["add", "Test task"]).assert().success();
@@ -229,7 +252,7 @@ fn test_kanban_filter_case_insensitive() {
 
 #[test]
 fn test_kanban_status_paused() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a task, clock in, clock out, then remove from stack
     get_task_cmd(&temp_dir).args(&["add", "Paused task"]).assert().success();
@@ -252,7 +275,7 @@ fn test_kanban_status_paused() {
 
 #[test]
 fn test_kanban_status_working() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create two tasks
     get_task_cmd(&temp_dir).args(&["add", "Working task"]).assert().success();

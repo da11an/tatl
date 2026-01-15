@@ -3,9 +3,11 @@ use predicates::prelude::predicate;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use std::fs;
+mod test_env;
 
 /// Helper to create a temporary database and set it as the data location
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     
@@ -17,8 +19,7 @@ fn setup_test_env() -> TempDir {
     
     // Set HOME to temp_dir so the config file is found
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd(temp_dir: &TempDir) -> Command {
@@ -29,7 +30,7 @@ fn get_task_cmd(temp_dir: &TempDir) -> Command {
 
 #[test]
 fn test_add_with_new_project_prompt_yes() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Add task with new project, respond 'y' to prompt
     let mut cmd = get_task_cmd(&temp_dir);
@@ -57,7 +58,7 @@ fn test_add_with_new_project_prompt_yes() {
 
 #[test]
 fn test_add_with_new_project_prompt_no() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Add task with new project, respond 'n' to prompt
     let mut cmd = get_task_cmd(&temp_dir);
@@ -87,7 +88,7 @@ fn test_add_with_new_project_prompt_no() {
 
 #[test]
 fn test_add_with_new_project_prompt_cancel() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Add task with new project, respond 'c' to prompt
     let mut cmd = get_task_cmd(&temp_dir);
@@ -115,7 +116,7 @@ fn test_add_with_new_project_prompt_cancel() {
 
 #[test]
 fn test_add_with_new_project_prompt_default_yes() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Add task with new project, respond with empty line (default: yes, create project)
     let mut cmd = get_task_cmd(&temp_dir);
@@ -146,7 +147,7 @@ fn test_add_with_new_project_prompt_default_yes() {
 
 #[test]
 fn test_add_with_auto_create_project_flag() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Add task with --auto-create-project flag
     let mut cmd = get_task_cmd(&temp_dir);
@@ -173,7 +174,7 @@ fn test_add_with_auto_create_project_flag() {
 
 #[test]
 fn test_add_with_existing_project_no_prompt() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a project first
     let mut cmd = get_task_cmd(&temp_dir);
@@ -199,7 +200,7 @@ fn test_add_with_existing_project_no_prompt() {
 
 #[test]
 fn test_add_with_new_project_invalid_response() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Add task with new project, respond with invalid input
     let mut cmd = get_task_cmd(&temp_dir);
@@ -221,7 +222,7 @@ fn test_add_with_new_project_invalid_response() {
 
 #[test]
 fn test_add_with_auto_create_project_and_clock_in() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Add task with both --auto-create-project and --clock-in flags
     let mut cmd = get_task_cmd(&temp_dir);

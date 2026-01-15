@@ -1,3 +1,4 @@
+mod test_env;
 // Tests for fuzzy project matching (Item 1)
 
 use assert_cmd::Command;
@@ -6,7 +7,8 @@ use tempfile::TempDir;
 use std::fs;
 
 /// Helper to create a temporary database and set it as the data location
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     
@@ -15,8 +17,7 @@ fn setup_test_env() -> TempDir {
     fs::create_dir_all(&config_dir).unwrap();
     let config_file = config_dir.join("rc");
     fs::write(&config_file, format!("data.location={}\n", db_path.display())).unwrap();
-    
-    temp_dir
+    (temp_dir, guard)
 }
 
 /// Helper to create a new command with test environment
@@ -28,7 +29,7 @@ fn new_cmd(temp_dir: &TempDir) -> Command {
 
 #[test]
 fn test_project_not_found_no_matches() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Try to add task with non-existent project
     new_cmd(&temp_dir)
@@ -41,7 +42,7 @@ fn test_project_not_found_no_matches() {
 
 #[test]
 fn test_project_not_found_with_match() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a project
     new_cmd(&temp_dir)
@@ -60,7 +61,7 @@ fn test_project_not_found_with_match() {
 
 #[test]
 fn test_project_not_found_multiple_matches() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create multiple similar projects
     new_cmd(&temp_dir)
@@ -88,7 +89,7 @@ fn test_project_not_found_multiple_matches() {
 
 #[test]
 fn test_project_not_found_in_modify() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a project and task
     new_cmd(&temp_dir)
@@ -111,7 +112,7 @@ fn test_project_not_found_in_modify() {
 
 #[test]
 fn test_project_not_found_case_insensitive() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a project with lowercase
     new_cmd(&temp_dir)
@@ -135,7 +136,7 @@ fn test_project_not_found_case_insensitive() {
 
 #[test]
 fn test_project_not_found_substring_match() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create projects with "work" as substring
     new_cmd(&temp_dir)

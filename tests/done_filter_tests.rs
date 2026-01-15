@@ -2,9 +2,11 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use std::fs;
+mod test_env;
 
 /// Helper to create a temporary database and set it as the data location
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     
@@ -16,8 +18,7 @@ fn setup_test_env() -> TempDir {
     
     // Set HOME to temp_dir so the config file is found
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd() -> Command {
@@ -25,8 +26,8 @@ fn get_task_cmd() -> Command {
 }
 
 #[test]
-fn test_done_with_filter_single_match() {
-    let _temp_dir = setup_test_env();
+fn test_finish_with_filter_single_match() {
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create tasks
     let mut cmd = get_task_cmd();
@@ -39,17 +40,17 @@ fn test_done_with_filter_single_match() {
     let mut cmd = get_task_cmd();
     cmd.args(&["1", "clock", "in"]).assert().success();
     
-    // Complete Task 1 using filter
+    // Finish Task 1 using filter
     let mut cmd = get_task_cmd();
-    cmd.args(&["+urgent", "done"])
+    cmd.args(&["finish", "+urgent"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Completed task 1"));
+        .stdout(predicate::str::contains("Finished task 1"));
 }
 
 #[test]
-fn test_done_with_yes_flag() {
-    let _temp_dir = setup_test_env();
+fn test_finish_with_yes_flag() {
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create tasks with same tag
     let mut cmd = get_task_cmd();
@@ -59,17 +60,17 @@ fn test_done_with_yes_flag() {
     let mut cmd = get_task_cmd();
     cmd.args(&["1", "clock", "in"]).assert().success();
     
-    // Complete with --yes flag (should work even for single task)
+    // Finish with --yes flag (should work even for single task)
     let mut cmd = get_task_cmd();
-    cmd.args(&["+urgent", "done", "--yes"])
+    cmd.args(&["finish", "+urgent", "--yes"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Completed task 1"));
+        .stdout(predicate::str::contains("Finished task 1"));
 }
 
 #[test]
-fn test_done_with_next_flag() {
-    let _temp_dir = setup_test_env();
+fn test_finish_with_next_flag() {
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create tasks and enqueue
     let mut cmd = get_task_cmd();
@@ -88,11 +89,11 @@ fn test_done_with_next_flag() {
     let mut cmd = get_task_cmd();
     cmd.args(&["clock", "in"]).assert().success();
     
-    // Complete Task 1 with --next flag
+    // Finish Task 1 with --next flag
     let mut cmd = get_task_cmd();
-    cmd.args(&["done", "--next"])
+    cmd.args(&["finish", "--next"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Completed task 1"))
+        .stdout(predicate::str::contains("Finished task 1"))
         .stdout(predicate::str::contains("Started timing task 2"));
 }

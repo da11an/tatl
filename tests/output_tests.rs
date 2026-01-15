@@ -2,8 +2,10 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use std::fs;
+mod test_env;
 
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     let config_dir = temp_dir.path().join(".taskninja");
@@ -11,7 +13,7 @@ fn setup_test_env() -> TempDir {
     let config_file = config_dir.join("rc");
     fs::write(&config_file, format!("data.location={}\n", db_path.display())).unwrap();
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd(temp_dir: &TempDir) -> Command {
@@ -22,7 +24,7 @@ fn get_task_cmd(temp_dir: &TempDir) -> Command {
 
 #[test]
 fn test_task_list_table_formatting() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create project first
     get_task_cmd(&temp_dir).args(&["projects", "add", "work"]).assert().success();
@@ -42,7 +44,7 @@ fn test_task_list_table_formatting() {
 
 #[test]
 fn test_task_list_json_format() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
@@ -58,7 +60,7 @@ fn test_task_list_json_format() {
 
 #[test]
 fn test_task_list_allocation_column() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task with allocation
     get_task_cmd(&temp_dir).args(&["add", "Task with allocation", "allocation:2h30m"]).assert().success();
@@ -66,9 +68,9 @@ fn test_task_list_allocation_column() {
     // Create task without allocation
     get_task_cmd(&temp_dir).args(&["add", "Task without allocation"]).assert().success();
     
-    // List tasks - should show allocation column (header is now "alloc")
+    // List tasks - should show allocation column (header is now "Alloc")
     get_task_cmd(&temp_dir).args(&["list"]).assert().success()
-        .stdout(predicates::str::contains("alloc"))  // Header (changed from "Allocation")
+        .stdout(predicates::str::contains("Alloc"))  // Header (changed from "Allocation")
         .stdout(predicates::str::contains("2h30m0s"))  // Formatted allocation
         .stdout(predicates::str::contains("1"));  // Task ID
     
@@ -77,7 +79,7 @@ fn test_task_list_allocation_column() {
 
 #[test]
 fn test_task_list_allocation_column_empty() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task without allocation
     get_task_cmd(&temp_dir).args(&["add", "Task without allocation"]).assert().success();
@@ -86,8 +88,8 @@ fn test_task_list_allocation_column_empty() {
     let output = get_task_cmd(&temp_dir).args(&["list"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     
-    // Verify allocation column header exists (now "alloc")
-    assert!(stdout.contains("alloc"), "Should have alloc column header");
+    // Verify allocation column header exists (now "Alloc")
+    assert!(stdout.contains("Alloc"), "Should have Alloc column header");
     
     // Verify task row exists (allocation should be empty/blank)
     assert!(stdout.contains("1"), "Should show task ID");
@@ -98,7 +100,7 @@ fn test_task_list_allocation_column_empty() {
 
 #[test]
 fn test_task_list_allocation_various_formats() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create tasks with different allocation formats
     get_task_cmd(&temp_dir).args(&["add", "Task 1", "allocation:1h"]).assert().success();
@@ -121,7 +123,7 @@ fn test_task_list_allocation_various_formats() {
 
 #[test]
 fn test_task_list_allocation_column_position() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task with allocation
     get_task_cmd(&temp_dir).args(&["add", "Task with allocation", "allocation:1h"]).assert().success();
@@ -130,14 +132,14 @@ fn test_task_list_allocation_column_position() {
     let output = get_task_cmd(&temp_dir).args(&["list"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     
-    // Find header line (header is now "alloc")
+    // Find header line (header is now "Alloc")
     let header_line = stdout.lines()
-        .find(|l| l.contains("ID") && l.contains("alloc"))
+        .find(|l| l.contains("ID") && l.contains("Alloc"))
         .unwrap();
     
     // Verify column order: Due comes before alloc
     let due_pos = header_line.find("Due").unwrap();
-    let alloc_pos = header_line.find("alloc").unwrap();
+    let alloc_pos = header_line.find("Alloc").unwrap();
     assert!(due_pos < alloc_pos, "Due column should come before alloc column");
     
     drop(temp_dir);
@@ -145,7 +147,7 @@ fn test_task_list_allocation_column_position() {
 
 #[test]
 fn test_task_list_priority_column() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task with due date (affects priority)
     get_task_cmd(&temp_dir).args(&["add", "Urgent task", "due:tomorrow"]).assert().success();
@@ -171,13 +173,13 @@ fn test_task_list_priority_column() {
 
 #[test]
 fn test_task_list_priority_empty_for_completed() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create and complete a task
     get_task_cmd(&temp_dir).args(&["add", "Task to complete"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["done", "1", "--yes"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["finish", "1", "--yes"]).assert().success();
     
     // List tasks - completed tasks should not show priority
     let output = get_task_cmd(&temp_dir).args(&["list"]).assert().success();
@@ -198,7 +200,7 @@ fn test_task_list_priority_empty_for_completed() {
 
 #[test]
 fn test_stack_display_formatting() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create tasks and add to stack
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
@@ -215,7 +217,7 @@ fn test_stack_display_formatting() {
 
 #[test]
 fn test_stack_json_format() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task and add to stack
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
@@ -231,7 +233,7 @@ fn test_stack_json_format() {
 
 #[test]
 fn test_projects_list_table_formatting() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create projects
     get_task_cmd(&temp_dir).args(&["projects", "add", "work"]).assert().success();
@@ -247,7 +249,7 @@ fn test_projects_list_table_formatting() {
 
 #[test]
 fn test_projects_list_json_format() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create project
     get_task_cmd(&temp_dir).args(&["projects", "add", "work"]).assert().success();
@@ -262,7 +264,7 @@ fn test_projects_list_json_format() {
 
 #[test]
 fn test_clock_transition_messages() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task and start clock
     get_task_cmd(&temp_dir).args(&["add", "Test task"]).assert().success();

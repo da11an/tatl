@@ -5,8 +5,10 @@ use std::fs;
 use task_ninja::db::DbConnection;
 use task_ninja::repo::{TaskRepo, EventRepo, StackRepo, SessionRepo, AnnotationRepo};
 use rusqlite::Connection;
+mod test_env;
 
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     let config_dir = temp_dir.path().join(".taskninja");
@@ -14,7 +16,7 @@ fn setup_test_env() -> TempDir {
     let config_file = config_dir.join("rc");
     fs::write(&config_file, format!("data.location={}\n", db_path.display())).unwrap();
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd() -> Command {
@@ -23,7 +25,7 @@ fn get_task_cmd() -> Command {
 
 #[test]
 fn test_event_created_on_task_creation() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     let conn = DbConnection::connect().unwrap();
     
     let task = TaskRepo::create(&conn, "Test task", None).unwrap();
@@ -37,7 +39,7 @@ fn test_event_created_on_task_creation() {
 
 #[test]
 fn test_event_status_changed_on_completion() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     let conn = DbConnection::connect().unwrap();
     
     let task = TaskRepo::create(&conn, "Test task", None).unwrap();
@@ -55,7 +57,7 @@ fn test_event_status_changed_on_completion() {
 
 #[test]
 fn test_event_tag_added() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     let conn = DbConnection::connect().unwrap();
     
     let task = TaskRepo::create(&conn, "Test task", None).unwrap();
@@ -87,7 +89,7 @@ fn test_event_tag_added() {
 
 #[test]
 fn test_event_stack_added() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     let conn = DbConnection::connect().unwrap();
     
     let task = TaskRepo::create(&conn, "Test task", None).unwrap();
@@ -107,7 +109,7 @@ fn test_event_stack_added() {
 
 #[test]
 fn test_event_session_started() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     let conn = DbConnection::connect().unwrap();
     
     let task = TaskRepo::create(&conn, "Test task", None).unwrap();
@@ -124,7 +126,7 @@ fn test_event_session_started() {
 
 #[test]
 fn test_event_annotation_added() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     let conn = DbConnection::connect().unwrap();
     
     let task = TaskRepo::create(&conn, "Test task", None).unwrap();
@@ -140,7 +142,7 @@ fn test_event_annotation_added() {
 
 #[test]
 fn test_events_immutable() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     let conn = DbConnection::connect().unwrap();
     
     let task = TaskRepo::create(&conn, "Test task", None).unwrap();

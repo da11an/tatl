@@ -3,9 +3,11 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 use std::fs;
 use std::path::PathBuf;
+mod test_env;
 
 /// Helper to create a temporary database and set it as the data location
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     
@@ -17,8 +19,7 @@ fn setup_test_env() -> TempDir {
     
     // Set HOME to temp_dir so the config file is found
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd() -> Command {
@@ -27,7 +28,7 @@ fn get_task_cmd() -> Command {
 
 #[test]
 fn test_clock_in_empty_stack() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Initialize database (create a task first to ensure DB is set up)
     let mut cmd = get_task_cmd();
@@ -47,14 +48,14 @@ fn test_clock_in_empty_stack() {
 
 #[test]
 fn test_clock_in_already_running() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create task and add to stack
     let mut cmd = get_task_cmd();
     cmd.args(&["add", "test task"]).assert().success();
     
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "enqueue", "1"]).assert().success();
+    cmd.args(&["enqueue", "1"]).assert().success();
     
     // Clock in
     let mut cmd = get_task_cmd();
@@ -70,7 +71,7 @@ fn test_clock_in_already_running() {
 
 #[test]
 fn test_clock_out_no_session() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Initialize database (but don't start a session)
     let mut cmd = get_task_cmd();
@@ -86,14 +87,14 @@ fn test_clock_out_no_session() {
 
 #[test]
 fn test_clock_in_out_workflow() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create task and add to stack
     let mut cmd = get_task_cmd();
     cmd.args(&["add", "test task"]).assert().success();
     
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "enqueue", "1"]).assert().success();
+    cmd.args(&["enqueue", "1"]).assert().success();
     
     // Clock in
     let mut cmd = get_task_cmd();
@@ -112,7 +113,7 @@ fn test_clock_in_out_workflow() {
 
 #[test]
 fn test_clock_in_default_now() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Initialize database
     let mut cmd = get_task_cmd();
@@ -124,7 +125,7 @@ fn test_clock_in_default_now() {
     
     // Add task to stack
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "enqueue", "1"]).assert().success();
+    cmd.args(&["enqueue", "1"]).assert().success();
     
     // Clock in without arguments (should default to "now")
     let mut cmd = get_task_cmd();

@@ -2,8 +2,10 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use std::fs;
+mod test_env;
 
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     let config_dir = temp_dir.path().join(".taskninja");
@@ -11,7 +13,7 @@ fn setup_test_env() -> TempDir {
     let config_file = config_dir.join("rc");
     fs::write(&config_file, format!("data.location={}\n", db_path.display())).unwrap();
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd(temp_dir: &TempDir) -> Command {
@@ -22,18 +24,18 @@ fn get_task_cmd(temp_dir: &TempDir) -> Command {
 
 #[test]
 fn test_sessions_list_all() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create tasks
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["add", "Task 2"]).assert().success();
     
     // Create sessions
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "2"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
@@ -46,7 +48,7 @@ fn test_sessions_list_all() {
 
 #[test]
 fn test_sessions_list_filter_by_project() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create projects
     get_task_cmd(&temp_dir).args(&["projects", "add", "work"]).assert().success();
@@ -57,11 +59,11 @@ fn test_sessions_list_filter_by_project() {
     get_task_cmd(&temp_dir).args(&["add", "Personal task", "project:personal"]).assert().success();
     
     // Create sessions for both tasks
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "2"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
@@ -75,18 +77,18 @@ fn test_sessions_list_filter_by_project() {
 
 #[test]
 fn test_sessions_list_filter_by_tags() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create tasks with different tags
     get_task_cmd(&temp_dir).args(&["add", "Urgent task", "+urgent"]).assert().success();
     get_task_cmd(&temp_dir).args(&["add", "Normal task", "+normal"]).assert().success();
     
     // Create sessions for both tasks
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "2"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
@@ -100,18 +102,18 @@ fn test_sessions_list_filter_by_tags() {
 
 #[test]
 fn test_sessions_list_filter_by_task_id() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create tasks
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["add", "Task 2"]).assert().success();
     
     // Create sessions for both tasks
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "2"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
@@ -125,14 +127,14 @@ fn test_sessions_list_filter_by_task_id() {
 
 #[test]
 fn test_sessions_list_filter_empty_results() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a task with a project
     get_task_cmd(&temp_dir).args(&["projects", "add", "work"]).assert().success();
     get_task_cmd(&temp_dir).args(&["add", "Work task", "project:work"]).assert().success();
     
     // Create a session
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
@@ -145,7 +147,7 @@ fn test_sessions_list_filter_empty_results() {
 
 #[test]
 fn test_sessions_list_filter_multiple_arguments() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create projects
     get_task_cmd(&temp_dir).args(&["projects", "add", "work"]).assert().success();
@@ -155,11 +157,11 @@ fn test_sessions_list_filter_multiple_arguments() {
     get_task_cmd(&temp_dir).args(&["add", "Normal work task", "project:work", "+normal"]).assert().success();
     
     // Create sessions
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "2"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
@@ -173,18 +175,18 @@ fn test_sessions_list_filter_multiple_arguments() {
 
 #[test]
 fn test_sessions_list_for_task() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create tasks
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["add", "Task 2"]).assert().success();
     
     // Create sessions
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "2"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
@@ -197,11 +199,11 @@ fn test_sessions_list_for_task() {
 
 #[test]
 fn test_sessions_show_current() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task and start session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     
     // Show current session
@@ -213,11 +215,11 @@ fn test_sessions_show_current() {
 
 #[test]
 fn test_sessions_show_for_task() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task and session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
@@ -230,11 +232,11 @@ fn test_sessions_show_for_task() {
 
 #[test]
 fn test_sessions_list_json() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task and session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
@@ -247,11 +249,11 @@ fn test_sessions_list_json() {
 
 #[test]
 fn test_sessions_list_shows_session_id() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task and session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
@@ -264,11 +266,11 @@ fn test_sessions_list_shows_session_id() {
 
 #[test]
 fn test_sessions_modify_start_time() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task and closed session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
@@ -290,11 +292,11 @@ fn test_sessions_modify_start_time() {
 
 #[test]
 fn test_sessions_modify_end_time() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task and closed session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
@@ -316,11 +318,11 @@ fn test_sessions_modify_end_time() {
 
 #[test]
 fn test_sessions_modify_both_times() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task and closed session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
@@ -342,11 +344,11 @@ fn test_sessions_modify_both_times() {
 
 #[test]
 fn test_sessions_modify_end_none() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task and closed session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
@@ -374,11 +376,11 @@ fn test_sessions_modify_end_none() {
 
 #[test]
 fn test_sessions_modify_end_now() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task and open session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     
     // Get session ID from list
@@ -405,7 +407,7 @@ fn test_sessions_modify_end_now() {
 
 #[test]
 fn test_sessions_modify_invalid_session_id() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Try to modify non-existent session
     get_task_cmd(&temp_dir)
@@ -419,11 +421,11 @@ fn test_sessions_modify_invalid_session_id() {
 
 #[test]
 fn test_sessions_modify_running_session_end_none() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task and open session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     
     // Get session ID from list
@@ -444,19 +446,19 @@ fn test_sessions_modify_running_session_end_none() {
 
 #[test]
 fn test_sessions_modify_overlap_detection() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create two tasks
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["add", "Task 2"]).assert().success();
     
     // Create first session: 09:00-11:00
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in", "09:00"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out", "11:00"]).assert().success();
     
     // Create second session: 10:00-12:00 (overlaps with first: 10:00-11:00)
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "2"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in", "10:00"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out", "12:00"]).assert().success();
     
@@ -479,19 +481,19 @@ fn test_sessions_modify_overlap_detection() {
 
 #[test]
 fn test_sessions_modify_overlap_force() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create two tasks
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["add", "Task 2"]).assert().success();
     
     // Create first session: 09:00-11:00
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in", "09:00"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out", "11:00"]).assert().success();
     
     // Create second session: 10:00-12:00 (overlaps with first: 10:00-11:00)
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "2"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in", "10:00"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out", "12:00"]).assert().success();
     
@@ -513,11 +515,11 @@ fn test_sessions_modify_overlap_force() {
 
 #[test]
 fn test_sessions_delete() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task and closed session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
     
@@ -545,7 +547,7 @@ fn test_sessions_delete() {
 
 #[test]
 fn test_sessions_delete_invalid_session_id() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Try to delete non-existent session
     get_task_cmd(&temp_dir)
@@ -559,11 +561,11 @@ fn test_sessions_delete_invalid_session_id() {
 
 #[test]
 fn test_sessions_delete_running_session() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task and open session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
     
     // Get session ID from list

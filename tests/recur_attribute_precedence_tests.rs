@@ -5,15 +5,17 @@ use std::fs;
 use task_ninja::db::DbConnection;
 use task_ninja::repo::{TaskRepo, TemplateRepo, ProjectRepo};
 use task_ninja::recur::RecurGenerator;
+mod test_env;
 
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     let config_dir = temp_dir.path().join(".taskninja");
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(config_dir.join("rc"), format!("data.location={}\n", db_path.display())).unwrap();
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd() -> Command {
@@ -22,7 +24,7 @@ fn get_task_cmd() -> Command {
 
 #[test]
 fn test_attribute_precedence_template_base_seed_overrides() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     let conn = DbConnection::connect().unwrap();
     
     // Create project
@@ -82,7 +84,7 @@ fn test_attribute_precedence_template_base_seed_overrides() {
 
 #[test]
 fn test_attribute_precedence_seed_only_no_template() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     let conn = DbConnection::connect().unwrap();
     
     // Create seed task without template
@@ -113,7 +115,7 @@ fn test_attribute_precedence_seed_only_no_template() {
 
 #[test]
 fn test_attribute_precedence_template_only_no_seed_overrides() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     let conn = DbConnection::connect().unwrap();
     
     // Create project

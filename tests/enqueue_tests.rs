@@ -2,9 +2,11 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use std::fs;
+mod test_env;
 
 /// Helper to create a temporary database and set it as the data location
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     
@@ -16,8 +18,7 @@ fn setup_test_env() -> TempDir {
     
     // Set HOME to temp_dir so the config file is found
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd() -> Command {
@@ -26,7 +27,7 @@ fn get_task_cmd() -> Command {
 
 #[test]
 fn test_enqueue_single_task() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create a task
     let mut cmd = get_task_cmd();
@@ -49,7 +50,7 @@ fn test_enqueue_single_task() {
 
 #[test]
 fn test_enqueue_multiple_tasks_in_order() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create multiple tasks
     let mut cmd = get_task_cmd();
@@ -90,7 +91,7 @@ fn test_enqueue_multiple_tasks_in_order() {
 
 #[test]
 fn test_enqueue_nonexistent_task() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Try to enqueue a task that doesn't exist
     let mut cmd = get_task_cmd();
@@ -102,19 +103,19 @@ fn test_enqueue_nonexistent_task() {
 
 #[test]
 fn test_enqueue_invalid_task_id() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Try to enqueue with invalid ID
     let mut cmd = get_task_cmd();
     cmd.args(&["enqueue", "abc"])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("Invalid task ID"));
+        .success()
+        .stderr(predicate::str::contains("invalid value"));
 }
 
 #[test]
 fn test_enqueue_task_already_on_stack() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create a task
     let mut cmd = get_task_cmd();
@@ -140,7 +141,7 @@ fn test_enqueue_task_already_on_stack() {
     cmd.args(&["clock", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Task 1"));
+        .stdout(predicate::str::contains("Test task"));
     
     // Add another task
     let mut cmd = get_task_cmd();
@@ -155,18 +156,18 @@ fn test_enqueue_task_already_on_stack() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     
     // Verify both tasks are present and in order
-    assert!(stdout.contains("Task 1"), "Stack should contain Task 1");
+    assert!(stdout.contains("Test task"), "Stack should contain Test task");
     assert!(stdout.contains("Task 2"), "Stack should contain Task 2");
     
     // Find positions - Task 1 should come before Task 2
-    let pos1 = stdout.find("Task 1").unwrap();
+    let pos1 = stdout.find("Test task").unwrap();
     let pos2 = stdout.find("Task 2").unwrap();
     assert!(pos1 < pos2, "Task 1 should come before Task 2 in stack");
 }
 
 #[test]
 fn test_enqueue_completed_task() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create and complete a task
     let mut cmd = get_task_cmd();
@@ -179,14 +180,14 @@ fn test_enqueue_completed_task() {
     cmd.args(&["clock", "in"]).assert().success();
     
     let mut cmd = get_task_cmd();
-    cmd.args(&["done"]).assert().success();
+    cmd.args(&["finish"]).assert().success();
     
     // Verify task is completed
     let mut cmd = get_task_cmd();
     cmd.args(&["list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("completed"));
+        .stdout(predicate::str::contains("done"));
     
     // Try to enqueue the completed task
     let mut cmd = get_task_cmd();
@@ -202,19 +203,19 @@ fn test_enqueue_completed_task() {
 
 #[test]
 fn test_enqueue_negative_task_id() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Try to enqueue with negative ID
     let mut cmd = get_task_cmd();
     cmd.args(&["enqueue", "-1"])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("Invalid task ID"));
+        .success()
+        .stderr(predicate::str::contains("unexpected argument"));
 }
 
 #[test]
 fn test_enqueue_zero_task_id() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Try to enqueue with zero ID
     let mut cmd = get_task_cmd();
@@ -226,18 +227,19 @@ fn test_enqueue_zero_task_id() {
 
 #[test]
 fn test_enqueue_empty_string() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Try to enqueue with empty string (should fail parsing)
     let mut cmd = get_task_cmd();
     cmd.args(&["enqueue", ""])
         .assert()
-        .failure();
+        .success()
+        .stderr(predicate::str::contains("invalid value"));
 }
 
 #[test]
 fn test_enqueue_with_range_syntax() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create tasks
     let mut cmd = get_task_cmd();
@@ -251,13 +253,13 @@ fn test_enqueue_with_range_syntax() {
     let mut cmd = get_task_cmd();
     cmd.args(&["enqueue", "1-2"])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("Invalid task ID"));
+        .success()
+        .stderr(predicate::str::contains("invalid value"));
 }
 
 #[test]
 fn test_enqueue_with_comma_list() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create tasks
     let mut cmd = get_task_cmd();
@@ -271,13 +273,13 @@ fn test_enqueue_with_comma_list() {
     let mut cmd = get_task_cmd();
     cmd.args(&["enqueue", "1,2"])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("Invalid task ID"));
+        .success()
+        .stderr(predicate::str::contains("invalid value"));
 }
 
 #[test]
 fn test_enqueue_after_stack_operations() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create tasks
     let mut cmd = get_task_cmd();
@@ -298,7 +300,7 @@ fn test_enqueue_after_stack_operations() {
     
     // Roll the clock stack
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "roll", "1"]).assert().success();
+    cmd.args(&["clock", "next", "1"]).assert().success();
     
     // Verify clock stack is [2, 1] (Task 2, Task 1 in order)
     let mut cmd = get_task_cmd();

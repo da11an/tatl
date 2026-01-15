@@ -2,9 +2,11 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use std::fs;
+mod test_env;
 
 /// Helper to create a temporary database and set it as the data location
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     
@@ -16,8 +18,7 @@ fn setup_test_env() -> TempDir {
     
     // Set HOME to temp_dir so the config file is found
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd(temp_dir: &TempDir) -> Command {
@@ -28,7 +29,7 @@ fn get_task_cmd(temp_dir: &TempDir) -> Command {
 
 #[test]
 fn test_clock_show_no_longer_exists() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Initialize database
     let mut cmd = get_task_cmd(&temp_dir);
@@ -46,7 +47,7 @@ fn test_clock_show_no_longer_exists() {
 
 #[test]
 fn test_clock_list_empty_stack() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Initialize database
     let mut cmd = get_task_cmd(&temp_dir);
@@ -66,7 +67,7 @@ fn test_clock_list_empty_stack() {
 
 #[test]
 fn test_clock_list_shows_full_task_details() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create project first
     let mut cmd = get_task_cmd(&temp_dir);
@@ -80,7 +81,7 @@ fn test_clock_list_shows_full_task_details() {
     
     // Add to clock stack
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "enqueue", "1"]).assert().success();
+    cmd.args(&["enqueue", "1"]).assert().success();
     
     // Verify clock list shows full details
     let mut cmd = get_task_cmd(&temp_dir);
@@ -105,7 +106,7 @@ fn test_clock_list_shows_full_task_details() {
 
 #[test]
 fn test_clock_list_shows_multiple_tasks_sorted_by_position() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create projects first
     let mut cmd = get_task_cmd(&temp_dir);
@@ -126,13 +127,13 @@ fn test_clock_list_shows_multiple_tasks_sorted_by_position() {
     
     // Add all to clock stack
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "enqueue", "1"]).assert().success();
+    cmd.args(&["enqueue", "1"]).assert().success();
     
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "enqueue", "2"]).assert().success();
+    cmd.args(&["enqueue", "2"]).assert().success();
     
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "enqueue", "3"]).assert().success();
+    cmd.args(&["enqueue", "3"]).assert().success();
     
     // Verify all tasks appear in order
     let mut cmd = get_task_cmd(&temp_dir);
@@ -166,7 +167,7 @@ fn test_clock_list_shows_multiple_tasks_sorted_by_position() {
 
 #[test]
 fn test_clock_list_json_output() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task
     let mut cmd = get_task_cmd(&temp_dir);
@@ -174,7 +175,7 @@ fn test_clock_list_json_output() {
     
     // Add to clock stack
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "enqueue", "1"]).assert().success();
+    cmd.args(&["enqueue", "1"]).assert().success();
     
     // Verify JSON output
     let mut cmd = get_task_cmd(&temp_dir);
@@ -189,7 +190,7 @@ fn test_clock_list_json_output() {
 
 #[test]
 fn test_clock_list_position_column_first() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task
     let mut cmd = get_task_cmd(&temp_dir);
@@ -197,7 +198,7 @@ fn test_clock_list_position_column_first() {
     
     // Add to clock stack
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "enqueue", "1"]).assert().success();
+    cmd.args(&["enqueue", "1"]).assert().success();
     
     // Verify position column is first in header
     let mut cmd = get_task_cmd(&temp_dir);
@@ -217,7 +218,7 @@ fn test_clock_list_position_column_first() {
 
 #[test]
 fn test_clock_list_after_pick_shows_new_order() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create three tasks
     let mut cmd = get_task_cmd(&temp_dir);
@@ -231,13 +232,13 @@ fn test_clock_list_after_pick_shows_new_order() {
     
     // Enqueue all tasks
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "enqueue", "1"]).assert().success();
+    cmd.args(&["enqueue", "1"]).assert().success();
     
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "enqueue", "2"]).assert().success();
+    cmd.args(&["enqueue", "2"]).assert().success();
     
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "enqueue", "3"]).assert().success();
+    cmd.args(&["enqueue", "3"]).assert().success();
     
     // Pick task at position 2 (task 3) to move to top
     let mut cmd = get_task_cmd(&temp_dir);

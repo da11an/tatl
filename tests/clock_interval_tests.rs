@@ -2,9 +2,11 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use std::fs;
+mod test_env;
 
 /// Helper to create a temporary database and set it as the data location
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     
@@ -16,8 +18,7 @@ fn setup_test_env() -> TempDir {
     
     // Set HOME to temp_dir so the config file is found
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd() -> Command {
@@ -26,7 +27,7 @@ fn get_task_cmd() -> Command {
 
 #[test]
 fn test_clock_in_interval_creates_closed_session() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create task and add to stack
     let mut cmd = get_task_cmd();
@@ -52,7 +53,7 @@ fn test_clock_in_interval_creates_closed_session() {
 
 #[test]
 fn test_task_clock_in_interval_creates_closed_session() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create task
     let mut cmd = get_task_cmd();
@@ -75,7 +76,7 @@ fn test_task_clock_in_interval_creates_closed_session() {
 
 #[test]
 fn test_overlap_prevention_amends_end_time() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create two tasks
     let mut cmd = get_task_cmd();
@@ -107,7 +108,7 @@ fn test_overlap_prevention_amends_end_time() {
 
 #[test]
 fn test_interval_with_default_start() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create task and add to stack
     let mut cmd = get_task_cmd();
@@ -127,7 +128,7 @@ fn test_interval_with_default_start() {
 
 #[test]
 fn test_interval_parsing() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create task
     let mut cmd = get_task_cmd();

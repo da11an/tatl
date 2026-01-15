@@ -1,3 +1,4 @@
+mod test_env;
 // Tests for filter-before-command pattern (Item 4)
 
 use assert_cmd::Command;
@@ -6,7 +7,8 @@ use tempfile::TempDir;
 use std::fs;
 
 /// Helper to create a temporary database and set it as the data location
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     
@@ -15,8 +17,8 @@ fn setup_test_env() -> TempDir {
     fs::create_dir_all(&config_dir).unwrap();
     let config_file = config_dir.join("rc");
     fs::write(&config_file, format!("data.location={}\n", db_path.display())).unwrap();
-    
-    temp_dir
+    std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
+    (temp_dir, guard)
 }
 
 /// Helper to create a new command with test environment
@@ -28,7 +30,7 @@ fn new_cmd(temp_dir: &TempDir) -> Command {
 
 #[test]
 fn test_filter_list_pattern() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create projects first
     new_cmd(&temp_dir)
@@ -78,7 +80,7 @@ fn test_filter_list_pattern() {
     
     // Test: task list <filter> --json
     new_cmd(&temp_dir)
-        .args(&["list", "project:work", "--json"])
+        .args(&["list", "--json", "project:work"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"project_id\""))
@@ -87,7 +89,7 @@ fn test_filter_list_pattern() {
 
 #[test]
 fn test_filter_annotate_pattern() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create projects first
     new_cmd(&temp_dir)
@@ -139,7 +141,7 @@ fn test_filter_annotate_pattern() {
 
 #[test]
 fn test_filter_sessions_pattern() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create projects first
     new_cmd(&temp_dir)
@@ -165,56 +167,30 @@ fn test_filter_sessions_pattern() {
         .assert()
         .success();
     
-    // Clock in and out for tasks
+    // Create sessions for tasks
     new_cmd(&temp_dir)
-        .args(&["clock", "enqueue", "1"])
+        .args(&["sessions", "add", "1", "09:00", "09:10"])
         .assert()
         .success();
     new_cmd(&temp_dir)
-        .args(&["clock", "in"])
+        .args(&["sessions", "add", "2", "10:00", "10:10"])
         .assert()
         .success();
     new_cmd(&temp_dir)
-        .args(&["clock", "out"])
-        .assert()
-        .success();
-    
-    new_cmd(&temp_dir)
-        .args(&["clock", "enqueue", "2"])
-        .assert()
-        .success();
-    new_cmd(&temp_dir)
-        .args(&["clock", "in"])
-        .assert()
-        .success();
-    new_cmd(&temp_dir)
-        .args(&["clock", "out"])
-        .assert()
-        .success();
-    
-    new_cmd(&temp_dir)
-        .args(&["clock", "enqueue", "3"])
-        .assert()
-        .success();
-    new_cmd(&temp_dir)
-        .args(&["clock", "in"])
-        .assert()
-        .success();
-    new_cmd(&temp_dir)
-        .args(&["clock", "out"])
+        .args(&["sessions", "add", "3", "11:00", "11:10"])
         .assert()
         .success();
     
     // Test: task <id> sessions list (existing pattern)
     new_cmd(&temp_dir)
-        .args(&["sessions", "list", "--task", "1"])
+        .args(&["sessions", "list", "1"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Task 1"));
     
     // Test: task <filter> sessions list (new pattern)
     new_cmd(&temp_dir)
-        .args(&["sessions", "list", "--task", "project:work"])
+        .args(&["sessions", "list", "project:work"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Task 1"))
@@ -222,7 +198,7 @@ fn test_filter_sessions_pattern() {
     
     // Test: task <filter> sessions list --json
     new_cmd(&temp_dir)
-        .args(&["sessions", "list", "--task", "project:work", "--json"])
+        .args(&["sessions", "list", "--json", "project:work"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"task_id\""))
@@ -230,7 +206,7 @@ fn test_filter_sessions_pattern() {
     
     // Test: task sessions show --task <filter>
     new_cmd(&temp_dir)
-        .args(&["sessions", "show", "--task", "project:work"])
+        .args(&["sessions", "--task", "project:work", "show"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Session"))
@@ -239,7 +215,7 @@ fn test_filter_sessions_pattern() {
 
 #[test]
 fn test_backward_compatibility() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create projects first
     new_cmd(&temp_dir)
@@ -282,7 +258,7 @@ fn test_backward_compatibility() {
 
 #[test]
 fn test_filter_list_no_matches() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create project and task
     new_cmd(&temp_dir)
@@ -304,7 +280,7 @@ fn test_filter_list_no_matches() {
 
 #[test]
 fn test_filter_annotate_no_matches() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create project and task
     new_cmd(&temp_dir)

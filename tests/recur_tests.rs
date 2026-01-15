@@ -5,8 +5,10 @@ use std::fs;
 use task_ninja::db::DbConnection;
 use task_ninja::repo::TaskRepo;
 use task_ninja::recur::{RecurGenerator, RecurRule};
+mod test_env;
 
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     let config_dir = temp_dir.path().join(".taskninja");
@@ -14,7 +16,7 @@ fn setup_test_env() -> TempDir {
     let config_file = config_dir.join("rc");
     fs::write(&config_file, format!("data.location={}\n", db_path.display())).unwrap();
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd() -> Command {
@@ -65,7 +67,7 @@ fn test_recur_rule_modifier_validation() {
 
 #[test]
 fn test_recur_run_command() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create a seed task
     get_task_cmd().args(&["add", "Daily standup", "recur:daily"]).assert().success();
@@ -77,7 +79,7 @@ fn test_recur_run_command() {
 
 #[test]
 fn test_recur_idempotency() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     let conn = DbConnection::connect().unwrap();
     
     // Create a seed task
@@ -114,7 +116,7 @@ fn test_recur_idempotency() {
 
 #[test]
 fn test_recur_weekly_with_weekday() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     let conn = DbConnection::connect().unwrap();
     
     // Create a seed task with weekly recurrence on Mon/Wed/Fri

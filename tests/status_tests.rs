@@ -2,9 +2,11 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use std::fs;
+mod test_env;
 
 /// Helper to create a temporary database and set it as the data location
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     
@@ -16,8 +18,7 @@ fn setup_test_env() -> TempDir {
     
     // Set HOME to temp_dir so the config file is found
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd(temp_dir: &TempDir) -> Command {
@@ -28,7 +29,7 @@ fn get_task_cmd(temp_dir: &TempDir) -> Command {
 
 #[test]
 fn test_status_empty_state() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     let mut cmd = get_task_cmd(&temp_dir);
     
     cmd.args(&["status"])
@@ -44,7 +45,7 @@ fn test_status_empty_state() {
 
 #[test]
 fn test_status_with_clocked_in_task() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a task and clock in
     let mut cmd = get_task_cmd(&temp_dir);
@@ -76,7 +77,7 @@ fn test_status_with_clocked_in_task() {
 
 #[test]
 fn test_status_with_clock_stack() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create multiple tasks and add to stack
     let mut cmd = get_task_cmd(&temp_dir);
@@ -90,12 +91,12 @@ fn test_status_with_clock_stack() {
         .success();
     
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "enqueue", "1"])
+    cmd.args(&["enqueue", "1"])
         .assert()
         .success();
     
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "enqueue", "2"])
+    cmd.args(&["enqueue", "2"])
         .assert()
         .success();
     
@@ -110,7 +111,7 @@ fn test_status_with_clock_stack() {
 
 #[test]
 fn test_status_with_overdue_tasks() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a task with past due date
     let mut cmd = get_task_cmd(&temp_dir);
@@ -128,7 +129,7 @@ fn test_status_with_overdue_tasks() {
 
 #[test]
 fn test_status_with_today_sessions() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a task, clock in, and clock out
     let mut cmd = get_task_cmd(&temp_dir);
@@ -159,7 +160,7 @@ fn test_status_with_today_sessions() {
 
 #[test]
 fn test_status_json_output() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     let mut cmd = get_task_cmd(&temp_dir);
     cmd.args(&["status", "--json"])
@@ -173,7 +174,7 @@ fn test_status_json_output() {
 
 #[test]
 fn test_status_json_with_data() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a task and clock in
     let mut cmd = get_task_cmd(&temp_dir);
@@ -200,4 +201,5 @@ fn test_status_json_with_data() {
     assert!(json.get("clock").is_some());
     assert_eq!(json["clock"]["state"], "in");
     assert_eq!(json["clock"]["task_id"], 1);
+    assert_eq!(json["clock"]["task_description"], "Test task");
 }

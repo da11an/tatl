@@ -2,9 +2,11 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use std::fs;
+mod test_env;
 
 /// Helper to create a temporary database and set it as the data location
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     
@@ -16,8 +18,7 @@ fn setup_test_env() -> TempDir {
     
     // Set HOME to temp_dir so the config file is found
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd() -> Command {
@@ -25,8 +26,8 @@ fn get_task_cmd() -> Command {
 }
 
 #[test]
-fn test_stack_roll_while_clock_running_switches_live_task() {
-    let _temp_dir = setup_test_env();
+fn test_stack_next_while_clock_running_switches_live_task() {
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create two tasks
     let mut cmd = get_task_cmd();
@@ -37,18 +38,18 @@ fn test_stack_roll_while_clock_running_switches_live_task() {
     
     // Enqueue both tasks
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "enqueue", "1"]).assert().success();
+    cmd.args(&["enqueue", "1"]).assert().success();
     
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "enqueue", "2"]).assert().success();
+    cmd.args(&["enqueue", "2"]).assert().success();
     
     // Start clock on task 1 (clock[0])
     let mut cmd = get_task_cmd();
     cmd.args(&["clock", "in"]).assert().success();
     
-    // Roll stack - should switch to task 2
+    // Move to next task - should switch to task 2
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "roll"]).assert().success();
+    cmd.args(&["clock", "next"]).assert().success();
     
     // Verify task 2 is now at top (check table format)
     let mut cmd = get_task_cmd();
@@ -67,7 +68,7 @@ fn test_stack_roll_while_clock_running_switches_live_task() {
 
 #[test]
 fn test_stack_pick_while_stopped_does_not_create_sessions() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create three tasks
     let mut cmd = get_task_cmd();
@@ -81,13 +82,13 @@ fn test_stack_pick_while_stopped_does_not_create_sessions() {
     
     // Enqueue all tasks
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "enqueue", "1"]).assert().success();
+    cmd.args(&["enqueue", "1"]).assert().success();
     
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "enqueue", "2"]).assert().success();
+    cmd.args(&["enqueue", "2"]).assert().success();
     
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "enqueue", "3"]).assert().success();
+    cmd.args(&["enqueue", "3"]).assert().success();
     
     // Pick task at position 2 (task 3) - no session should be created
     let mut cmd = get_task_cmd();
@@ -111,8 +112,8 @@ fn test_stack_pick_while_stopped_does_not_create_sessions() {
 }
 
 #[test]
-fn test_stack_roll_with_clock_in_flag() {
-    let _temp_dir = setup_test_env();
+fn test_stack_next_with_clock_in_flag() {
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create two tasks
     let mut cmd = get_task_cmd();
@@ -123,14 +124,14 @@ fn test_stack_roll_with_clock_in_flag() {
     
     // Enqueue both tasks
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "enqueue", "1"]).assert().success();
+    cmd.args(&["enqueue", "1"]).assert().success();
     
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "enqueue", "2"]).assert().success();
+    cmd.args(&["enqueue", "2"]).assert().success();
     
-    // Roll clock stack
+    // Move to next task
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "roll"]).assert().success();
+    cmd.args(&["clock", "next"]).assert().success();
     
     // Start clock on new clock[0]
     let mut cmd = get_task_cmd();
@@ -143,7 +144,7 @@ fn test_stack_roll_with_clock_in_flag() {
 
 #[test]
 fn test_stack_clear_with_clock_out_flag() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create task
     let mut cmd = get_task_cmd();
@@ -151,7 +152,7 @@ fn test_stack_clear_with_clock_out_flag() {
     
     // Enqueue and start clock
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "enqueue", "1"]).assert().success();
+    cmd.args(&["enqueue", "1"]).assert().success();
     
     let mut cmd = get_task_cmd();
     cmd.args(&["clock", "in"]).assert().success();
@@ -174,7 +175,7 @@ fn test_stack_clear_with_clock_out_flag() {
 
 #[test]
 fn test_stack_pick_while_clock_running_switches_task() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create three tasks
     let mut cmd = get_task_cmd();
@@ -188,13 +189,13 @@ fn test_stack_pick_while_clock_running_switches_task() {
     
     // Enqueue all tasks
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "enqueue", "1"]).assert().success();
+    cmd.args(&["enqueue", "1"]).assert().success();
     
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "enqueue", "2"]).assert().success();
+    cmd.args(&["enqueue", "2"]).assert().success();
     
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "enqueue", "3"]).assert().success();
+    cmd.args(&["enqueue", "3"]).assert().success();
     
     // Start clock on task 1
     let mut cmd = get_task_cmd();

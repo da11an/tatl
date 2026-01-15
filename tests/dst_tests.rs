@@ -2,15 +2,17 @@ use tempfile::TempDir;
 use std::fs;
 use task_ninja::utils::parse_date_expr;
 use anyhow::Result;
+mod test_env;
 
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     let config_dir = temp_dir.path().join(".taskninja");
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(config_dir.join("rc"), format!("data.location={}\n", db_path.display())).unwrap();
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    temp_dir
+    (temp_dir, guard)
 }
 
 #[test]
@@ -18,7 +20,7 @@ fn test_dst_handling_utc_storage() {
     // Test that dates are stored in UTC regardless of local timezone
     // This is a basic test - full DST transition testing requires specific timezone setup
     
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Parse a date expression - should convert to UTC for storage
     let date_expr = "2026-03-15T14:30"; // Spring forward date (varies by timezone)
@@ -42,7 +44,7 @@ fn test_dst_handling_utc_storage() {
 #[test]
 fn test_date_parsing_handles_local_timezone() {
     // Test that date parsing uses local timezone but stores as UTC
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Parse "today" - should use local timezone
     let result = parse_date_expr("today");
@@ -65,7 +67,7 @@ fn test_date_parsing_handles_local_timezone() {
 fn test_timezone_conversion_consistency() {
     // Test that same UTC timestamp always represents same moment
     // regardless of when/where it's converted
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Parse an absolute date
     let date_expr = "2026-06-15T12:00";

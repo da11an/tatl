@@ -14,8 +14,8 @@ use serde_json::json;
 // ============================================================================
 
 #[test]
-fn e2e_complete_workflow_add_clock_annotate_done() {
-    // Complete workflow: add task → clock in → annotate → done
+fn e2e_complete_workflow_add_clock_annotate_finish() {
+    // Complete workflow: add task → clock in → annotate → finish
     // This tests the most common user workflow
     
     let ctx = AcceptanceTestContext::new();
@@ -26,7 +26,7 @@ fn e2e_complete_workflow_add_clock_annotate_done() {
     
     // Step 2: Add task to stack
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["clock", "enqueue", &task_id.to_string()]);
+    when.execute_success(&["enqueue", &task_id.to_string()]);
     
     // Step 3: Clock in
     when.execute_success(&["clock", "in"]);
@@ -45,8 +45,8 @@ fn e2e_complete_workflow_add_clock_annotate_done() {
     assert_eq!(annotations.len(), 1);
     assert!(annotations[0].note.contains("Started working on documentation"));
     
-    // Step 5: Complete the task
-    when.execute_success(&["done"]);
+    // Step 5: Finish the task
+    when.execute_success(&["finish"]);
     
     // Verify task is completed and removed from stack
     then.task_status_is(task_id, "completed")
@@ -59,7 +59,7 @@ fn e2e_complete_workflow_add_clock_annotate_done() {
 
 #[test]
 fn e2e_complete_workflow_with_project_and_tags() {
-    // Complete workflow with project and tags: add → modify → clock in → done
+    // Complete workflow with project and tags: add → modify → clock in → finish
     
     let ctx = AcceptanceTestContext::new();
     let given = GivenBuilder::new(&ctx);
@@ -79,14 +79,14 @@ fn e2e_complete_workflow_with_project_and_tags() {
         .task_has_tag(task_id, "code-review");
     
     // Step 3: Add to stack and clock in
-    when.execute_success(&["clock", "enqueue", &task_id.to_string()]);
+    when.execute_success(&["enqueue", &task_id.to_string()]);
     when.execute_success(&["clock", "in"]);
     
     // Step 4: Add annotation
     when.execute_success(&["annotate", &task_id.to_string(), "Found 3 issues to address"]);
     
-    // Step 5: Complete task
-    when.execute_success(&["done"]);
+    // Step 5: Finish task
+    when.execute_success(&["finish"]);
     
     // Verify final state
     then.task_status_is(task_id, "completed");
@@ -99,8 +99,8 @@ fn e2e_complete_workflow_with_project_and_tags() {
 }
 
 #[test]
-fn e2e_complete_workflow_with_done_next() {
-    // Complete workflow with --next flag: add multiple tasks → clock in → done --next
+fn e2e_complete_workflow_with_finish_next() {
+    // Complete workflow with --next flag: add multiple tasks → clock in → finish --next
     
     let ctx = AcceptanceTestContext::new();
     let given = GivenBuilder::new(&ctx);
@@ -112,9 +112,9 @@ fn e2e_complete_workflow_with_done_next() {
     
     // Step 2: Add all to stack
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["clock", "enqueue", &task1.to_string()]);
-    when.execute_success(&["clock", "enqueue", &task2.to_string()]);
-    when.execute_success(&["clock", "enqueue", &task3.to_string()]);
+    when.execute_success(&["enqueue", &task1.to_string()]);
+    when.execute_success(&["enqueue", &task2.to_string()]);
+    when.execute_success(&["enqueue", &task3.to_string()]);
     
     // Step 3: Clock in (starts task 1)
     when.execute_success(&["clock", "in"]);
@@ -122,8 +122,8 @@ fn e2e_complete_workflow_with_done_next() {
     let then = ThenBuilder::new(&ctx, None);
     then.running_session_exists_for_task(task1);
     
-    // Step 4: Complete task 1 with --next (should start task 2)
-    when.execute_success(&["done", "--next"]);
+    // Step 4: Finish task 1 with --next (should start task 2)
+    when.execute_success(&["finish", "--next"]);
     
     // Verify task 1 is completed
     then.task_status_is(task1, "completed");
@@ -134,8 +134,8 @@ fn e2e_complete_workflow_with_done_next() {
     // Verify stack order
     then.stack_order_is(&[task2, task3]);
     
-    // Step 5: Complete task 2 with --next (should start task 3)
-    when.execute_success(&["done", "--next"]);
+    // Step 5: Finish task 2 with --next (should start task 3)
+    when.execute_success(&["finish", "--next"]);
     
     then.task_status_is(task2, "completed")
         .running_session_exists_for_task(task3)
@@ -365,7 +365,7 @@ fn e2e_recurrence_with_template_override() {
     
     // Run recurrence
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["recur", "run", "--until", "2026-01-15"]);
+    when.execute_success(&["recur", "run", "--until", "2026-01-20"]);
     
     // Verify instances have seed overrides
     let all_tasks = TaskRepo::list_all(ctx.db()).unwrap();
@@ -509,7 +509,7 @@ fn e2e_multi_task_modify_workflow() {
     let mut when = WhenBuilder::new(&ctx);
     // Use --yes to avoid interactive prompt in test
     // Note: description modification syntax is just the new description text
-    when.execute_success(&["modify", "+urgent", "Updated urgent task", "--yes"]);
+    when.execute_success(&["modify", "+urgent", "--yes", "Updated urgent task"]);
     
     // Verify tasks 1 and 2 were modified, task 3 was not
     let task1_updated = TaskRepo::get_by_id(ctx.db(), task1).unwrap().unwrap();
@@ -522,9 +522,9 @@ fn e2e_multi_task_modify_workflow() {
 }
 
 #[test]
-fn e2e_multi_task_done_workflow() {
+fn e2e_multi_task_finish_workflow() {
     // Test completing multiple tasks with filters
-    // Note: done command requires tasks to be clocked in, so we'll clock them in first
+    // Note: finish command requires tasks to be clocked in, so we'll clock them in first
     
     let ctx = AcceptanceTestContext::new();
     let given = GivenBuilder::new(&ctx);
@@ -539,11 +539,11 @@ fn e2e_multi_task_done_workflow() {
     
     // Clock in task 1, complete it
     when.execute_success(&[&task1.to_string(), "clock", "in"]);
-    when.execute_success(&["done"]);
+    when.execute_success(&["finish"]);
     
     // Clock in task 2, complete it
     when.execute_success(&[&task2.to_string(), "clock", "in"]);
-    when.execute_success(&["done"]);
+    when.execute_success(&["finish"]);
     
     // Verify tasks 1 and 2 are completed, task 3 is not
     let then = ThenBuilder::new(&ctx, None);

@@ -2,9 +2,11 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use std::fs;
+mod test_env;
 
 /// Helper to create a temporary database and set it as the data location
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     
@@ -16,8 +18,7 @@ fn setup_test_env() -> TempDir {
     
     // Set HOME to temp_dir so the config file is found
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd(temp_dir: &TempDir) -> Command {
@@ -28,7 +29,7 @@ fn get_task_cmd(temp_dir: &TempDir) -> Command {
 
 #[test]
 fn test_priority_overdue_task_has_higher_priority() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create overdue task
     let mut cmd = get_task_cmd(&temp_dir);
@@ -58,7 +59,7 @@ fn test_priority_overdue_task_has_higher_priority() {
 
 #[test]
 fn test_priority_due_soon_has_higher_priority() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task due tomorrow
     let mut cmd = get_task_cmd(&temp_dir);
@@ -88,7 +89,7 @@ fn test_priority_due_soon_has_higher_priority() {
 
 #[test]
 fn test_priority_allocation_affects_priority() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create task with allocation (don't add to clock stack)
     let mut cmd = get_task_cmd(&temp_dir);
@@ -121,7 +122,7 @@ fn test_priority_allocation_affects_priority() {
 
 #[test]
 fn test_priority_tasks_exclude_clock_stack() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create tasks
     let mut cmd = get_task_cmd(&temp_dir);
@@ -136,7 +137,7 @@ fn test_priority_tasks_exclude_clock_stack() {
     
     // Add Task 1 to clock stack
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "enqueue", "1"])
+    cmd.args(&["enqueue", "1"])
         .assert()
         .success();
     
@@ -163,7 +164,7 @@ fn test_priority_tasks_exclude_clock_stack() {
 
 #[test]
 fn test_priority_json_output() {
-    let temp_dir = setup_test_env();
+    let (temp_dir, _guard) = setup_test_env();
     
     // Create a task
     let mut cmd = get_task_cmd(&temp_dir);

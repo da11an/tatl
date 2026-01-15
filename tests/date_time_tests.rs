@@ -4,9 +4,11 @@ use tempfile::TempDir;
 use std::fs;
 use task_ninja::utils::date::parse_date_expr;
 use task_ninja::utils::duration::parse_duration;
+mod test_env;
 
 /// Helper to create a temporary database and set it as the data location
-fn setup_test_env() -> TempDir {
+fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     
@@ -18,8 +20,7 @@ fn setup_test_env() -> TempDir {
     
     // Set HOME to temp_dir so the config file is found
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
-    
-    temp_dir
+    (temp_dir, guard)
 }
 
 fn get_task_cmd() -> Command {
@@ -90,7 +91,7 @@ fn test_duration_no_duplicates() {
 
 #[test]
 fn test_duration_integration() {
-    let _temp_dir = setup_test_env();
+    let (_temp_dir, _guard) = setup_test_env();
     
     // Create task with duration
     let mut cmd = get_task_cmd();
