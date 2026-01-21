@@ -1,9 +1,9 @@
 // Performance and Optimization Tests
 // Verify indexes are created and used, and queries are optimized
 
-use task_ninja::db::DbConnection;
-use task_ninja::repo::{TaskRepo, ProjectRepo, StackRepo, SessionRepo};
-use task_ninja::filter::{parse_filter, filter_tasks};
+use tatl::db::DbConnection;
+use tatl::repo::{TaskRepo, ProjectRepo, StackRepo, SessionRepo};
+use tatl::filter::{parse_filter, filter_tasks};
 use std::time::Instant;
 
 // ============================================================================

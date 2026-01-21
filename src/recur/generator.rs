@@ -39,8 +39,8 @@ use std::collections::HashMap;
 /// # Example
 ///
 /// ```no_run
-/// use task_ninja::db::DbConnection;
-/// use task_ninja::recur::RecurGenerator;
+/// use tatl::db::DbConnection;
+/// use tatl::recur::RecurGenerator;
 /// use chrono::Utc;
 ///
 /// let conn = DbConnection::connect().unwrap();
@@ -63,8 +63,8 @@ impl RecurGenerator {
     /// # Example
     ///
     /// ```no_run
-    /// use task_ninja::db::DbConnection;
-    /// use task_ninja::recur::RecurGenerator;
+    /// use tatl::db::DbConnection;
+    /// use tatl::recur::RecurGenerator;
     /// use chrono::Utc;
     ///
     /// let conn = DbConnection::connect().unwrap();

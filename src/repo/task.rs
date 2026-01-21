@@ -16,8 +16,8 @@ use std::collections::HashMap;
 /// # Example
 ///
 /// ```no_run
-/// use task_ninja::db::DbConnection;
-/// use task_ninja::repo::TaskRepo;
+/// use tatl::db::DbConnection;
+/// use tatl::repo::TaskRepo;
 ///
 /// let conn = DbConnection::connect().unwrap();
 /// let task = TaskRepo::create(&conn, "Fix bug", None).unwrap();
@@ -517,8 +517,8 @@ impl TaskRepo {
     /// # Example
     /// 
     /// ```no_run
-    /// use task_ninja::db::DbConnection;
-    /// use task_ninja::repo::TaskRepo;
+    /// use tatl::db::DbConnection;
+    /// use tatl::repo::TaskRepo;
     /// 
     /// let conn = DbConnection::connect().unwrap();
     /// TaskRepo::delete(&conn, 5).unwrap();

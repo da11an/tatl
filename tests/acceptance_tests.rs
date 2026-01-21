@@ -3,10 +3,10 @@
 
 mod acceptance_framework;
 use acceptance_framework::*;
-use task_ninja::repo::{StackRepo, SessionRepo, TaskRepo};
-use task_ninja::filter::parser::parse_filter;
-use task_ninja::filter::evaluator::filter_tasks;
-use task_ninja::utils::date;
+use tatl::repo::{StackRepo, SessionRepo, TaskRepo};
+use tatl::filter::parser::parse_filter;
+use tatl::filter::evaluator::filter_tasks;
+use tatl::utils::date;
 
 // ============================================================================
 // Section 11.1: Stack basics
@@ -601,7 +601,7 @@ fn acceptance_recur_run_is_idempotent() {
     let ctx = AcceptanceTestContext::new();
     
     // Create a template
-    use task_ninja::repo::TemplateRepo;
+    use tatl::repo::TemplateRepo;
     use std::collections::HashMap;
     use serde_json::json;
     let mut template_payload = HashMap::new();
@@ -717,7 +717,7 @@ fn acceptance_project_merge_archive_status_handling() {
     given.project_exists("work");
     
     // Archive temp project
-    use task_ninja::repo::ProjectRepo;
+    use tatl::repo::ProjectRepo;
     ProjectRepo::archive(ctx.db(), "temp").unwrap();
     
     let task10 = given.task_exists_with_project("Task 10", "temp");

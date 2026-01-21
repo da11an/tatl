@@ -2,16 +2,16 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use std::fs;
-use task_ninja::db::DbConnection;
-use task_ninja::repo::TaskRepo;
-use task_ninja::recur::{RecurGenerator, RecurRule};
+use tatl::db::DbConnection;
+use tatl::repo::TaskRepo;
+use tatl::recur::{RecurGenerator, RecurRule};
 mod test_env;
 
 fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
     let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
-    let config_dir = temp_dir.path().join(".taskninja");
+    let config_dir = temp_dir.path().join(".tatl");
     fs::create_dir_all(&config_dir).unwrap();
     let config_file = config_dir.join("rc");
     fs::write(&config_file, format!("data.location={}\n", db_path.display())).unwrap();
@@ -20,7 +20,7 @@ fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
 }
 
 fn get_task_cmd() -> Command {
-    Command::cargo_bin("task").unwrap()
+    Command::cargo_bin("tatl").unwrap()
 }
 
 #[test]
@@ -42,14 +42,14 @@ fn test_recur_rule_parse_interval() {
 #[test]
 fn test_recur_rule_parse_weekday_modifier() {
     let rule = RecurRule::parse("weekly byweekday:mon,wed,fri").unwrap();
-    assert_eq!(rule.frequency, task_ninja::recur::parser::RecurFrequency::Weekly);
+    assert_eq!(rule.frequency, tatl::recur::parser::RecurFrequency::Weekly);
     assert_eq!(rule.byweekday, Some(vec![0, 2, 4]));
 }
 
 #[test]
 fn test_recur_rule_parse_monthday_modifier() {
     let rule = RecurRule::parse("monthly bymonthday:1,15").unwrap();
-    assert_eq!(rule.frequency, task_ninja::recur::parser::RecurFrequency::Monthly);
+    assert_eq!(rule.frequency, tatl::recur::parser::RecurFrequency::Monthly);
     assert_eq!(rule.bymonthday, Some(vec![1, 15]));
 }
 

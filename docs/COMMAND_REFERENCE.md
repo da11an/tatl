@@ -1,6 +1,6 @@
-# Task Ninja Command Reference
+# Tatl Ninja Command Reference
 
-Complete reference for all Task Ninja commands with examples and usage patterns.
+Complete reference for all Tatl commands with examples and usage patterns.
 
 ## Table of Contents
 
@@ -16,9 +16,9 @@ Complete reference for all Task Ninja commands with examples and usage patterns.
 
 ---
 
-## Task Commands
+## Tatl Commands
 
-### `task add [--clock-in] [--enqueue] [--auto-create-project] <description> [attributes...]`
+### `tatl add [--clock-in] [--enqueue] [--auto-create-project] <description> [attributes...]`
 
 Add a new task with optional attributes.
 
@@ -47,39 +47,39 @@ Add a new task with optional attributes.
 # Simple task
 task add Fix bug in authentication
 
-# Task with project and tags
+# Tatl with project and tags
 task add Review PR project:work +code-review +urgent
 
-# Task with due date and allocation
+# Tatl with due date and allocation
 task add Write documentation project:docs due:tomorrow allocation:2h
 
-# Task with template and recurrence
+# Tatl with template and recurrence
 task add Daily standup template:meeting recur:daily
 
-# Task with UDA
+# Tatl with UDA
 task add Customer call uda.client:acme uda.priority:high
 
-# Task with --clock-in (automatically starts timing)
+# Tatl with --clock-in (automatically starts timing)
 task add --clock-in Start working on feature
 task add --clock-in "Fix urgent bug" project:work +urgent
 
-# Task with --enqueue (adds to clock stack without starting timing)
+# Tatl with --enqueue (adds to clock stack without starting timing)
 task add --enqueue "Review documentation" project:docs
 task add --enqueue "Write tests" project:work due:tomorrow allocation:2h
 
-# Task with new project (interactive prompt)
+# Tatl with new project (interactive prompt)
 task add "New feature" project:newproject
 # Prompts: "This is a new project 'newproject'. Add new project? [y/n/c] (default: y):"
 # - y: Create project and continue (default)
 # - n: Skip project, create task without it
 # - c: Cancel task creation
 
-# Task with --auto-create-project (non-interactive)
+# Tatl with --auto-create-project (non-interactive)
 task add --auto-create-project "New feature" project:newproject
 # Automatically creates project if it doesn't exist
 ```
 
-### `task list [filter] [--json] [--relative] [--add-alias <name>]`
+### `tatl list [filter] [--json] [--relative] [--add-alias <name>]`
 
 List tasks matching optional filter.
 
@@ -110,7 +110,7 @@ task list --json
 task list project:work +urgent --json
 ```
 
-### `task modify <id|filter> [attributes...] [--yes] [--interactive]`
+### `tatl modify <id|filter> [attributes...] [--yes] [--interactive]`
 
 Modify one or more tasks.
 
@@ -136,7 +136,7 @@ task modify 10 project:newproject
 task 10 modify project:none due:none allocation:none
 ```
 
-### `task finish [<id|filter>] [--at <expr>] [--next] [--yes] [--interactive]`
+### `tatl finish [<id|filter>] [--at <expr>] [--next] [--yes] [--interactive]`
 
 Complete one or more tasks.
 
@@ -176,7 +176,7 @@ task finish 10 --at 17:00
 task finish +urgent --yes
 ```
 
-### `task close <id|filter> [--yes] [--interactive]`
+### `tatl close <id|filter> [--yes] [--interactive]`
 
 Close one or more tasks (sets status to `closed`).
 
@@ -197,7 +197,7 @@ task close 10
 task close project:work --yes
 ```
 
-### `task annotate [<id>] <note...> [--task <id>] [--delete <annotation_id>]`
+### `tatl annotate [<id>] <note...> [--task <id>] [--delete <annotation_id>]`
 
 Add or delete annotation to/from a task.
 
@@ -226,7 +226,7 @@ task annotate 10 This is a longer note with multiple words
 task annotate 10 --delete 5
 ```
 
-### `task show <id|filter>`
+### `tatl show <id|filter>`
 
 Show detailed summary of task(s).
 
@@ -245,7 +245,7 @@ task show 1,3,5
 task show project:work
 ```
 
-### `task delete <id|filter> [--yes] [--interactive]`
+### `tatl delete <id|filter> [--yes] [--interactive]`
 
 Permanently delete task(s).
 
@@ -269,7 +269,7 @@ task delete +old --yes
 
 ## Project Commands
 
-### `task projects add <name>`
+### `tatl projects add <name>`
 
 Create a new project.
 
@@ -283,7 +283,7 @@ task projects add admin.email
 task projects add sales.northamerica.texas
 ```
 
-### `task projects list [--archived]`
+### `tatl projects list [--archived]`
 
 List all projects.
 
@@ -299,7 +299,7 @@ task projects list
 task projects list --archived
 ```
 
-### `task projects rename <old_name> <new_name> [--force]`
+### `tatl projects rename <old_name> <new_name> [--force]`
 
 Rename a project.
 
@@ -319,7 +319,7 @@ task projects rename temp work
 task projects rename temp work --force
 ```
 
-### `task projects archive <name>`
+### `tatl projects archive <name>`
 
 Archive a project.
 
@@ -334,7 +334,7 @@ task projects archive old-project
 
 The clock stack is a queue of tasks. The task at position 0 (clock[0]) is the "active" task. Clock operations (pick, next, drop) affect which task is active. Clock in/out controls timing.
 
-### `task clock list`
+### `tatl clock list`
 
 Display the current clock stack with full task details.
 
@@ -354,7 +354,7 @@ task clock list
 task clock list --json
 ```
 
-### `task clock enqueue <id|id,id,...|range|mixed>`
+### `tatl clock enqueue <id|id,id,...|range|mixed>`
 
 Add task(s) to end of clock stack (do it later).
 
@@ -382,7 +382,7 @@ task clock enqueue 1,3-5,10
 task clock enqueue 1, 3, 5
 ```
 
-### `task clock pick <index>`
+### `tatl clock pick <index>`
 
 Move task at position to top of clock stack.
 
@@ -391,7 +391,7 @@ Move task at position to top of clock stack.
 task clock pick 2
 ```
 
-### `task clock next [<n>]`
+### `tatl clock next [<n>]`
 
 Move to the next task by n positions (default: 1).
 
@@ -408,7 +408,7 @@ task clock next
 task clock next 2
 ```
 
-### `task clock drop <index>`
+### `tatl clock drop <index>`
 
 Remove task from clock stack at position.
 
@@ -425,7 +425,7 @@ task stack drop 1
 task stack 1 drop
 ```
 
-### `task clock clear`
+### `tatl clock clear`
 
 Clear all tasks from clock stack.
 
@@ -434,7 +434,7 @@ Clear all tasks from clock stack.
 task clock clear
 ```
 
-### `task clock in [<id>] [<start>|<start..end>]`
+### `tatl clock in [<id>] [<start>|<start..end>]`
 
 Start timing the current clock[0] task, or a specific task.
 
@@ -474,7 +474,7 @@ task clock in 10 09:00
 task clock in 10 09:00..11:00
 ```
 
-### `task clock out [<end>]`
+### `tatl clock out [<end>]`
 
 Stop the currently running session.
 
@@ -491,7 +491,7 @@ task clock out 17:00
 
 ## Session Commands
 
-### `task sessions list [<filter>...] [--json] [--add-alias <name>]`
+### `tatl sessions list [<filter>...] [--json] [--add-alias <name>]`
 
 List session history.
 
@@ -539,7 +539,7 @@ task sessions list project:work --json
 task sessions list --task 10
 ```
 
-### `task sessions show [--task <id|filter>]`
+### `tatl sessions show [--task <id|filter>]`
 
 Show detailed session information.
 
@@ -556,7 +556,7 @@ task sessions show
 task sessions show --task 10
 ```
 
-### `task sessions modify <session_id> [start:<expr>] [end:<expr>] [--yes] [--force]`
+### `tatl sessions modify <session_id> [start:<expr>] [end:<expr>] [--yes] [--force]`
 
 Modify session start and/or end times.
 
@@ -618,7 +618,7 @@ Error: Session modification would create conflicts:
 Use --force to override (may require resolving conflicts manually).
 ```
 
-### `task sessions delete <session_id> [--yes]`
+### `tatl sessions delete <session_id> [--yes]`
 
 Delete a session.
 
@@ -657,7 +657,7 @@ Are you sure? (y/n):
 
 ## Status Command
 
-### `task status [--json]`
+### `tatl status [--json]`
 
 Show dashboard with system status and actionable information.
 
@@ -768,7 +768,7 @@ The `--json` flag outputs structured data:
 
 ## Recurrence Commands
 
-### `task recur run [--until <date_expr>]`
+### `tatl recur run [--until <date_expr>]`
 
 Generate recurring task instances.
 
@@ -973,8 +973,8 @@ Durations use unit suffixes: `d` (days), `h` (hours), `m` (minutes), `s` (second
 ### Database Issues
 
 **Database location:**
-- Default: `~/.taskninja/tasks.db`
-- Override: Create `~/.taskninja/rc` with `data.location=/path/to/db`
+- Default: `~/.tatl/ledger.db`
+- Override: Create `~/.tatl/rc` with `data.location=/path/to/db`
 
 **Database corruption:**
 - Backup database regularly

@@ -13,7 +13,7 @@ fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
     let db_path = temp_dir.path().join("test.db");
     
     // Create config file
-    let config_dir = temp_dir.path().join(".taskninja");
+    let config_dir = temp_dir.path().join(".tatl");
     fs::create_dir_all(&config_dir).unwrap();
     let config_file = config_dir.join("rc");
     fs::write(&config_file, format!("data.location={}\n", db_path.display())).unwrap();
@@ -22,7 +22,7 @@ fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
 
 /// Helper to create a new command with test environment
 fn new_cmd(temp_dir: &TempDir) -> Command {
-    let mut cmd = Command::cargo_bin("task").unwrap();
+    let mut cmd = Command::cargo_bin("tatl").unwrap();
     cmd.env("HOME", temp_dir.path());
     cmd
 }

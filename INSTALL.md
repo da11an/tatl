@@ -8,76 +8,30 @@ cargo build --release
 cargo install --path .
 ```
 
-This installs the `task` binary to `~/.cargo/bin/task`.
+This installs the `tatl` binary to `~/.cargo/bin/tatl`.
 
-## Handling Taskwarrior Conflicts
+## Note: No Conflicts with Taskwarrior
 
-If you have Taskwarrior installed (which also uses the `task` command), you have several options:
+The `tatl` command does not conflict with Taskwarrior's `task` command, so you can use both tools simultaneously without any special configuration.
 
-### Option 1: Use Full Path (Recommended for Testing)
-
-```bash
-# Use the full path when you want Task Ninja
-~/.cargo/bin/task stack show
-
-# Or create a temporary alias in your current shell
-alias tn='~/.cargo/bin/task'
-tn stack show
-```
-
-### Option 2: Prioritize Task Ninja in PATH
-
-Add `~/.cargo/bin` to the **beginning** of your PATH in `~/.bashrc` or `~/.zshrc`:
+## Verify Installation
 
 ```bash
-export PATH="$HOME/.cargo/bin:$PATH"
+# Check if installed
+which tatl
+~/.cargo/bin/tatl status
+
+# Check version
+~/.cargo/bin/tatl --help
 ```
 
-Then reload your shell:
-```bash
-source ~/.bashrc  # or source ~/.zshrc
-```
-
-**Note:** This will make Task Ninja take precedence over Taskwarrior. To use Taskwarrior, use its full path.
-
-### Option 3: Create an Alias
-
-Add to `~/.bashrc` or `~/.zshrc`:
+## Uninstall
 
 ```bash
-# Task Ninja alias
-alias task-ninja='~/.cargo/bin/task'
-alias tn='~/.cargo/bin/task'
+cargo uninstall tatl
 ```
 
-Then reload your shell:
-```bash
-source ~/.bashrc  # or source ~/.zshrc
-```
-
-Usage:
-```bash
-task-ninja stack show
-tn stack show
-```
-
-### Option 4: Rename the Binary
-
-If you prefer a different name, modify `Cargo.toml`:
-
-```toml
-[[bin]]
-name = "taskninja"  # or "tn", "task-ninja", etc.
-path = "src/main.rs"
-```
-
-Then rebuild and install:
-```bash
-cargo build --release
-cargo install --path .
-```
-
-### Option 5: Local Development (No Installation)
+## Local Development (No Installation)
 
 For testing without installing:
 
@@ -86,45 +40,29 @@ For testing without installing:
 cargo build --release
 
 # Use directly
-./target/release/task stack show
+./target/release/tatl status
 
 # Or create a symlink in a local bin directory
 mkdir -p ~/bin
-ln -s $(pwd)/target/release/task ~/bin/task-ninja
+ln -s $(pwd)/target/release/tatl ~/bin/tatl
 export PATH="$HOME/bin:$PATH"
-```
-
-## Verify Installation
-
-```bash
-# Check if installed
-which task
-~/.cargo/bin/task stack show
-
-# Check version (if --version is implemented)
-~/.cargo/bin/task --help
-```
-
-## Uninstall
-
-```bash
-cargo uninstall task-ninja
 ```
 
 ## Troubleshooting
 
-**Problem:** `task` command not found after installation
+**Problem:** `tatl` command not found after installation
 
 **Solution:** Make sure `~/.cargo/bin` is in your PATH:
 ```bash
 echo $PATH | grep cargo
 ```
 
-If not, add it to your shell config file.
+If not, add it to your shell config file (`~/.bashrc` or `~/.zshrc`):
+```bash
+export PATH="$HOME/.cargo/bin:$PATH"
+```
 
-**Problem:** Wrong `task` command runs (Taskwarrior instead of Task Ninja)
-
-**Solution:** 
-- Check which one is first in PATH: `which task`
-- Use full path: `~/.cargo/bin/task`
-- Or use an alias as described above
+Then reload your shell:
+```bash
+source ~/.bashrc  # or source ~/.zshrc
+```

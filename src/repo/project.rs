@@ -19,8 +19,8 @@ use anyhow::{Context, Result};
 /// # Example
 ///
 /// ```no_run
-/// use task_ninja::db::DbConnection;
-/// use task_ninja::repo::ProjectRepo;
+/// use tatl::db::DbConnection;
+/// use tatl::repo::ProjectRepo;
 ///
 /// let conn = DbConnection::connect().unwrap();
 /// let project = ProjectRepo::create(&conn, "work").unwrap();

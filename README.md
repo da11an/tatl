@@ -1,6 +1,6 @@
-# Task Ninja 🥷
+# Tatl - Task and Time Ledger
 
-A powerful command-line task management tool built with Rust and SQLite - your stealthy companion for getting things done.
+A powerful command-line task and time tracking tool built with Rust and SQLite - your ledger for tasks and time.
 
 ## Features
 
@@ -22,7 +22,7 @@ A powerful command-line task management tool built with Rust and SQLite - your s
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd task-ninja
+cd tatl
 
 # Build release version
 cargo build --release
@@ -31,11 +31,11 @@ cargo build --release
 cargo install --path .
 ```
 
-The `task` command will be available in your PATH (typically `~/.cargo/bin/task`).
+The `tatl` command will be available in your PATH (typically `~/.cargo/bin/tatl`).
 
-**Note:** If you have Taskwarrior installed, it also uses the `task` command. You can:
-- Use the full path: `~/.cargo/bin/task`
-- Create an alias: `alias task-ninja='~/.cargo/bin/task'`
+**Note:** If you have Taskwarrior installed, it also uses the `tatl` command. You can:
+- Use the full path: `~/.cargo/bin/tatl`
+- Create an alias: `alias tatl='~/.cargo/bin/tatl'`
 - Add `~/.cargo/bin` to the beginning of your PATH to prioritize this installation
 - Rename the binary by modifying `Cargo.toml` if you prefer a different name
 
@@ -48,10 +48,10 @@ For local testing without installing globally:
 cargo build --release
 
 # Use directly
-./target/release/task clock list
+./target/release/tatl clock list
 
 # Or create an alias in your current shell
-alias tn='./target/release/task'
+alias tn='./target/release/tatl'
 tn clock list
 ```
 
@@ -88,7 +88,7 @@ task sessions show --task 10
 
 ## Database
 
-The database is stored at `~/.taskninja/tasks.db` by default. You can override this location by creating a configuration file at `~/.taskninja/rc`:
+The database is stored at `~/.tatl/ledger.db` by default. You can override this location by creating a configuration file at `~/.tatl/rc`:
 
 ```
 data.location=/path/to/your/tasks.db
@@ -229,7 +229,7 @@ task list status:pending not +waiting
 
 ## Configuration
 
-Create `~/.taskninja/rc` to customize behavior:
+Create `~/.tatl/rc` to customize behavior:
 
 ```
 data.location=/custom/path/to/tasks.db
@@ -288,8 +288,8 @@ See `docs/COMMAND_REFERENCE.md` for complete command documentation with examples
 ### Database Issues
 
 **Database location:**
-- Default: `~/.taskninja/tasks.db`
-- Override: Create `~/.taskninja/rc` with `data.location=/path/to/db`
+- Default: `~/.tatl/ledger.db`
+- Override: Create `~/.tatl/rc` with `data.location=/path/to/db`
 
 **Database corruption:**
 - Backup database regularly

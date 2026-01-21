@@ -3,9 +3,9 @@
 
 mod acceptance_framework;
 use acceptance_framework::*;
-use task_ninja::repo::{TaskRepo, ProjectRepo, StackRepo, SessionRepo, AnnotationRepo, TemplateRepo};
-use task_ninja::filter::{parse_filter, filter_tasks};
-use task_ninja::utils::date;
+use tatl::repo::{TaskRepo, ProjectRepo, StackRepo, SessionRepo, AnnotationRepo, TemplateRepo};
+use tatl::filter::{parse_filter, filter_tasks};
+use tatl::utils::date;
 use std::collections::HashMap;
 use serde_json::json;
 

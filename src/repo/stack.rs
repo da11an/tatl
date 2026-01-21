@@ -18,8 +18,8 @@ use anyhow::Result;
 /// # Example
 ///
 /// ```no_run
-/// use task_ninja::db::DbConnection;
-/// use task_ninja::repo::{StackRepo, TaskRepo};
+/// use tatl::db::DbConnection;
+/// use tatl::repo::{StackRepo, TaskRepo};
 ///
 /// let conn = DbConnection::connect().unwrap();
 /// let stack = StackRepo::get_or_create_default(&conn).unwrap();

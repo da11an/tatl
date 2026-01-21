@@ -44,7 +44,7 @@ use crate::filter::evaluator::FilterExpr;
 /// # Example
 ///
 /// ```
-/// use task_ninja::filter::parse_filter;
+/// use tatl::filter::parse_filter;
 ///
 /// let filter = parse_filter(vec!["project:work".to_string(), "+urgent".to_string()]).unwrap();
 /// ```

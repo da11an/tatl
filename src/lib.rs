@@ -1,6 +1,6 @@
-//! Task Ninja - A powerful command-line task management tool
+//! Tatl (Task and Time Ledger) - A powerful command-line task and time tracking tool
 //!
-//! This library provides the core functionality for Task Ninja, including:
+//! This library provides the core functionality for Tatl, including:
 //! - Database operations and migrations
 //! - Data models for tasks, projects, sessions, and more
 //! - Repository layer for data access
@@ -12,7 +12,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use task_ninja::cli::run;
+//! use tatl::cli::run;
 //!
 //! fn main() {
 //!     if let Err(e) = run() {

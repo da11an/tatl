@@ -16,8 +16,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 
 #[derive(Parser)]
-#[command(name = "task")]
-#[command(about = "Task Ninja - A powerful command-line task management tool")]
+#[command(name = "tatl")]
+#[command(about = "Task and Time Ledger - A powerful command-line task and time tracking tool")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 pub struct Cli {
     #[command(subcommand)]
@@ -324,7 +324,7 @@ pub fn run() -> Result<()> {
             Ok(_) => return Ok(()), // Version was printed by clap
             Err(_e) => {
                 // If parsing fails, just print version manually
-                println!("task {}", env!("CARGO_PKG_VERSION"));
+                println!("tatl {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
             }
         }
@@ -385,7 +385,7 @@ pub fn run() -> Result<()> {
     
     // Use clap parsing with expanded args
     // Build args vector with program name for clap
-    let clap_args = std::iter::once("task".to_string())
+    let clap_args = std::iter::once("tatl".to_string())
         .chain(args.iter().cloned())
         .collect::<Vec<_>>();
     let cli = match Cli::try_parse_from(clap_args) {
@@ -418,7 +418,7 @@ fn handle_command(cli: Cli) -> Result<()> {
                 handle_annotation_delete(target, annotation_id)
             } else {
                 if target.is_none() && task.is_none() && note.is_empty() {
-                    let help_args = vec!["task".to_string(), "annotate".to_string(), "--help".to_string()];
+                    let help_args = vec!["tatl".to_string(), "annotate".to_string(), "--help".to_string()];
                     let _ = Cli::try_parse_from(help_args);
                     return Ok(());
                 }

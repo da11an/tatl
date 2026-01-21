@@ -1,6 +1,6 @@
 use tempfile::TempDir;
 use std::fs;
-use task_ninja::utils::parse_date_expr;
+use tatl::utils::parse_date_expr;
 use anyhow::Result;
 mod test_env;
 
@@ -8,7 +8,7 @@ fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
     let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
-    let config_dir = temp_dir.path().join(".taskninja");
+    let config_dir = temp_dir.path().join(".tatl");
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(config_dir.join("rc"), format!("data.location={}\n", db_path.display())).unwrap();
     std::env::set_var("HOME", temp_dir.path().to_str().unwrap());

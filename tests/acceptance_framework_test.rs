@@ -2,7 +2,7 @@
 
 mod acceptance_framework;
 use acceptance_framework::*;
-use task_ninja::repo::TaskRepo;
+use tatl::repo::TaskRepo;
 
 #[test]
 fn test_framework_basic_setup() {

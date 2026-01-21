@@ -11,7 +11,7 @@ impl DbConnection {
     pub fn default_path() -> PathBuf {
         let home = std::env::var("HOME")
             .expect("HOME environment variable not set");
-        PathBuf::from(home).join(".taskninja").join("tasks.db")
+        PathBuf::from(home).join(".tatl").join("ledger.db")
     }
 
     /// Get database path from configuration file or default
@@ -44,7 +44,7 @@ impl DbConnection {
     pub fn config_path() -> PathBuf {
         let home = std::env::var("HOME")
             .expect("HOME environment variable not set");
-        PathBuf::from(home).join(".taskninja").join("rc")
+        PathBuf::from(home).join(".tatl").join("rc")
     }
 
     /// Connect to the database, creating it and parent directories if needed
@@ -88,8 +88,8 @@ mod tests {
     #[test]
     fn test_default_path() {
         let path = DbConnection::default_path();
-        assert!(path.to_string_lossy().contains(".taskninja"));
-        assert!(path.to_string_lossy().ends_with("tasks.db"));
+        assert!(path.to_string_lossy().contains(".tatl"));
+        assert!(path.to_string_lossy().ends_with("ledger.db"));
     }
 
     #[test]

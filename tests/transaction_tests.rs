@@ -3,8 +3,8 @@
 
 mod acceptance_framework;
 use acceptance_framework::*;
-use task_ninja::repo::{TaskRepo, StackRepo, SessionRepo};
-use task_ninja::db::DbConnection;
+use tatl::repo::{TaskRepo, StackRepo, SessionRepo};
+use tatl::db::DbConnection;
 use rusqlite::Connection;
 
 // ============================================================================

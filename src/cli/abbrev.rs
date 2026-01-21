@@ -1,4 +1,4 @@
-// Command abbreviation matching for Task Ninja CLI
+// Command abbreviation matching for Tatl CLI
 
 /// Find all commands that start with the given prefix (case-insensitive)
 pub fn find_matching_commands<'a>(prefix: &str, commands: &'a [&str]) -> Vec<&'a str> {
@@ -23,7 +23,7 @@ pub fn find_unique_command<'a>(prefix: &str, commands: &'a [&str]) -> Result<&'a
     }
 }
 
-/// Top-level commands in Task Ninja
+/// Top-level commands in Tatl
 pub const TOP_LEVEL_COMMANDS: &[&str] = &[
     "projects", "add", "list", "modify", "clock", 
     "annotate", "finish", "close", "delete", "enqueue", "recur", "sessions", "status", "show"

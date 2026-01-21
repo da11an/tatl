@@ -1,13 +1,13 @@
 [package]
-name = "task-ninja"
+name = "tatl"
 version = "0.2.0"
 edition = "2021"
 authors = ["Dallan Prince"]
-description = "A powerful command-line task management tool"
+description = "Task and Time Ledger - A powerful command-line task and time tracking tool"
 license = "MIT"
 
 [[bin]]
-name = "task"
+name = "tatl"
 path = "src/main.rs"
 
 [dependencies]

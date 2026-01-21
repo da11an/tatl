@@ -34,7 +34,7 @@ use anyhow::Result;
 /// # Examples
 ///
 /// ```
-/// use task_ninja::utils::parse_date_expr;
+/// use tatl::utils::parse_date_expr;
 ///
 /// let ts = parse_date_expr("2026-01-15").unwrap();
 /// let ts2 = parse_date_expr("tomorrow").unwrap();

@@ -1,4 +1,4 @@
-// Core data models for Task Ninja
+// Core data models for Tatl
 // These structs represent the domain entities
 
 pub mod task;

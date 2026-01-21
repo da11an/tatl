@@ -8,7 +8,7 @@ fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
     let guard = test_env::lock_test_env();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
-    let config_dir = temp_dir.path().join(".taskninja");
+    let config_dir = temp_dir.path().join(".tatl");
     fs::create_dir_all(&config_dir).unwrap();
     let config_file = config_dir.join("rc");
     fs::write(&config_file, format!("data.location={}\n", db_path.display())).unwrap();
@@ -17,7 +17,7 @@ fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
 }
 
 fn get_task_cmd(temp_dir: &TempDir) -> Command {
-    let mut cmd = Command::cargo_bin("task").unwrap();
+    let mut cmd = Command::cargo_bin("tatl").unwrap();
     cmd.env("HOME", temp_dir.path());
     cmd
 }

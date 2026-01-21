@@ -46,8 +46,8 @@ impl SessionRepo {
     /// # Example
     ///
     /// ```no_run
-    /// use task_ninja::db::DbConnection;
-    /// use task_ninja::repo::SessionRepo;
+    /// use tatl::db::DbConnection;
+    /// use tatl::repo::SessionRepo;
     /// use chrono::Utc;
     ///
     /// let conn = DbConnection::connect().unwrap();

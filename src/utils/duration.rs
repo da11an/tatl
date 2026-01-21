@@ -31,7 +31,7 @@ use anyhow::Result;
 /// # Examples
 ///
 /// ```
-/// use task_ninja::utils::parse_duration;
+/// use tatl::utils::parse_duration;
 ///
 /// assert_eq!(parse_duration("1h").unwrap(), 3600);
 /// assert_eq!(parse_duration("2h30m").unwrap(), 9000);

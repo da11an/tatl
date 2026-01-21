@@ -6,8 +6,8 @@ use tempfile::TempDir;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock, MutexGuard};
-use task_ninja::db::DbConnection;
-use task_ninja::repo::{TaskRepo, ProjectRepo, StackRepo, SessionRepo};
+use tatl::db::DbConnection;
+use tatl::repo::{TaskRepo, ProjectRepo, StackRepo, SessionRepo};
 use chrono::{Local, TimeZone};
 
 /// Test context for acceptance tests
@@ -27,7 +27,7 @@ impl AcceptanceTestContext {
         let db_path = temp_dir.path().join("test.db");
         
         // Create config file
-        let config_dir = temp_dir.path().join(".taskninja");
+        let config_dir = temp_dir.path().join(".tatl");
         fs::create_dir_all(&config_dir).unwrap();
         let config_file = config_dir.join("rc");
         fs::write(&config_file, format!("data.location={}\n", db_path.display())).unwrap();
@@ -48,7 +48,7 @@ impl AcceptanceTestContext {
     
     /// Get a command instance configured for this test context
     pub fn cmd(&self) -> Command {
-        let mut cmd = Command::cargo_bin("task").unwrap();
+        let mut cmd = Command::cargo_bin("tatl").unwrap();
         cmd.env("HOME", self.temp_dir.path());
         cmd
     }
@@ -398,7 +398,7 @@ fn parse_time(time_str: &str) -> i64 {
         } else {
             time_str.to_string()
         };
-        task_ninja::utils::parse_date_expr(&normalized).unwrap()
+        tatl::utils::parse_date_expr(&normalized).unwrap()
     } else if time_str.contains(':') {
         // Time only: "09:00" - assume today
         let today = Local::now().date_naive();
