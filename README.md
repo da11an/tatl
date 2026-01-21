@@ -1,4 +1,4 @@
-# Tatl - Task and Time Ledger
+# TATL - Task and Time Ledger
 
 A powerful command-line task and time tracking tool built with Rust and SQLite - your ledger for tasks and time.
 
