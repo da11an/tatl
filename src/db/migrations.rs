@@ -40,6 +40,12 @@ impl MigrationManager {
     fn apply_migration(conn: &Connection, version: u32) -> Result<()> {
         let migrations = get_migrations();
         if let Some(migration) = migrations.get(&version) {
+            // For migrations that need to disable foreign keys (like table recreation),
+            // we must set the PRAGMA before starting the transaction
+            if version == 5 {
+                conn.execute("PRAGMA foreign_keys=OFF", [])?;
+            }
+            
             // Execute migration in a transaction
             let tx = conn.unchecked_transaction()?;
             migration(&tx)?;
@@ -48,6 +54,12 @@ impl MigrationManager {
                 [version],
             )?;
             tx.commit()?;
+            
+            // Re-enable foreign keys after transaction completes
+            if version == 5 {
+                conn.execute("PRAGMA foreign_keys=ON", [])?;
+            }
+            
             Ok(())
         } else {
             Err(rusqlite::Error::SqliteFailure(
@@ -383,8 +395,9 @@ fn migration_v5(tx: &rusqlite::Transaction) -> Result<(), rusqlite::Error> {
     tx.execute("DROP TABLE IF EXISTS recur_occurrences", [])?;
     
     // SQLite doesn't support direct column rename before 3.25.0,
-    // so we recreate the table with the renamed column
-    tx.execute("PRAGMA foreign_keys=OFF", [])?;
+    // so we recreate the table with the renamed column.
+    // Note: PRAGMA foreign_keys=OFF must be set BEFORE the transaction starts
+    // (handled in apply_migration), otherwise CASCADE deletes will trigger.
     
     tx.execute(
         "CREATE TABLE tasks_new (
@@ -425,7 +438,7 @@ fn migration_v5(tx: &rusqlite::Transaction) -> Result<(), rusqlite::Error> {
     tx.execute("CREATE INDEX idx_tasks_scheduled_ts ON tasks(scheduled_ts)", [])?;
     tx.execute("CREATE INDEX idx_tasks_wait_ts ON tasks(wait_ts)", [])?;
     
-    tx.execute("PRAGMA foreign_keys=ON", [])?;
+    // Note: PRAGMA foreign_keys=ON is restored by apply_migration after commit
     Ok(())
 }
 
@@ -494,12 +507,83 @@ mod tests {
         
         // Try to create second open session - should fail
         let result = conn.execute(
-            "INSERT INTO sessions (task_id, start_ts, created_ts) 
+            "INSERT INTO sessions (task_id, start_ts, created_ts)
              VALUES (?1, 2000, 2000)",
             [task_id],
         );
         
         // Should fail due to unique constraint
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_migration_v5_preserves_sessions() {
+        // This test verifies that migration_v5 (recur -> respawn rename)
+        // does not trigger CASCADE deletes on sessions table.
+        let conn = Connection::open_in_memory().unwrap();
+        
+        // Apply migrations 1-4 only
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)",
+            [],
+        ).unwrap();
+        
+        for version in 1..=4 {
+            let migrations = get_migrations();
+            if let Some(migration) = migrations.get(&version) {
+                let tx = conn.unchecked_transaction().unwrap();
+                migration(&tx).unwrap();
+                tx.execute("INSERT INTO schema_version (version) VALUES (?1)", [version]).unwrap();
+                tx.commit().unwrap();
+            }
+        }
+        
+        // Create a task with the old 'recur' column
+        conn.execute(
+            "INSERT INTO tasks (uuid, description, status, recur, created_ts, modified_ts) 
+             VALUES ('uuid1', 'Task 1', 'pending', 'daily', 1000, 1000)",
+            [],
+        ).unwrap();
+        let task_id: i64 = conn.last_insert_rowid();
+        
+        // Create a session for this task
+        conn.execute(
+            "INSERT INTO sessions (task_id, start_ts, end_ts, created_ts) 
+             VALUES (?1, 1000, 2000, 1000)",
+            [task_id],
+        ).unwrap();
+        
+        // Verify session exists
+        let session_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sessions",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(session_count, 1, "Should have 1 session before migration");
+        
+        // Now apply migration v5 (this is where the bug was - CASCADE deletes)
+        // Must disable foreign keys BEFORE starting transaction
+        conn.execute("PRAGMA foreign_keys=OFF", []).unwrap();
+        let tx = conn.unchecked_transaction().unwrap();
+        migration_v5(&tx).unwrap();
+        tx.execute("INSERT INTO schema_version (version) VALUES (5)", []).unwrap();
+        tx.commit().unwrap();
+        conn.execute("PRAGMA foreign_keys=ON", []).unwrap();
+        
+        // Verify session still exists after migration
+        let session_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sessions",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(session_count, 1, "Session should be preserved after migration v5");
+        
+        // Verify the respawn column exists and has the migrated value
+        let respawn: Option<String> = conn.query_row(
+            "SELECT respawn FROM tasks WHERE id = ?1",
+            [task_id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(respawn, Some("daily".to_string()), "Respawn value should be migrated from recur");
     }
 }
