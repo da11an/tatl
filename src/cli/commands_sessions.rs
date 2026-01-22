@@ -7,7 +7,7 @@ use crate::cli::error::{user_error, validate_task_id};
 use crate::filter::{parse_filter, filter_tasks};
 use crate::utils::parse_date_expr;
 use anyhow::{Context, Result};
-use chrono::{Local, TimeZone, Timelike, Datelike, Duration};
+use chrono::{Local, TimeZone, Timelike, Duration};
 use rusqlite::Connection;
 use serde_json;
 use std::io::{self, Write};
