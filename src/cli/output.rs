@@ -876,8 +876,8 @@ pub fn format_task_summary(
     }
     
     // Recurrence
-    if let Some(ref recur) = task.recur {
-        output.push_str(&format!("  Recurrence:  {}\n", recur));
+    if let Some(ref respawn) = task.respawn {
+        output.push_str(&format!("  Respawn:     {}\n", respawn));
     } else {
         output.push_str("  Recurrence:  none\n");
     }
@@ -901,11 +901,11 @@ pub fn format_task_summary(
         output.push_str(&format!("  Position:    {} of {}\n\n", position + 1, total));
     }
     
-    // Recurrence details (if recurring)
-    if task.recur.is_some() {
-        output.push_str("Recurrence:\n");
-        output.push_str(&format!("  Type:        {}\n", task.recur.as_ref().unwrap()));
-        // TODO: Add more recurrence details if needed (next occurrence, etc.)
+    // Respawn details (if respawning)
+    if task.respawn.is_some() {
+        output.push_str("Respawn:\n");
+        output.push_str(&format!("  Type:        {}\n", task.respawn.as_ref().unwrap()));
+        // TODO: Add more respawn details if needed (next occurrence, etc.)
         output.push_str("\n");
     }
     

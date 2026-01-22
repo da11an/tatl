@@ -13,7 +13,7 @@ pub struct ParsedTaskArgs {
     pub wait: Option<String>,
     pub allocation: Option<String>,
     pub template: Option<String>,
-    pub recur: Option<String>,
+    pub respawn: Option<String>,
     pub tags_add: Vec<String>,
     pub tags_remove: Vec<String>,
     pub udas: HashMap<String, String>,
@@ -30,6 +30,13 @@ pub enum FieldParseError {
         field: String,
         suggestion: String,
     },
+    ReadOnlyField {
+        field: String,
+        hint: String,
+    },
+    UnknownFieldToken {
+        token: String,
+    },
 }
 
 impl std::fmt::Display for FieldParseError {
@@ -41,6 +48,12 @@ impl std::fmt::Display for FieldParseError {
             }
             FieldParseError::InvalidFieldName { field, suggestion } => {
                 write!(f, "Unrecognized field name '{}'\n  Did you mean '{}'?", field, suggestion)
+            }
+            FieldParseError::ReadOnlyField { field, hint } => {
+                write!(f, "Field '{}' cannot be modified directly.\n  {}", field, hint)
+            }
+            FieldParseError::UnknownFieldToken { token } => {
+                write!(f, "Unrecognized field token '{}'\n  If this is meant to be part of the description, remove the colon or quote the entire description.", token)
             }
         }
     }
@@ -54,7 +67,16 @@ const FIELD_NAMES: &[&str] = &[
     "wait",
     "allocation",
     "template",
-    "recur",
+    "respawn",
+];
+
+/// Fields that are read-only (cannot be modified via modify command)
+/// These exist to give helpful error messages when users try to modify them
+const READ_ONLY_FIELDS: &[&str] = &[
+    "status",      // Use finish/close commands instead
+    "created",     // Immutable
+    "modified",    // Automatically updated
+    "id",          // Immutable
 ];
 
 /// Expand field name abbreviation (like command abbreviations)
@@ -95,6 +117,17 @@ fn find_similar_field_name(field: &str) -> Option<String> {
     best_match.map(|(name, _)| name.to_string())
 }
 
+/// Get hint for read-only field
+fn get_read_only_hint(field: &str) -> String {
+    match field.to_lowercase().as_str() {
+        "status" => "Use 'tatl finish' to complete, 'tatl close' to close, or 'tatl reopen' to reopen a task.".to_string(),
+        "created" => "Created timestamp is set automatically and cannot be changed.".to_string(),
+        "modified" => "Modified timestamp is updated automatically.".to_string(),
+        "id" => "Task ID is assigned automatically and cannot be changed.".to_string(),
+        _ => "This field is read-only.".to_string(),
+    }
+}
+
 /// Parse a field token (field:value)
 /// Returns the field name (after abbreviation expansion) and value
 /// Handles empty values (field:) by converting to field:none
@@ -109,6 +142,14 @@ fn parse_field_token(token: &str) -> Result<Option<(String, String)>, FieldParse
         } else {
             value
         };
+        
+        // Check for read-only fields first
+        if READ_ONLY_FIELDS.iter().any(|f| f.eq_ignore_ascii_case(&field)) {
+            return Err(FieldParseError::ReadOnlyField {
+                field: field.clone(),
+                hint: get_read_only_hint(&field),
+            });
+        }
         
         // Try exact match first
         if FIELD_NAMES.contains(&field.as_str()) {
@@ -178,7 +219,7 @@ pub fn parse_task_args(args: Vec<String>) -> Result<ParsedTaskArgs, FieldParseEr
                     "wait" => parsed.wait = Some(value),
                     "allocation" => parsed.allocation = Some(value),
                     "template" => parsed.template = Some(value),
-                    "recur" => parsed.recur = Some(value),
+                    "respawn" => parsed.respawn = Some(value),
                     _ => {
                         // Check if it's a UDA (uda.<key>:<value>)
                         if field.starts_with("uda.") {
@@ -210,6 +251,21 @@ pub fn parse_task_args(args: Vec<String>) -> Result<ParsedTaskArgs, FieldParseEr
                             parsed.udas.insert(key, value.to_string());
                         }
                         handled = true;
+                    }
+                } else if arg.contains(':') && !arg.starts_with('+') && !arg.starts_with('-') {
+                    // Looks like a field token (contains colon) but wasn't recognized
+                    // This is likely a typo or unknown field - error instead of silently treating as description
+                    // Exception: time expressions like "09:00" or URLs - check if the part before : looks like a field name
+                    if let Some(colon_pos) = arg.find(':') {
+                        let potential_field = &arg[..colon_pos];
+                        // If the potential field name is alphabetic and looks like a field, it's probably a typo
+                        if potential_field.chars().all(|c| c.is_ascii_alphabetic() || c == '_' || c == '.') 
+                           && potential_field.len() >= 2 
+                           && !potential_field.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                            return Err(FieldParseError::UnknownFieldToken {
+                                token: arg.clone(),
+                            });
+                        }
                     }
                 }
                 // Otherwise will be handled below

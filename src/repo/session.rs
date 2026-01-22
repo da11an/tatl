@@ -424,6 +424,21 @@ impl SessionRepo {
         Ok(())
     }
 
+    /// Update both start and end times for a session
+    /// 
+    /// # Arguments
+    /// * `conn` - Database connection
+    /// * `session_id` - ID of session to update
+    /// * `start_ts` - New start timestamp
+    /// * `end_ts` - New end timestamp (None for open session)
+    pub fn update_times(conn: &Connection, session_id: i64, start_ts: i64, end_ts: Option<i64>) -> Result<()> {
+        conn.execute(
+            "UPDATE sessions SET start_ts = ?1, end_ts = ?2 WHERE id = ?3",
+            rusqlite::params![start_ts, end_ts, session_id],
+        )?;
+        Ok(())
+    }
+
     /// Find sessions that overlap with the given time range
     /// 
     /// # Arguments

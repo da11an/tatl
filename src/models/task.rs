@@ -44,7 +44,7 @@ pub struct Task {
     pub wait_ts: Option<i64>,
     pub alloc_secs: Option<i64>,
     pub template: Option<String>,
-    pub recur: Option<String>,
+    pub respawn: Option<String>,
     pub udas: HashMap<String, String>, // User-defined attributes (without "uda." prefix)
     pub created_ts: i64,
     pub modified_ts: i64,
@@ -65,7 +65,7 @@ impl Task {
             wait_ts: None,
             alloc_secs: None,
             template: None,
-            recur: None,
+            respawn: None,
             udas: HashMap::new(),
             created_ts: now,
             modified_ts: now,

@@ -6,7 +6,7 @@
 //! - Repository layer for data access
 //! - CLI command parsing and execution
 //! - Filter expression parsing and evaluation
-//! - Recurrence rule parsing and generation
+//! - Respawn rule parsing and task respawning on completion
 //! - Date/time and duration utilities
 //!
 //! # Example
@@ -28,4 +28,4 @@ pub mod repo;
 pub mod cli;
 pub mod utils;
 pub mod filter;
-pub mod recur;
+pub mod respawn;

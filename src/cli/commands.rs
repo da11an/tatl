@@ -4,12 +4,12 @@ use crate::db::DbConnection;
 use crate::models::Task;
 use crate::repo::{ProjectRepo, TaskRepo, StackRepo, SessionRepo, AnnotationRepo, TemplateRepo, ViewRepo};
 use crate::cli::parser::{parse_task_args, join_description};
-use crate::cli::commands_sessions::{handle_task_sessions_list_with_filter, handle_task_sessions_show_with_filter, handle_sessions_modify, handle_sessions_delete, handle_sessions_add, handle_sessions_report};
+use crate::cli::commands_sessions::{handle_task_sessions_list_with_filter, handle_task_sessions_show_with_filter, handle_sessions_modify, handle_sessions_delete, handle_sessions_report};
 use crate::cli::output::{format_task_list_table, format_task_summary, TaskListOptions};
 use crate::cli::error::{user_error, validate_task_id, validate_project_name, parse_task_id_spec, parse_task_id_list};
 use crate::utils::{parse_date_expr, parse_duration, fuzzy};
 use crate::filter::{parse_filter, filter_tasks};
-use crate::recur::RecurGenerator;
+use crate::respawn::respawn_task;
 use crate::cli::abbrev;
 use chrono::{Local, TimeZone, Datelike};
 use std::collections::HashMap;
@@ -36,10 +36,13 @@ pub enum Commands {
         /// Automatically start timing after creating task
         #[arg(long = "on", visible_alias = "clock-in")]
         start_timing: bool,
+        /// Add historical session for task (e.g., "09:00..12:00")
+        #[arg(long = "onoff")]
+        onoff_interval: Option<String>,
         /// Automatically enqueue task to clock stack after creating
         #[arg(long = "enqueue")]
         enqueue: bool,
-        /// Auto-confirm prompts (e.g., create new projects)
+        /// Auto-confirm prompts (e.g., create new projects, modify overlapping sessions)
         #[arg(short = 'y', long)]
         yes: bool,
         /// Task description and fields (e.g., "fix bug project:work +urgent")
@@ -94,6 +97,24 @@ pub enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         time_args: Vec<String>,
     },
+    /// Stop current session and resume (capture break)
+    Offon {
+        /// Time expression or interval (e.g., "14:30" or "14:30..15:00")
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        time_args: Vec<String>,
+        /// Skip confirmation for history modifications
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
+    /// Add historical session (or insert into existing time)
+    Onoff {
+        /// Time interval (e.g., "09:00..12:00")
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+        /// Skip confirmation for overlapping session modifications
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
     /// Remove task from queue without finishing
     Dequeue {
         /// Task ID (optional, defaults to queue[0])
@@ -147,6 +168,17 @@ pub enum Commands {
         #[arg(long)]
         interactive: bool,
     },
+    /// Reopen completed or closed task(s)
+    Reopen {
+        /// Task ID or filter
+        target: String,
+        /// Reopen all matching tasks without confirmation
+        #[arg(short = 'y', long)]
+        yes: bool,
+        /// Force one-by-one confirmation for each task
+        #[arg(long)]
+        interactive: bool,
+    },
     /// Permanently delete task(s)
     Delete {
         /// Task ID or filter
@@ -162,11 +194,6 @@ pub enum Commands {
     Enqueue {
         /// Task ID(s) to enqueue (comma-separated list)
         task_id: String,
-    },
-    /// Recurrence management commands
-    Recur {
-        #[command(subcommand)]
-        subcommand: RecurCommands,
     },
     /// Sessions management commands
     Sessions {
@@ -224,16 +251,6 @@ pub enum ProjectCommands {
 
 
 #[derive(Subcommand)]
-pub enum RecurCommands {
-    /// Generate recurring task instances
-    Run {
-        /// Generate occurrences until this date (default: now + 14 days)
-        #[arg(long)]
-        until: Option<String>,
-    },
-}
-
-#[derive(Subcommand)]
 pub enum SessionsCommands {
     /// List session history
     List {
@@ -267,14 +284,6 @@ pub enum SessionsCommands {
         /// Delete without confirmation
         #[arg(short = 'y', long)]
         yes: bool,
-    },
-    /// Add a manual session (for sessions not recorded via clock)
-    /// Syntax: task sessions add task:<id> start:<time> end:<time> [note:<note>]
-    /// Or: task sessions add <id> <start> <end> [<note>]
-    Add {
-        /// Arguments: task:<id> start:<time> end:<time> [note:<note>] or positional <id> <start> <end> [<note>]
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
     },
     /// Generate a time report summarizing hours by project
     Report {
@@ -330,7 +339,7 @@ pub fn run() -> Result<()> {
         let first_arg = &args[0];
         // Check if it's a numeric ID or ID spec (not a global subcommand)
         let is_global_subcommand = matches!(first_arg.as_str(), 
-            "projects" | "clock" | "recur" | "sessions" | "add" | "list" | "modify" | "annotate" | "finish" | "close" | "delete" | "show" | "status");
+            "projects" | "sessions" | "add" | "list" | "modify" | "annotate" | "finish" | "close" | "delete" | "show" | "status");
         
         if !is_global_subcommand {
             // Try to parse as task ID spec
@@ -378,7 +387,7 @@ pub fn run() -> Result<()> {
 fn handle_command(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Projects { subcommand } => handle_projects(subcommand),
-        Commands::Add { args, start_timing, enqueue, yes } => handle_task_add(args, start_timing, enqueue, yes),
+        Commands::Add { args, start_timing, onoff_interval, enqueue, yes } => handle_task_add(args, start_timing, onoff_interval, enqueue, yes),
         Commands::List { filter, json, relative } => {
             handle_task_list(filter, json, relative)
         },
@@ -388,6 +397,8 @@ fn handle_command(cli: Cli) -> Result<()> {
         }
         Commands::On { task_id, time_args } => handle_on(task_id, time_args),
         Commands::Off { time_args } => handle_off(time_args),
+        Commands::Offon { time_args, yes } => handle_offon(time_args, yes),
+        Commands::Onoff { args, yes } => handle_onoff(args, yes),
         Commands::Dequeue { task_id } => handle_dequeue(task_id),
         Commands::Annotate { target, note, task, yes, interactive, delete } => {
             if let Some(annotation_id) = delete {
@@ -438,14 +449,14 @@ fn handle_command(cli: Cli) -> Result<()> {
         Commands::Close { target, yes, interactive } => {
             handle_task_close_optional(target, yes, interactive)
         }
+        Commands::Reopen { target, yes, interactive } => {
+            handle_task_reopen(target, yes, interactive)
+        }
         Commands::Delete { target, yes, interactive } => {
             handle_task_delete(target, yes, interactive)
         }
         Commands::Enqueue { task_id } => {
             handle_task_enqueue(task_id)
-        }
-        Commands::Recur { subcommand } => {
-            handle_recur(subcommand)
         }
         Commands::Sessions { subcommand, task } => {
             match subcommand {
@@ -468,9 +479,6 @@ fn handle_command(cli: Cli) -> Result<()> {
                 }
                 SessionsCommands::Delete { session_id, yes } => {
                     handle_sessions_delete(session_id, yes)
-                }
-                SessionsCommands::Add { args } => {
-                    handle_sessions_add(args)
                 }
                 SessionsCommands::Report { start, end } => {
                     handle_sessions_report(start, end)
@@ -641,20 +649,31 @@ fn handle_projects(cmd: ProjectCommands) -> Result<()> {
     }
 }
 
-fn handle_task_add(mut args: Vec<String>, mut start_timing: bool, mut enqueue: bool, auto_yes: bool) -> Result<()> {
-    // Extract --on and --enqueue flags from args if they appear after the description
+fn handle_task_add(mut args: Vec<String>, mut start_timing: bool, mut onoff_interval: Option<String>, mut enqueue: bool, auto_yes: bool) -> Result<()> {
+    // Extract --on, --onoff, and --enqueue flags from args if they appear after the description
     // (CLAP limitation: with trailing_var_arg, flags after args are treated as part of args)
     let mut filtered_args = Vec::new();
-    for arg in args.iter() {
-        if arg == "--on" || arg == "--clock-in" {
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--on" || args[i] == "--clock-in" {
             start_timing = true;
             // Don't include it in the args passed to parse_task_args
-        } else if arg == "--enqueue" {
+        } else if args[i] == "--enqueue" {
             enqueue = true;
             // Don't include it in the args passed to parse_task_args
+        } else if args[i] == "--onoff" {
+            // Take the next arg as the interval
+            if i + 1 < args.len() {
+                onoff_interval = Some(args[i + 1].clone());
+                i += 1; // Skip the interval value
+            }
+        } else if args[i].starts_with("--onoff=") {
+            // Handle --onoff=value format
+            onoff_interval = Some(args[i][8..].to_string());
         } else {
-            filtered_args.push(arg.clone());
+            filtered_args.push(args[i].clone());
         }
+        i += 1;
     }
     args = filtered_args;
     
@@ -801,7 +820,7 @@ fn handle_task_add(mut args: Vec<String>, mut start_timing: bool, mut enqueue: b
         final_wait_ts,
         final_alloc_secs,
         parsed.template,
-        parsed.recur,
+        parsed.respawn,
         &final_udas,
         &final_tags,
     )
@@ -810,8 +829,88 @@ fn handle_task_add(mut args: Vec<String>, mut start_timing: bool, mut enqueue: b
     let task_id = task.id.unwrap();
     println!("Created task {}: {}", task_id, description);
     
-    // If --on flag is set, start timing the newly created task (takes precedence over --enqueue)
-    if start_timing {
+    // If --onoff is set, add historical session (takes precedence over --on and --enqueue)
+    if let Some(interval) = onoff_interval {
+        // Parse interval
+        if !interval.contains("..") {
+            user_error("--onoff requires interval format (e.g., '09:00..12:00')");
+        }
+        
+        let sep_pos = interval.find("..").unwrap();
+        let start_expr = interval[..sep_pos].trim();
+        let end_expr = interval[sep_pos + 2..].trim();
+        
+        let start_ts = parse_date_expr(start_expr)
+            .context("Invalid start time in --onoff interval")?;
+        let end_ts = parse_date_expr(end_expr)
+            .context("Invalid end time in --onoff interval")?;
+        
+        if start_ts >= end_ts {
+            user_error(&format!(
+                "Start time must be before end time. Got: {} >= {}",
+                format_time(start_ts),
+                format_time(end_ts)
+            ));
+        }
+        
+        // Check for overlapping sessions
+        let overlapping = find_overlapping_sessions(&conn, start_ts, end_ts)?;
+        let duration = end_ts - start_ts;
+        
+        if !overlapping.is_empty() {
+            // Show what will be modified and ask for confirmation
+            println!("\nInserting session {} ({}) for new task {} will modify {} existing session(s):\n",
+                format_interval(start_ts, end_ts),
+                format_duration_human(duration),
+                task_id,
+                overlapping.len());
+            for session in &overlapping {
+                let s_task = TaskRepo::get_by_id(&conn, session.task_id)?;
+                let s_desc = s_task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
+                let s_duration = session.end_ts.unwrap_or(chrono::Utc::now().timestamp()) - session.start_ts;
+                let modification = describe_session_modification(session, start_ts, end_ts);
+                println!("  Session {} (task {}): {}", session.id.unwrap_or(0), session.task_id, s_desc);
+                println!("    {} - {} ({})",
+                    format_datetime(session.start_ts),
+                    session.end_ts.map(format_datetime).unwrap_or_else(|| "running".to_string()),
+                    format_duration_human(s_duration));
+                println!("    → {}\n", modification);
+            }
+            
+            if !auto_yes {
+                print!("Continue? [y/N] ");
+                std::io::Write::flush(&mut std::io::stdout())?;
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)?;
+                if !input.trim().eq_ignore_ascii_case("y") {
+                    println!("Cancelled.");
+                    return Ok(());
+                }
+            }
+            
+            // Modify overlapping sessions and insert new one
+            let tx = conn.unchecked_transaction()?;
+            
+            for session in overlapping {
+                modify_session_for_removal(&tx, &session, start_ts, end_ts)?;
+            }
+            
+            // Create the new session
+            SessionRepo::create_closed(&tx, task_id, start_ts, end_ts)
+                .context("Failed to create session")?;
+            
+            tx.commit()?;
+            
+            println!("Added session for task {} ({} - {}, {})", task_id, format_time(start_ts), format_time(end_ts), format_duration_human(duration));
+        } else {
+            // No overlaps - just add the session
+            SessionRepo::create_closed(&conn, task_id, start_ts, end_ts)
+                .context("Failed to create session")?;
+            
+            println!("Added session for task {} ({} - {}, {})", task_id, format_time(start_ts), format_time(end_ts), format_duration_human(duration));
+        }
+    } else if start_timing {
+        // If --on flag is set, start timing the newly created task (takes precedence over --enqueue)
         // handle_task_on will push to stack and start timing atomically
         handle_task_on(task_id.to_string(), Vec::new())
             .context("Failed to start timing task")?;
@@ -1195,7 +1294,7 @@ fn modify_single_task(conn: &Connection, task_id: i64, args: &[String], auto_cre
         None
     };
     
-    // Handle template and recur clearing
+    // Handle template and respawn clearing
     let template = if let Some(tmpl) = &parsed.template {
         if tmpl == "none" {
             Some(None)
@@ -1206,11 +1305,11 @@ fn modify_single_task(conn: &Connection, task_id: i64, args: &[String], auto_cre
         None
     };
     
-    let recur = if let Some(rec) = &parsed.recur {
-        if rec == "none" {
+    let respawn = if let Some(resp) = &parsed.respawn {
+        if resp == "none" {
             Some(None)
         } else {
-            Some(Some(rec.clone()))
+            Some(Some(resp.clone()))
         }
     } else {
         None
@@ -1239,7 +1338,7 @@ fn modify_single_task(conn: &Connection, task_id: i64, args: &[String], auto_cre
         wait_ts,
         alloc_secs,
         template,
-        recur,
+        respawn,
         &udas_to_add,
         &udas_to_remove,
         &parsed.tags_add,
@@ -1351,6 +1450,488 @@ fn handle_off(time_args: Vec<String>) -> Result<()> {
     
     Ok(())
 }
+
+/// Handle `tatl offon <stop>[..<start>] [<task_id>]` - Stop current session and resume
+/// 
+/// When a session is running: Stops it at <stop> and starts a new one (at <start> or now)
+/// When no session is running: Operates on history (finds and modifies overlapping sessions)
+fn handle_offon(time_args: Vec<String>, mut yes: bool) -> Result<()> {
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+    
+    // Extract -y or --yes from args (CLAP can miss them with trailing_var_arg)
+    let filtered_args: Vec<String> = time_args.iter()
+        .filter(|a| {
+            if *a == "-y" || *a == "--yes" {
+                yes = true;
+                false
+            } else {
+                true
+            }
+        })
+        .cloned()
+        .collect();
+    
+    // Check if session is currently running
+    let current_session = SessionRepo::get_open(&conn)?;
+    
+    if current_session.is_some() {
+        // Current session mode: stop and resume
+        handle_offon_current_session(&conn, filtered_args)
+    } else {
+        // History mode: find and modify overlapping sessions
+        handle_offon_history(&conn, filtered_args, yes)
+    }
+}
+
+/// Handle offon when a session is currently running
+fn handle_offon_current_session(conn: &Connection, time_args: Vec<String>) -> Result<()> {
+    if time_args.is_empty() {
+        user_error("Time expression required. Usage: tatl offon <stop> or tatl offon <stop>..<start>");
+    }
+    
+    let arg_str = time_args.join(" ");
+    
+    // Parse time arguments - check for interval syntax
+    let (stop_ts, start_ts_opt) = parse_offon_time_args(&arg_str)?;
+    
+    // Get current session
+    let current_session = SessionRepo::get_open(conn)?
+        .expect("Session should exist - checked in caller");
+    
+    // Use a transaction for atomicity
+    let tx = conn.unchecked_transaction()?;
+    
+    // Close current session at stop_ts
+    SessionRepo::close_open(&tx, stop_ts)
+        .context("Failed to close session")?;
+    
+    let current_task_id = current_session.task_id;
+    let task = TaskRepo::get_by_id(&tx, current_task_id)?;
+    let desc = task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
+    
+    // Determine resume time
+    let resume_ts = start_ts_opt.unwrap_or_else(|| chrono::Utc::now().timestamp());
+    
+    // Get queue[0] for resume task (defaults to same task)
+    let stack = StackRepo::get_or_create_default(&tx)?;
+    let items = StackRepo::get_items(&tx, stack.id.unwrap())?;
+    
+    let resume_task_id = if items.is_empty() {
+        current_task_id // Resume same task if queue is empty
+    } else {
+        items[0].task_id
+    };
+    
+    // Start new session
+    SessionRepo::create(&tx, resume_task_id, resume_ts)
+        .context("Failed to start new session")?;
+    
+    tx.commit()?;
+    
+    // Format output
+    if let Some(start_ts) = start_ts_opt {
+        let break_duration = start_ts - stop_ts;
+        println!("Stopped timing task {} at {} (break: {}s)", current_task_id, format_time(stop_ts), break_duration);
+    } else {
+        println!("Stopped timing task {}: {} at {}", current_task_id, desc, format_time(stop_ts));
+    }
+    
+    let resume_task = TaskRepo::get_by_id(conn, resume_task_id)?;
+    let resume_desc = resume_task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
+    println!("Started timing task {}: {}", resume_task_id, resume_desc);
+    
+    Ok(())
+}
+
+/// Handle offon in history mode (no current session)
+fn handle_offon_history(conn: &Connection, time_args: Vec<String>, yes: bool) -> Result<()> {
+    if time_args.is_empty() {
+        user_error("Time expression required. Usage: tatl offon <time> or tatl offon <stop>..<start>");
+    }
+    
+    let arg_str = time_args.join(" ");
+    
+    // Parse as single time or interval
+    let (remove_start, remove_end) = if arg_str.contains("..") {
+        parse_offon_time_args(&arg_str)?
+            .pipe(|(start, end_opt)| (start, end_opt.unwrap_or(start)))
+    } else {
+        // Single time point - split at that point
+        let time = parse_date_expr(&arg_str)
+            .context("Invalid time expression")?;
+        (time, time)
+    };
+    
+    // Find all overlapping sessions
+    let overlapping = find_overlapping_sessions(conn, remove_start, remove_end)?;
+    
+    if overlapping.is_empty() {
+        user_error(&format!(
+            "No sessions found overlapping with the specified time/interval ({}).",
+            format_interval(remove_start, remove_end)
+        ));
+    }
+    
+    // Show what will be modified and ask for confirmation
+    println!("\nRemoving interval {} will modify {} session(s):\n", 
+        format_interval(remove_start, remove_end), overlapping.len());
+    for session in &overlapping {
+        let task = TaskRepo::get_by_id(conn, session.task_id)?;
+        let desc = task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
+        let duration = session.end_ts.unwrap_or(chrono::Utc::now().timestamp()) - session.start_ts;
+        let modification = describe_session_modification(session, remove_start, remove_end);
+        println!("  Session {} (task {}): {}", session.id.unwrap_or(0), session.task_id, desc);
+        println!("    {} - {} ({})", 
+            format_datetime(session.start_ts),
+            session.end_ts.map(format_datetime).unwrap_or_else(|| "running".to_string()),
+            format_duration_human(duration));
+        println!("    → {}\n", modification);
+    }
+    
+    if !yes {
+        print!("Continue? [y/N] ");
+        std::io::Write::flush(&mut std::io::stdout())?;
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        if !input.trim().eq_ignore_ascii_case("y") {
+            println!("Cancelled.");
+            return Ok(());
+        }
+    }
+    
+    // Modify sessions
+    let tx = conn.unchecked_transaction()?;
+    
+    for session in overlapping {
+        modify_session_for_removal(&tx, &session, remove_start, remove_end)?;
+    }
+    
+    tx.commit()?;
+    
+    println!("Sessions modified.");
+    
+    Ok(())
+}
+
+/// Handle `tatl onoff <start>..<end> [<task_id>] [note:<text>]` - Add historical session
+fn handle_onoff(args: Vec<String>, mut yes: bool) -> Result<()> {
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+    
+    if args.is_empty() {
+        user_error("Interval required. Usage: tatl onoff <start>..<end> [<task_id>]");
+    }
+    
+    // Extract -y or --yes from args (CLAP can miss them with trailing_var_arg)
+    let filtered_args: Vec<String> = args.iter()
+        .filter(|a| {
+            if *a == "-y" || *a == "--yes" {
+                yes = true;
+                false
+            } else {
+                true
+            }
+        })
+        .cloned()
+        .collect();
+    
+    // Parse arguments
+    let (start_ts, end_ts, task_id_opt, note_opt) = parse_onoff_args(&filtered_args)?;
+    
+    // Determine task (task_id or queue[0])
+    let task_id = if let Some(id) = task_id_opt {
+        id
+    } else {
+        // Get queue[0]
+        let stack = StackRepo::get_or_create_default(&conn)?;
+        let items = StackRepo::get_items(&conn, stack.id.unwrap())?;
+        
+        if items.is_empty() {
+            user_error("No tasks in queue. Specify a task ID or enqueue a task first.");
+        }
+        
+        items[0].task_id
+    };
+    
+    // Validate task exists
+    let task = TaskRepo::get_by_id(&conn, task_id)?
+        .ok_or_else(|| anyhow::anyhow!("Task {} not found", task_id))?;
+    
+    // Validate start < end
+    if start_ts >= end_ts {
+        user_error(&format!(
+            "Start time must be before end time. Got: {} >= {}",
+            format_time(start_ts),
+            format_time(end_ts)
+        ));
+    }
+    
+    // Check for overlapping sessions
+    let overlapping = find_overlapping_sessions(&conn, start_ts, end_ts)?;
+    
+    if !overlapping.is_empty() {
+        // Insertion mode: clear overlapping time and insert new session
+        let duration = end_ts - start_ts;
+        println!("\nInserting session {} ({}) for task {} will modify {} existing session(s):\n",
+            format_interval(start_ts, end_ts),
+            format_duration_human(duration),
+            task_id,
+            overlapping.len());
+        for session in &overlapping {
+            let s_task = TaskRepo::get_by_id(&conn, session.task_id)?;
+            let s_desc = s_task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
+            let s_duration = session.end_ts.unwrap_or(chrono::Utc::now().timestamp()) - session.start_ts;
+            let modification = describe_session_modification(session, start_ts, end_ts);
+            println!("  Session {} (task {}): {}", session.id.unwrap_or(0), session.task_id, s_desc);
+            println!("    {} - {} ({})",
+                format_datetime(session.start_ts),
+                session.end_ts.map(format_datetime).unwrap_or_else(|| "running".to_string()),
+                format_duration_human(s_duration));
+            println!("    → {}\n", modification);
+        }
+        
+        if !yes {
+            print!("Continue? [y/N] ");
+            std::io::Write::flush(&mut std::io::stdout())?;
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input)?;
+            if !input.trim().eq_ignore_ascii_case("y") {
+                println!("Cancelled.");
+                return Ok(());
+            }
+        }
+        
+        // Modify overlapping sessions and insert new one
+        let tx = conn.unchecked_transaction()?;
+        
+        for session in overlapping {
+            modify_session_for_removal(&tx, &session, start_ts, end_ts)?;
+        }
+        
+        // Create the new session
+        let session = SessionRepo::create_closed(&tx, task_id, start_ts, end_ts)
+            .context("Failed to create session")?;
+        
+        // Add annotation if note provided
+        if let Some(note_text) = note_opt {
+            if !note_text.trim().is_empty() {
+                AnnotationRepo::create(&tx, task_id, note_text, session.id)
+                    .context("Failed to create annotation")?;
+            }
+        }
+        
+        tx.commit()?;
+        
+        println!("Inserted session for task {}: {} ({} - {}, {})", 
+            task_id, task.description, format_time(start_ts), format_time(end_ts), format_duration_human(duration));
+    } else {
+        // Simple mode: just add the session
+        let session = SessionRepo::create_closed(&conn, task_id, start_ts, end_ts)
+            .context("Failed to create session")?;
+        
+        // Add annotation if note provided
+        if let Some(note_text) = note_opt {
+            if !note_text.trim().is_empty() {
+                AnnotationRepo::create(&conn, task_id, note_text, session.id)
+                    .context("Failed to create annotation")?;
+            }
+        }
+        
+        let duration = end_ts - start_ts;
+        println!("Added session for task {}: {} ({} - {}, {})", 
+            task_id, task.description, format_time(start_ts), format_time(end_ts), format_duration_human(duration));
+    }
+    
+    Ok(())
+}
+
+/// Parse offon time arguments: <stop> or <stop>..<start>
+fn parse_offon_time_args(arg_str: &str) -> Result<(i64, Option<i64>)> {
+    if let Some(sep_pos) = arg_str.find("..") {
+        let stop_expr = arg_str[..sep_pos].trim();
+        let start_expr = arg_str[sep_pos + 2..].trim();
+        
+        let stop_ts = parse_date_expr(stop_expr)
+            .context("Invalid stop time expression")?;
+        
+        let start_ts = if start_expr.is_empty() {
+            chrono::Utc::now().timestamp()
+        } else {
+            parse_date_expr(start_expr)
+                .context("Invalid start time expression")?
+        };
+        
+        Ok((stop_ts, Some(start_ts)))
+    } else {
+        let stop_ts = parse_date_expr(arg_str)
+            .context("Invalid time expression")?;
+        Ok((stop_ts, None))
+    }
+}
+
+/// Parse onoff arguments: <start>..<end> [<task_id>] [note:<text>]
+fn parse_onoff_args(args: &[String]) -> Result<(i64, i64, Option<i64>, Option<String>)> {
+    let mut start_ts: Option<i64> = None;
+    let mut end_ts: Option<i64> = None;
+    let mut task_id: Option<i64> = None;
+    let mut note: Option<String> = None;
+    
+    for arg in args {
+        if arg.starts_with("note:") {
+            note = Some(arg[5..].to_string());
+        } else if arg.contains("..") {
+            // Interval
+            let sep_pos = arg.find("..").unwrap();
+            let start_expr = arg[..sep_pos].trim();
+            let end_expr = arg[sep_pos + 2..].trim();
+            
+            start_ts = Some(parse_date_expr(start_expr)
+                .context("Invalid start time expression")?);
+            end_ts = Some(parse_date_expr(end_expr)
+                .context("Invalid end time expression")?);
+        } else if let Ok(id) = arg.parse::<i64>() {
+            task_id = Some(id);
+        } else {
+            // Try to parse as time expression (might be part of interval that got split)
+            // For now, just ignore unknown args
+        }
+    }
+    
+    let start = start_ts.ok_or_else(|| anyhow::anyhow!("Interval required (use <start>..<end>)"))?;
+    let end = end_ts.ok_or_else(|| anyhow::anyhow!("Interval required (use <start>..<end>)"))?;
+    
+    Ok((start, end, task_id, note))
+}
+
+/// Find all sessions overlapping with the given interval
+fn find_overlapping_sessions(conn: &Connection, start: i64, end: i64) -> Result<Vec<crate::models::Session>> {
+    let all_sessions = SessionRepo::list_all(conn)?;
+    
+    let overlapping: Vec<_> = all_sessions.into_iter()
+        .filter(|s| {
+            let s_start = s.start_ts;
+            let s_end = s.end_ts.unwrap_or(i64::MAX);
+            
+            // Overlap condition: session.start < end && session.end > start
+            s_start < end && s_end > start
+        })
+        .collect();
+    
+    Ok(overlapping)
+}
+
+/// Modify a session to remove the specified interval
+fn modify_session_for_removal(conn: &Connection, session: &crate::models::Session, remove_start: i64, remove_end: i64) -> Result<()> {
+    let s_start = session.start_ts;
+    let s_end = session.end_ts.unwrap_or(i64::MAX);
+    let session_id = session.id.unwrap();
+    
+    if remove_start <= s_start && remove_end >= s_end {
+        // Entirely includes: remove session completely
+        SessionRepo::delete(conn, session_id)?;
+        
+    } else if remove_start > s_start && remove_end < s_end {
+        // Falls within: split into two sessions
+        // First part: s_start to remove_start
+        SessionRepo::update_times(conn, session_id, s_start, Some(remove_start))?;
+        // Second part: remove_end to s_end (for same task)
+        SessionRepo::create_closed(conn, session.task_id, remove_end, s_end)?;
+        
+    } else if remove_start <= s_start && remove_end < s_end {
+        // Overlaps start: truncate at remove_end
+        SessionRepo::update_times(conn, session_id, remove_end, Some(s_end))?;
+        
+    } else if remove_start > s_start && remove_end >= s_end {
+        // Overlaps end: truncate at remove_start
+        SessionRepo::update_times(conn, session_id, s_start, Some(remove_start))?;
+        
+    } else if remove_start == remove_end {
+        // Single time point: split at that point
+        SessionRepo::update_times(conn, session_id, s_start, Some(remove_start))?;
+        SessionRepo::create_closed(conn, session.task_id, remove_start, s_end)?;
+    }
+    
+    Ok(())
+}
+
+/// Format a timestamp for display
+fn format_time(ts: i64) -> String {
+    use chrono::TimeZone;
+    chrono::Local.timestamp_opt(ts, 0)
+        .single()
+        .map(|dt| dt.format("%H:%M").to_string())
+        .unwrap_or_else(|| ts.to_string())
+}
+
+/// Format an interval for display
+fn format_interval(start: i64, end: i64) -> String {
+    if start == end {
+        format_time(start)
+    } else {
+        format!("{}..{}", format_time(start), format_time(end))
+    }
+}
+
+/// Format a timestamp with date for display
+fn format_datetime(ts: i64) -> String {
+    use chrono::TimeZone;
+    chrono::Local.timestamp_opt(ts, 0)
+        .single()
+        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+        .unwrap_or_else(|| ts.to_string())
+}
+
+/// Format duration in human-readable form
+fn format_duration_human(seconds: i64) -> String {
+    if seconds < 60 {
+        format!("{}s", seconds)
+    } else if seconds < 3600 {
+        format!("{}m", seconds / 60)
+    } else {
+        let hours = seconds / 3600;
+        let mins = (seconds % 3600) / 60;
+        if mins == 0 {
+            format!("{}h", hours)
+        } else {
+            format!("{}h {}m", hours, mins)
+        }
+    }
+}
+
+/// Describe what will happen to a session when removing an interval
+fn describe_session_modification(session: &crate::models::Session, remove_start: i64, remove_end: i64) -> String {
+    let s_start = session.start_ts;
+    let s_end = session.end_ts.unwrap_or(i64::MAX);
+    
+    if remove_start <= s_start && remove_end >= s_end {
+        "REMOVE (entirely included)".to_string()
+    } else if remove_start > s_start && remove_end < s_end {
+        format!("SPLIT into {} and {}", 
+            format_interval(s_start, remove_start),
+            format_interval(remove_end, s_end))
+    } else if remove_start <= s_start && remove_end < s_end {
+        format!("TRUNCATE start → {}", format_interval(remove_end, s_end))
+    } else if remove_start > s_start && remove_end >= s_end {
+        format!("TRUNCATE end → {}", format_interval(s_start, remove_start))
+    } else if remove_start == remove_end {
+        format!("SPLIT at {} → {} and {}",
+            format_time(remove_start),
+            format_interval(s_start, remove_start),
+            format_interval(remove_start, s_end))
+    } else {
+        "MODIFY".to_string()
+    }
+}
+
+/// Trait extension for piping values
+trait Pipe: Sized {
+    fn pipe<F, R>(self, f: F) -> R where F: FnOnce(Self) -> R {
+        f(self)
+    }
+}
+
+impl<T> Pipe for T {}
 
 /// Handle `tatl dequeue [<task_id>]` - Remove from queue without finishing
 fn handle_dequeue(task_id_opt: Option<String>) -> Result<()> {
@@ -2023,9 +2604,26 @@ fn handle_task_finish(
         }
         // Note: We allow completing tasks even if no session is running
         
+        // Get task before completing (to check respawn rule)
+        let task = TaskRepo::get_by_id(&conn, *task_id)?
+            .ok_or_else(|| anyhow::anyhow!("Task {} not found", task_id))?;
+        
         // Mark task as completed
         TaskRepo::complete(&conn, *task_id)
             .context("Failed to finish task")?;
+        
+        // Handle respawn if task has respawn rule
+        if let Some(new_task_id) = respawn_task(&conn, &task, end_ts)? {
+            // Get new task for display
+            if let Some(new_task) = TaskRepo::get_by_id(&conn, new_task_id)? {
+                let due_str = if let Some(due_ts) = new_task.due_ts {
+                    format!(", due: {}", format_datetime(due_ts))
+                } else {
+                    String::new()
+                };
+                println!("↻ Respawned as task {}{}", new_task_id, due_str);
+            }
+        }
         
         // Remove from stack
         let stack = StackRepo::get_or_create_default(&conn)?;
@@ -2100,6 +2698,19 @@ fn handle_finish_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64, n
         // Mark task as completed
         TaskRepo::complete(conn, *task_id)
             .context("Failed to finish task")?;
+        
+        // Handle respawn if task has respawn rule
+        if let Some(new_task_id) = respawn_task(conn, &task, end_ts)? {
+            // Get new task for display
+            if let Some(new_task) = TaskRepo::get_by_id(conn, new_task_id)? {
+                let due_str = if let Some(due_ts) = new_task.due_ts {
+                    format!(", due: {}", format_datetime(due_ts))
+                } else {
+                    String::new()
+                };
+                println!("↻ Respawned as task {}{}", new_task_id, due_str);
+            }
+        }
         
         // Remove from stack
         let stack = StackRepo::get_or_create_default(conn)?;
@@ -2235,8 +2846,25 @@ fn handle_task_close(id_or_filter: String, yes: bool, interactive: bool) -> Resu
             }
         }
         
+        // Get task before closing (to check respawn rule)
+        let task = TaskRepo::get_by_id(&conn, *task_id)?
+            .ok_or_else(|| anyhow::anyhow!("Task {} not found", task_id))?;
+        
         TaskRepo::close(&conn, *task_id)
             .context("Failed to close task")?;
+        
+        // Handle respawn if task has respawn rule
+        if let Some(new_task_id) = respawn_task(&conn, &task, end_ts)? {
+            // Get new task for display
+            if let Some(new_task) = TaskRepo::get_by_id(&conn, new_task_id)? {
+                let due_str = if let Some(due_ts) = new_task.due_ts {
+                    format!(", due: {}", format_datetime(due_ts))
+                } else {
+                    String::new()
+                };
+                println!("↻ Respawned as task {}{}", new_task_id, due_str);
+            }
+        }
         
         let stack = StackRepo::get_or_create_default(&conn)?;
         let stack_id = stack.id.unwrap();
@@ -2294,6 +2922,19 @@ fn handle_close_interactive(conn: &Connection, task_ids: &[i64]) -> Result<()> {
         TaskRepo::close(conn, *task_id)
             .context("Failed to close task")?;
         
+        // Handle respawn if task has respawn rule
+        if let Some(new_task_id) = respawn_task(conn, &task, end_ts)? {
+            // Get new task for display
+            if let Some(new_task) = TaskRepo::get_by_id(conn, new_task_id)? {
+                let due_str = if let Some(due_ts) = new_task.due_ts {
+                    format!(", due: {}", format_datetime(due_ts))
+                } else {
+                    String::new()
+                };
+                println!("↻ Respawned as task {}{}", new_task_id, due_str);
+            }
+        }
+        
         let stack = StackRepo::get_or_create_default(conn)?;
         let stack_id = stack.id.unwrap();
         let items = StackRepo::get_items(conn, stack_id)?;
@@ -2302,6 +2943,137 @@ fn handle_close_interactive(conn: &Connection, task_ids: &[i64]) -> Result<()> {
         }
         
         println!("Closed task {}", task_id);
+    }
+    
+    Ok(())
+}
+
+/// Handle task reopen (set status back to pending)
+fn handle_task_reopen(id_or_filter: String, yes: bool, interactive: bool) -> Result<()> {
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+    
+    // Resolve task IDs
+    let task_ids: Vec<i64> = match parse_task_id_spec(&id_or_filter) {
+        Ok(ids) => ids,
+        Err(_) => {
+            match validate_task_id(&id_or_filter) {
+                Ok(id) => {
+                    if TaskRepo::get_by_id(&conn, id)?.is_none() {
+                        user_error(&format!("Task {} not found", id));
+                    }
+                    vec![id]
+                }
+                Err(_) => {
+                    let filter_expr = match parse_filter(vec![id_or_filter]) {
+                        Ok(expr) => expr,
+                        Err(e) => user_error(&format!("Filter parse error: {}", e)),
+                    };
+                    let matching_tasks = filter_tasks(&conn, &filter_expr)
+                        .context("Failed to filter tasks")?;
+                    
+                    if matching_tasks.is_empty() {
+                        user_error("No matching tasks found");
+                    }
+                    
+                    matching_tasks.iter()
+                        .filter_map(|(task, _)| task.id)
+                        .collect()
+                }
+            }
+        }
+    };
+    
+    if task_ids.len() > 1 {
+        if !yes && !interactive {
+            println!("This will reopen {} task(s).", task_ids.len());
+            print!("Reopen all tasks? (y/n/i): ");
+            use std::io::{self, Write};
+            io::stdout().flush()?;
+            
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            let input = input.trim().to_lowercase();
+            
+            match input.as_str() {
+                "y" | "yes" => {}
+                "n" | "no" => {
+                    println!("Cancelled.");
+                    return Ok(());
+                }
+                "i" | "interactive" => {
+                    return handle_reopen_interactive(&conn, &task_ids);
+                }
+                _ => {
+                    println!("Invalid input. Cancelled.");
+                    return Ok(());
+                }
+            }
+        } else if interactive {
+            return handle_reopen_interactive(&conn, &task_ids);
+        }
+    }
+    
+    for task_id in &task_ids {
+        let task = match TaskRepo::get_by_id(&conn, *task_id)? {
+            Some(task) => task,
+            None => {
+                eprintln!("Error: Task {} not found", task_id);
+                continue;
+            }
+        };
+        
+        if task.status == crate::models::TaskStatus::Pending {
+            println!("Task {} is already pending", task_id);
+            continue;
+        }
+        
+        TaskRepo::reopen(&conn, *task_id)
+            .context("Failed to reopen task")?;
+        
+        println!("Reopened task {}: {}", task_id, task.description);
+    }
+    
+    Ok(())
+}
+
+fn handle_reopen_interactive(conn: &Connection, task_ids: &[i64]) -> Result<()> {
+    use std::io::{self, Write};
+    
+    for task_id in task_ids {
+        let task = match TaskRepo::get_by_id(conn, *task_id) {
+            Ok(Some(task)) => task,
+            Ok(None) => {
+                eprintln!("Error: Task {} not found", task_id);
+                continue;
+            }
+            Err(e) => {
+                eprintln!("Error: Failed to get task {}: {}", task_id, e);
+                continue;
+            }
+        };
+        
+        if task.status == crate::models::TaskStatus::Pending {
+            println!("Task {} is already pending, skipping.", task_id);
+            continue;
+        }
+        
+        print!("Reopen task {} ({})? (y/n): ", task_id, task.description);
+        io::stdout().flush()?;
+        
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        let input = input.trim().to_lowercase();
+        
+        if input != "y" && input != "yes" {
+            println!("Skipped task {}.", task_id);
+            continue;
+        }
+        
+        TaskRepo::reopen(conn, *task_id)
+            .context("Failed to reopen task")?;
+        
+        println!("Reopened task {}: {}", task_id, task.description);
     }
     
     Ok(())
@@ -2465,26 +3237,6 @@ fn handle_delete_interactive(conn: &Connection, task_ids: &[i64]) -> Result<()> 
     }
     
     Ok(())
-}
-
-fn handle_recur(subcommand: RecurCommands) -> Result<()> {
-    match subcommand {
-        RecurCommands::Run { until } => {
-            let conn = DbConnection::connect()?;
-            
-            // Parse until date (default: now + 14 days)
-            let until_ts = if let Some(until_str) = until {
-                parse_date_expr(&until_str)?
-            } else {
-                let now = chrono::Utc::now();
-                (now + chrono::Duration::days(14)).timestamp()
-            };
-            
-            let count = RecurGenerator::run(&conn, until_ts)?;
-            println!("Generated {} recurring task instance(s)", count);
-            Ok(())
-        }
-    }
 }
 
 fn handle_status(json: bool) -> Result<()> {

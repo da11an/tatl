@@ -2,7 +2,7 @@ use rusqlite::{Connection, Result};
 use std::collections::HashMap;
 
 /// Current database schema version
-const CURRENT_VERSION: u32 = 4;
+const CURRENT_VERSION: u32 = 5;
 
 /// Migration system for managing database schema versions
 pub struct MigrationManager;
@@ -74,6 +74,7 @@ fn get_migrations() -> HashMap<u32, fn(&rusqlite::Transaction) -> Result<(), rus
     migrations.insert(2, migration_v2);
     migrations.insert(3, migration_v3);
     migrations.insert(4, migration_v4);
+    migrations.insert(5, migration_v5);
     migrations
 }
 
@@ -369,6 +370,62 @@ fn migration_v4(tx: &rusqlite::Transaction) -> Result<(), rusqlite::Error> {
         "ALTER TABLE list_views ADD COLUMN hide_json TEXT NOT NULL DEFAULT '[]'",
         [],
     )?;
+    Ok(())
+}
+
+/// Migration v5: Rename recur to respawn, drop recur_occurrences
+/// 
+/// This migration transitions from the time-based "recurrence" model to the
+/// completion-based "respawn" model. The recur_occurrences table is no longer
+/// needed as respawn happens on task completion, not via batch generation.
+fn migration_v5(tx: &rusqlite::Transaction) -> Result<(), rusqlite::Error> {
+    // Drop the recur_occurrences table (no longer needed for respawn model)
+    tx.execute("DROP TABLE IF EXISTS recur_occurrences", [])?;
+    
+    // SQLite doesn't support direct column rename before 3.25.0,
+    // so we recreate the table with the renamed column
+    tx.execute("PRAGMA foreign_keys=OFF", [])?;
+    
+    tx.execute(
+        "CREATE TABLE tasks_new (
+            id INTEGER PRIMARY KEY,
+            uuid TEXT NOT NULL UNIQUE,
+            description TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('pending','completed','closed','deleted')),
+            project_id INTEGER NULL REFERENCES projects(id),
+            due_ts INTEGER NULL,
+            scheduled_ts INTEGER NULL,
+            wait_ts INTEGER NULL,
+            alloc_secs INTEGER NULL,
+            template TEXT NULL,
+            respawn TEXT NULL,
+            udas_json TEXT NULL,
+            created_ts INTEGER NOT NULL,
+            modified_ts INTEGER NOT NULL
+        )",
+        [],
+    )?;
+    
+    tx.execute(
+        "INSERT INTO tasks_new (id, uuid, description, status, project_id, due_ts, scheduled_ts, 
+                wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts)
+         SELECT id, uuid, description, status, project_id, due_ts, scheduled_ts,
+                wait_ts, alloc_secs, template, recur, udas_json, created_ts, modified_ts
+         FROM tasks",
+        [],
+    )?;
+    
+    tx.execute("DROP TABLE tasks", [])?;
+    tx.execute("ALTER TABLE tasks_new RENAME TO tasks", [])?;
+    
+    // Recreate indexes
+    tx.execute("CREATE INDEX idx_tasks_project_id ON tasks(project_id)", [])?;
+    tx.execute("CREATE INDEX idx_tasks_status ON tasks(status)", [])?;
+    tx.execute("CREATE INDEX idx_tasks_due_ts ON tasks(due_ts)", [])?;
+    tx.execute("CREATE INDEX idx_tasks_scheduled_ts ON tasks(scheduled_ts)", [])?;
+    tx.execute("CREATE INDEX idx_tasks_wait_ts ON tasks(wait_ts)", [])?;
+    
+    tx.execute("PRAGMA foreign_keys=ON", [])?;
     Ok(())
 }
 

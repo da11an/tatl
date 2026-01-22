@@ -125,6 +125,6 @@ mod tests {
         
         // Verify schema was initialized
         let version = MigrationManager::get_version(&conn).unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
     }
 }

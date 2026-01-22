@@ -180,7 +180,7 @@ fn e2e_complex_filter_scenarios() {
         None, // wait_ts
         None, // alloc_secs
         None, // template
-        None, // recur
+        None, // respawn
         &HashMap::new(), // udas_to_add
         &[], // udas_to_remove
         &[], // tags_to_add
@@ -269,119 +269,101 @@ fn e2e_complex_filter_with_nested_projects() {
 }
 
 // ============================================================================
-// Recurrence Generation Workflows
+// Respawn Workflows
 // ============================================================================
 
 #[test]
-fn e2e_recurrence_generation_workflow() {
-    // Complete workflow: create template → create seed task with recurrence → run recur → verify instances
+fn e2e_respawn_on_finish_workflow() {
+    // Complete workflow: create task with respawn rule → finish → verify respawned instance
     
     let ctx = AcceptanceTestContext::new();
     let given = GivenBuilder::new(&ctx);
     
-    // Step 1: Create a template
-    given.project_exists("meetings");
-    let project = ProjectRepo::get_by_name(ctx.db(), "meetings").unwrap().unwrap();
+    // Step 1: Create a project
+    given.project_exists("daily");
+    let project = ProjectRepo::get_by_name(ctx.db(), "daily").unwrap().unwrap();
     
-    let mut template_payload = HashMap::new();
-    template_payload.insert("project_id".to_string(), json!(project.id.unwrap()));
-    template_payload.insert("alloc_secs".to_string(), json!(3600)); // 1 hour
-    template_payload.insert("tags".to_string(), json!(["meeting", "recurring"]));
-    TemplateRepo::save(ctx.db(), "weekly_meeting", &template_payload).unwrap();
-    
-    // Step 2: Create seed task with recurrence
-    let seed_task = TaskRepo::create_full(
+    // Step 2: Create task with respawn rule and due date
+    let due_ts = chrono::Utc::now().timestamp() + 3600; // 1 hour from now
+    let task = TaskRepo::create_full(
         ctx.db(),
-        "Weekly Team Standup",
-        None, // project_id (will come from template)
-        None, // due_ts
+        "Daily standup",
+        Some(project.id.unwrap()),
+        Some(due_ts),
         None, // scheduled_ts
         None, // wait_ts
-        None, // alloc_secs (will come from template)
-        Some("weekly_meeting".to_string()), // template
-        Some("weekly byweekday:mon".to_string()), // recur
+        Some(1800), // 30 min allocation
+        None, // template
+        Some("daily".to_string()), // respawn rule
         &HashMap::new(), // udas
-        &[], // tags (will come from template)
+        &["standup".to_string()], // tags
     ).unwrap();
     
-    let _seed_id = seed_task.id.unwrap();
+    let task_id = task.id.unwrap();
     
-    // Step 3: Run recurrence generation
+    // Step 3: Finish the task
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["recur", "run", "--until", "2026-02-01"]);
+    when.execute_success(&["finish", &task_id.to_string(), "-y"]);
     
-    // Step 4: Verify instances were created
+    // Step 4: Verify original task is completed
+    let original_task = TaskRepo::get_by_id(ctx.db(), task_id).unwrap().unwrap();
+    assert_eq!(original_task.status, tatl::models::TaskStatus::Completed);
+    
+    // Step 5: Verify a new task was respawned
     let all_tasks = TaskRepo::list_all(ctx.db()).unwrap();
-    let instances: Vec<_> = all_tasks.iter()
-        .filter(|(t, _)| t.recur.is_none() && t.description == "Weekly Team Standup")
+    let respawned: Vec<_> = all_tasks.iter()
+        .filter(|(t, _)| t.id != Some(task_id) && t.description == "Daily standup" && t.respawn.is_some())
         .collect();
     
-    // Should have created instances for each Monday in the range
-    assert!(instances.len() >= 1, "Should create at least one instance");
+    assert_eq!(respawned.len(), 1, "Should have respawned exactly one task");
     
-    // Step 5: Verify instance attributes (from template)
-    let (instance, tags) = &instances[0];
-    assert_eq!(instance.project_id, project.id);
-    assert_eq!(instance.alloc_secs, Some(3600));
-    assert!(tags.contains(&"meeting".to_string()));
-    assert!(tags.contains(&"recurring".to_string()));
-    
-    // Step 6: Verify idempotency - run again, should not create duplicates
-    let instances_before = instances.len();
-    when.execute_success(&["recur", "run", "--until", "2026-02-01"]);
-    
-    let all_tasks_after = TaskRepo::list_all(ctx.db()).unwrap();
-    let instances_after: Vec<_> = all_tasks_after.iter()
-        .filter(|(t, _)| t.recur.is_none() && t.description == "Weekly Team Standup")
-        .collect();
-    
-    assert_eq!(instances_before, instances_after.len(), "Should not create duplicate instances");
+    // Step 6: Verify respawned task attributes
+    let (new_task, new_tags) = &respawned[0];
+    assert_eq!(new_task.project_id, Some(project.id.unwrap()));
+    assert_eq!(new_task.alloc_secs, Some(1800));
+    assert_eq!(new_task.respawn, Some("daily".to_string()));
+    assert!(new_tags.contains(&"standup".to_string()));
+    // Due date should be next day
+    assert!(new_task.due_ts.is_some());
+    assert!(new_task.due_ts.unwrap() > due_ts);
 }
 
 #[test]
-fn e2e_recurrence_with_template_override() {
-    // Test recurrence where seed task overrides template attributes
+fn e2e_respawn_on_close_workflow() {
+    // Test that respawn also happens on close (task abandoned but obligation persists)
     
     let ctx = AcceptanceTestContext::new();
     
-    // Create template
-    let mut template_payload = HashMap::new();
-    template_payload.insert("alloc_secs".to_string(), json!(3600)); // 1 hour
-    template_payload.insert("tags".to_string(), json!(["template_tag"]));
-    TemplateRepo::save(ctx.db(), "base_template", &template_payload).unwrap();
-    
-    // Create seed task that overrides template
-    let _seed_task = TaskRepo::create_full(
+    // Create task with respawn rule
+    let task = TaskRepo::create_full(
         ctx.db(),
-        "Daily Review",
+        "Weekly review",
         None,
         None, None, None,
-        Some(1800), // Override: 30 minutes instead of 1 hour
-        Some("base_template".to_string()),
-        Some("daily".to_string()),
+        None,
+        None,
+        Some("weekly".to_string()), // respawn rule
         &HashMap::new(),
-        &["seed_tag".to_string()], // Add additional tag
+        &[],
     ).unwrap();
     
-    // Run recurrence
-    let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["recur", "run", "--until", "2026-01-20"]);
+    let task_id = task.id.unwrap();
     
-    // Verify instances have seed overrides
+    // Close the task (abandon it)
+    let mut when = WhenBuilder::new(&ctx);
+    when.execute_success(&["close", &task_id.to_string(), "-y"]);
+    
+    // Verify original task is closed
+    let original_task = TaskRepo::get_by_id(ctx.db(), task_id).unwrap().unwrap();
+    assert_eq!(original_task.status, tatl::models::TaskStatus::Closed);
+    
+    // Verify a new task was respawned
     let all_tasks = TaskRepo::list_all(ctx.db()).unwrap();
-    let instances: Vec<_> = all_tasks.iter()
-        .filter(|(t, _)| t.recur.is_none() && t.description == "Daily Review")
+    let respawned: Vec<_> = all_tasks.iter()
+        .filter(|(t, _)| t.id != Some(task_id) && t.description == "Weekly review" && t.respawn.is_some())
         .collect();
     
-    assert!(instances.len() >= 1);
-    let (instance, tags) = &instances[0];
-    
-    // Should have seed's alloc_secs (override), not template's
-    assert_eq!(instance.alloc_secs, Some(1800));
-    
-    // Should have both template and seed tags
-    assert!(tags.contains(&"template_tag".to_string()));
-    assert!(tags.contains(&"seed_tag".to_string()));
+    assert_eq!(respawned.len(), 1, "Should have respawned exactly one task");
 }
 
 // ============================================================================

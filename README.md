@@ -8,8 +8,8 @@ A powerful command-line task and time tracking tool built with Rust and SQLite -
 - **Projects**: Organize tasks with hierarchical projects (e.g., `work`, `work.email`)
 - **Tags**: Flexible tagging system with `+tag` / `-tag` syntax
 - **Scheduling**: Due dates, scheduled dates, and wait times
-- **Time Tracking**: Built-in clock with session tracking
-- **Clock Stack**: Work queue with "do it now" vs "do it later" semantics
+- **Time Tracking**: Simple `on`/`off` timing with break capture (`offon`) and historical sessions (`onoff`)
+- **Task Queue**: Work queue with "do it now" vs "do it later" semantics
 - **Recurrence**: Recurring tasks with templates and flexible recurrence rules
 - **UDAs**: User-defined attributes for custom task properties
 - **Annotations**: Timestamped notes linked to tasks and sessions
@@ -48,11 +48,11 @@ For local testing without installing globally:
 cargo build --release
 
 # Use directly
-./target/release/tatl clock list
+./target/release/tatl list
 
 # Or create an alias in your current shell
-alias tn='./target/release/tatl'
-tn clock list
+alias tatl='./target/release/tatl'
+tatl list
 ```
 
 See `INSTALL.md` for more detailed installation options and conflict resolution with Taskwarrior.
@@ -61,29 +61,38 @@ See `INSTALL.md` for more detailed installation options and conflict resolution 
 
 ```bash
 # Add a new task
-task add fix the bug project:work +urgent
+tatl add fix the bug project:work +urgent
 
 # List tasks
-task list
-task list project:work
-task list +urgent
+tatl list
+tatl list project:work
+tatl list +urgent
 
-# Start working on a task (do it now)
-task clock in --task 10  # or: task clock in (uses clock[0])
+# Start working on a task
+tatl on 10      # Push task 10 to top and start timing
+tatl on         # Start timing queue[0]
 
 # Add task to queue (do it later)
-task clock enqueue 11
+tatl enqueue 11
 
 # Add annotation while working
-task annotate 10 Found the issue in auth module
+tatl annotate 10 Found the issue in auth module
+
+# Stop timing and capture a break
+tatl off                    # Stop now
+tatl offon 14:30            # Interrupted at 14:30, resume now
+tatl offon 14:30..15:00     # 30 min break, resume at 15:00
+
+# Add historical session
+tatl onoff 09:00..12:00     # Add session for queue[0]
+tatl onoff 09:00..12:00 10  # Add session for task 10
 
 # Complete a task
-task done  # or: task done 10
+tatl finish     # Finish queue[0]
+tatl finish 10  # Finish specific task
 
 # View session history
-task sessions list
-task sessions list --task 10
-task sessions show --task 10
+tatl sessions list
 ```
 
 ## Database
@@ -102,110 +111,117 @@ The database is created automatically on first use.
 
 ```bash
 # Add task with project, tags, and due date
-task add Review PR project:work +code due:tomorrow
+tatl add Review PR project:work +code due:tomorrow
+
+# Add task and start timing immediately
+tatl add --on "Urgent fix" project:work +urgent
+
+# Add task with historical session
+tatl add "Yesterday's meeting" --onoff 09:00..10:00 project:meetings
 
 # Modify task
-task modify 10 +urgent due:+2d
+tatl modify 10 +urgent due:+2d
 
 # List with filters
-task list project:work +urgent
-task list +urgent or +important
-task list not +waiting
+tatl list project:work +urgent
+tatl list +urgent or +important
+tatl list not +waiting
 
 # Annotate task
-task annotate 10 Started investigation
+tatl annotate 10 Started investigation
 
 # Complete task
-task done  # Completes current task (if clocked in)
-task done 10
+tatl finish     # Finish queue[0]
+tatl finish 10  # Finish specific task
 ```
 
 ### Projects
 
 ```bash
 # Create projects
-task projects add work
-task projects add admin.email  # Nested project
+tatl projects add work
+tatl projects add admin.email  # Nested project
 
 # List projects
-task projects list
-task projects list --archived
+tatl projects list
+tatl projects list --archived
 
 # Rename project
-task projects rename work office
+tatl projects rename work office
 
 # Archive project
-task projects archive old-project
+tatl projects archive old-project
 ```
 
-### Clock Stack
+### Time Tracking
 
 ```bash
-# View clock stack
-task clock list  # Shows clock stack with full task details
+# Start timing
+tatl on           # Start queue[0]
+tatl on 10        # Push task 10 to top and start
+tatl on 09:00     # Start at specific time
 
-# Do it now: push to top and start clock
-task clock in --task 10  # or: task clock in (uses clock[0])
+# Stop timing
+tatl off          # Stop now
+tatl off 17:00    # Stop at specific time
 
-# Do it later: add to end of queue
-task clock enqueue 11
+# Break capture (stop and resume)
+tatl offon 14:30              # Interrupted at 14:30, resume now
+tatl offon 14:30..15:00       # 30 min break
 
-# Manage clock stack
-task clock pick 2    # Move position 2 to top
-task clock roll      # Rotate once
-task clock drop 1    # Remove from position 1
-task clock clear     # Clear all
+# Add historical session
+tatl onoff 09:00..12:00       # Add session for queue[0]
+tatl onoff 09:00..12:00 10    # Add session for task 10
 
-# Clock operations
-task clock in                    # Start current clock[0]
-task clock in 09:00..11:00      # Create closed interval (uses clock[0])
-task clock in --task 10 09:00..11:00  # Create closed interval for specific task
-task clock out                   # Stop current session
+# Insert session into existing time (splits overlapping sessions)
+tatl onoff 14:00..15:00 5 -y  # Insert meeting for task 5
+
+# Modify history (remove time from sessions)
+tatl offon 14:30..15:00 -y    # Remove this interval from overlapping sessions
+```
+
+### Task Queue
+
+```bash
+# View queue
+tatl list
+
+# Add to queue
+tatl enqueue 10
+tatl enqueue 1,3,5    # Multiple tasks
+
+# Remove from queue
+tatl dequeue          # Remove queue[0]
+tatl dequeue 5        # Remove specific task
 ```
 
 ### Sessions
 
 ```bash
 # List all sessions
-task sessions list
+tatl sessions list
 
-# List sessions for specific task
-task sessions list --task 10
+# List sessions with filter
+tatl sessions list project:work
 
-# Show current session
-task sessions show
-
-# Show most recent session for task
-task sessions show --task 10
-
-# Modify session start/end times
-task sessions modify 5 start:09:00
-task sessions modify 5 end:17:00
-task sessions modify 5 start:09:00 end:17:00
-
-# Close an open session
-task sessions modify 5 end:now
-
-# Make a closed session open (clear end time)
-task sessions modify 5 end:none
+# Modify session times
+tatl sessions modify 5 start:09:00 end:17:00
 
 # Delete a session
-task sessions delete 5
-task sessions delete 5 --yes
-```
+tatl sessions delete 5 -y
 ```
 
 ### Recurrence
 
 ```bash
 # Generate recurring task instances
-task recur run
-task recur run --until +30d
+tatl recur run
+tatl recur run --until +30d
 
 # Recurrence rules
-task add Daily standup recur:daily template:meeting
-task add Weekly review recur:weekly byweekday:mon
-task add Monthly report recur:monthly bymonthday:1
+tatl add Daily standup recur:daily template:meeting
+tatl add Weekly review recur:weekly byweekday:mon
+tatl add Monthly report recur:monthly bymonthday:1
 ```
 
 ## Filter Syntax
@@ -214,17 +230,17 @@ Filters support AND, OR, and NOT operations:
 
 ```bash
 # AND (implicit)
-task list project:work +urgent
+tatl list project:work +urgent
 
 # OR (explicit)
-task list +urgent or +important
+tatl list +urgent or +important
 
 # NOT
-task list not +waiting
+tatl list not +waiting
 
 # Complex filters
-task list project:work +urgent or project:home +important
-task list status:pending not +waiting
+tatl list project:work +urgent or project:home +important
+tatl list status:pending not +waiting
 ```
 
 ## Configuration
@@ -270,17 +286,17 @@ See `docs/COMMAND_REFERENCE.md` for complete command documentation with examples
 
 ### Common Issues
 
-**Error: Stack is empty**
-- Solution: Add a task to the stack first with `task <id> enqueue`
+**Error: Queue is empty**
+- Solution: Add a task to the queue first with `tatl enqueue <id>`
 
 **Error: No session is currently running**
-- Solution: Start a session with `task clock in` or `task <id> clock in`
+- Solution: Start a session with `tatl on` or `tatl on <id>`
 
 **Error: Task not found**
-- Solution: Verify task ID with `task list`
+- Solution: Verify task ID with `tatl list`
 
 **Error: Project not found**
-- Solution: Create project with `task projects add <name>`
+- Solution: Create project with `tatl projects add <name>`
 
 **Error: Filter parse error**
 - Solution: Check filter syntax, ensure proper spacing around `or` and `not`

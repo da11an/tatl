@@ -184,15 +184,15 @@ pub fn compute_stack_status(conn: &rusqlite::Connection) -> Result<String> {
     ))
 }
 
-/// Compute status for `task recur`
-pub fn compute_recur_status(conn: &rusqlite::Connection) -> Result<String> {
+/// Compute status for respawning tasks
+pub fn compute_respawn_status(conn: &rusqlite::Connection) -> Result<String> {
     let all_tasks = TaskRepo::list_all(conn)?;
-    let recur_tasks: Vec<_> = all_tasks.iter()
-        .filter(|(task, _)| task.recur.is_some())
+    let respawn_tasks: Vec<_> = all_tasks.iter()
+        .filter(|(task, _)| task.respawn.is_some())
         .collect();
     
-    let count = recur_tasks.len();
-    Ok(format!("{} recurring task{}", count, if count == 1 { "" } else { "s" }))
+    let count = respawn_tasks.len();
+    Ok(format!("{} respawning task{}", count, if count == 1 { "" } else { "s" }))
 }
 
 /// Compute status for `task sessions`

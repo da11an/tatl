@@ -494,7 +494,7 @@ fn acceptance_waiting_derived() {
         Some(Some(tomorrow_ts)), // wait_ts
         None, // alloc_secs
         None, // template
-        None, // recur
+        None, // respawn
         &std::collections::HashMap::new(), // udas_to_add
         &[], // udas_to_remove
         &[], // tags_to_add
@@ -512,60 +512,57 @@ fn acceptance_waiting_derived() {
 }
 
 // ============================================================================
-// Section 11.7: Recurrence
+// Section 11.7: Respawn
 // ============================================================================
 
 #[test]
-fn acceptance_recur_run_is_idempotent() {
-    // Given a seed task S with `recur:weekly byweekday:mon` and template T
-    // When `task recur run --until <date>` is run twice
-    // Then the same set of instances exist after both runs (no duplicates)
+fn acceptance_respawn_on_finish() {
+    // Given a task T with `respawn:daily` and a due date
+    // When task is finished
+    // Then a new task is created with the respawn rule and an updated due date
     
     let ctx = AcceptanceTestContext::new();
     
-    // Create a template
-    use tatl::repo::TemplateRepo;
     use std::collections::HashMap;
-    use serde_json::json;
-    let mut template_payload = HashMap::new();
-    template_payload.insert("alloc_secs".to_string(), json!(3600));
-    TemplateRepo::save(ctx.db(), "meeting_template", &template_payload).unwrap();
     
-    // Create seed task with recurrence
-    let _seed_task = TaskRepo::create_full(
+    // Create task with respawn rule
+    let due_ts = chrono::Utc::now().timestamp() + 3600; // 1 hour from now
+    let task = TaskRepo::create_full(
         ctx.db(),
-        "Weekly meeting",
+        "Daily task",
+        None,
+        Some(due_ts),
         None,
         None,
+        Some(1800), // 30 min allocation
         None,
-        None,
-        None,
-        Some("meeting_template".to_string()),
-        Some("weekly byweekday:mon".to_string()),
+        Some("daily".to_string()),
         &HashMap::new(),
         &[],
     ).unwrap();
     
-    let until_date = "2026-02-01"; // About 4 weeks ahead
+    let task_id = task.id.unwrap();
     
-    // Run recurrence generation twice
+    // Finish the task
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["recur", "run", "--until", until_date]);
+    when.execute_success(&["finish", &task_id.to_string(), "-y"]);
     
-    let instances_after_first = TaskRepo::list_all(ctx.db()).unwrap()
-        .iter()
-        .filter(|(t, _)| t.recur.is_none() && t.description == "Weekly meeting")
-        .count();
+    // Verify original task is completed
+    let original = TaskRepo::get_by_id(ctx.db(), task_id).unwrap().unwrap();
+    assert_eq!(original.status, tatl::models::TaskStatus::Completed);
     
-    when.execute_success(&["recur", "run", "--until", until_date]);
+    // Verify new respawned task exists
+    let all_tasks = TaskRepo::list_all(ctx.db()).unwrap();
+    let respawned: Vec<_> = all_tasks.iter()
+        .filter(|(t, _)| t.id != Some(task_id) && t.description == "Daily task")
+        .collect();
     
-    let instances_after_second = TaskRepo::list_all(ctx.db()).unwrap()
-        .iter()
-        .filter(|(t, _)| t.recur.is_none() && t.description == "Weekly meeting")
-        .count();
-    
-    assert_eq!(instances_after_first, instances_after_second,
-               "Number of instances should be the same after both runs (idempotent)");
+    assert_eq!(respawned.len(), 1, "Should have one respawned task");
+    let (new_task, _) = &respawned[0];
+    assert_eq!(new_task.respawn, Some("daily".to_string()));
+    assert_eq!(new_task.alloc_secs, Some(1800));
+    assert!(new_task.due_ts.is_some());
+    assert!(new_task.due_ts.unwrap() > due_ts, "New due date should be after original");
 }
 
 // ============================================================================

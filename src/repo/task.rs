@@ -36,7 +36,7 @@ impl TaskRepo {
         wait_ts: Option<i64>,
         alloc_secs: Option<i64>,
         template: Option<String>,
-        recur: Option<String>,
+        respawn: Option<String>,
         udas: &HashMap<String, String>,
         tags: &[String],
     ) -> Result<Task> {
@@ -47,7 +47,7 @@ impl TaskRepo {
         task.wait_ts = wait_ts;
         task.alloc_secs = alloc_secs;
         task.template = template.clone();
-        task.recur = recur.clone();
+        task.respawn = respawn.clone();
         task.udas = udas.clone();
         
         let now = chrono::Utc::now().timestamp();
@@ -61,7 +61,7 @@ impl TaskRepo {
         
         conn.execute(
             "INSERT INTO tasks (uuid, description, status, project_id, due_ts, scheduled_ts, 
-                    wait_ts, alloc_secs, template, recur, udas_json, created_ts, modified_ts) 
+                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts) 
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             rusqlite::params![
                 task.uuid,
@@ -73,7 +73,7 @@ impl TaskRepo {
                 task.wait_ts,
                 task.alloc_secs,
                 task.template,
-                task.recur,
+                task.respawn,
                 udas_json,
                 now,
                 now
@@ -123,7 +123,7 @@ impl TaskRepo {
     pub fn get_by_id(conn: &Connection, id: i64) -> Result<Option<Task>> {
         let mut stmt = conn.prepare(
             "SELECT id, uuid, description, status, project_id, due_ts, scheduled_ts, 
-                    wait_ts, alloc_secs, template, recur, udas_json, created_ts, modified_ts 
+                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts 
              FROM tasks WHERE id = ?1"
         )?;
         
@@ -148,7 +148,7 @@ impl TaskRepo {
                 wait_ts: row.get(7)?,
                 alloc_secs: row.get(8)?,
                 template: row.get(9)?,
-                recur: row.get(10)?,
+                respawn: row.get(10)?,
                 udas,
                 created_ts: row.get(12)?,
                 modified_ts: row.get(13)?,
@@ -176,7 +176,7 @@ impl TaskRepo {
     pub fn list_all(conn: &Connection) -> Result<Vec<(Task, Vec<String>)>> {
         let mut stmt = conn.prepare(
             "SELECT id, uuid, description, status, project_id, due_ts, scheduled_ts, 
-                    wait_ts, alloc_secs, template, recur, udas_json, created_ts, modified_ts 
+                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts 
              FROM tasks WHERE status != 'deleted' ORDER BY id"
         )?;
         
@@ -202,7 +202,7 @@ impl TaskRepo {
                 wait_ts: row.get(7)?,
                 alloc_secs: row.get(8)?,
                 template: row.get(9)?,
-                recur: row.get(10)?,
+                respawn: row.get(10)?,
                 udas,
                 created_ts: row.get(12)?,
                 modified_ts: row.get(13)?,
@@ -230,7 +230,7 @@ impl TaskRepo {
         wait_ts: Option<Option<i64>>,
         alloc_secs: Option<Option<i64>>,
         template: Option<Option<String>>,
-        recur: Option<Option<String>>,
+        respawn: Option<Option<String>>,
         udas_to_add: &HashMap<String, String>,
         udas_to_remove: &[String],
         tags_to_add: &[String],
@@ -332,17 +332,17 @@ impl TaskRepo {
             }
             task.template = tmpl;
         }
-        if let Some(rec) = recur {
-            if rec != task.recur {
+        if let Some(resp) = respawn {
+            if resp != task.respawn {
                 EventRepo::record_modified(
                     conn,
                     task_id,
-                    "recur",
-                    task.recur.as_ref().map(|s| serde_json::Value::String(s.clone())),
-                    rec.as_ref().map(|s| serde_json::Value::String(s.clone())),
+                    "respawn",
+                    task.respawn.as_ref().map(|s| serde_json::Value::String(s.clone())),
+                    resp.as_ref().map(|s| serde_json::Value::String(s.clone())),
                 )?;
             }
-            task.recur = rec;
+            task.respawn = resp;
         }
         
         // Update UDAs
@@ -363,7 +363,7 @@ impl TaskRepo {
         // Update task in database
         conn.execute(
             "UPDATE tasks SET description = ?1, project_id = ?2, due_ts = ?3, scheduled_ts = ?4,
-                    wait_ts = ?5, alloc_secs = ?6, template = ?7, recur = ?8, udas_json = ?9,
+                    wait_ts = ?5, alloc_secs = ?6, template = ?7, respawn = ?8, udas_json = ?9,
                     modified_ts = ?10 WHERE id = ?11",
             rusqlite::params![
                 task.description,
@@ -373,7 +373,7 @@ impl TaskRepo {
                 task.wait_ts,
                 task.alloc_secs,
                 task.template,
-                task.recur,
+                task.respawn,
                 udas_json,
                 now,
                 task_id
@@ -428,7 +428,7 @@ impl TaskRepo {
         let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let query = format!(
             "SELECT id, uuid, description, status, project_id, due_ts, scheduled_ts, 
-                    wait_ts, alloc_secs, template, recur, udas_json, created_ts, modified_ts 
+                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts 
              FROM tasks WHERE id IN ({})",
             placeholders
         );
@@ -455,7 +455,7 @@ impl TaskRepo {
                 wait_ts: row.get(7)?,
                 alloc_secs: row.get(8)?,
                 template: row.get(9)?,
-                recur: row.get(10)?,
+                respawn: row.get(10)?,
                 udas,
                 created_ts: row.get(12)?,
                 modified_ts: row.get(13)?,
@@ -503,6 +503,11 @@ impl TaskRepo {
         Self::set_status(conn, task_id, crate::models::TaskStatus::Closed)
     }
 
+    /// Reopen a completed or closed task (set status back to pending)
+    pub fn reopen(conn: &Connection, task_id: i64) -> Result<()> {
+        Self::set_status(conn, task_id, crate::models::TaskStatus::Pending)
+    }
+
     /// Permanently delete a task and all related data
     /// 
     /// This operation is atomic - all related data is deleted in a transaction.
@@ -512,7 +517,7 @@ impl TaskRepo {
     /// - Task sessions (CASCADE)
     /// - Stack items (CASCADE)
     /// - Task events (CASCADE)
-    /// - Recurrence occurrences (CASCADE)
+    /// - Respawn rules (part of task)
     /// 
     /// # Example
     /// 

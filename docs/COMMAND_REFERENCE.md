@@ -6,7 +6,7 @@ Complete reference for all Tatl commands with examples and usage patterns.
 
 - [Task Commands](#task-commands)
 - [Project Commands](#project-commands)
-- [Clock Commands](#clock-commands)
+- [Timing Commands](#timing-commands)
 - [Session Commands](#session-commands)
 - [Status Command](#status-command)
 - [Recurrence Commands](#recurrence-commands)
@@ -18,18 +18,19 @@ Complete reference for all Tatl commands with examples and usage patterns.
 
 ## Tatl Commands
 
-### `tatl add [--clock-in] [--enqueue] [--auto-create-project] <description> [attributes...]`
+### `tatl add [--on] [--onoff <start>..<end>] [--enqueue] [-y] <description> [attributes...]`
 
 Add a new task with optional attributes.
 
 **Description:** The task description is the first argument or all non-attribute tokens.
 
 **Options:**
-- `--clock-in` - Automatically clock in after creating task (pushes to clock[0] and starts timing)
-- `--enqueue` - Automatically enqueue task to clock stack after creating (adds to end, does not start timing)
-- `--auto-create-project` - Automatically create project if it doesn't exist (non-interactive mode)
+- `--on` - Automatically start timing after creating task (pushes to queue[0] and starts timing)
+- `--onoff <start>..<end>` - Create task and add historical session for the specified interval
+- `--enqueue` - Automatically enqueue task to queue after creating (adds to end, does not start timing)
+- `-y` - Auto-confirm prompts (create new projects, modify overlapping sessions)
 
-**Note:** If both `--clock-in` and `--enqueue` are specified, `--clock-in` takes precedence.
+**Note:** If `--onoff` is specified, it takes precedence over `--on` and `--enqueue`.
 
 **Attributes:**
 - `project:<name>` - Assign to project
@@ -59,23 +60,27 @@ task add Daily standup template:meeting recur:daily
 # Tatl with UDA
 task add Customer call uda.client:acme uda.priority:high
 
-# Tatl with --clock-in (automatically starts timing)
-task add --clock-in Start working on feature
-task add --clock-in "Fix urgent bug" project:work +urgent
+# Task with --on (automatically starts timing)
+tatl add --on Start working on feature
+tatl add --on "Fix urgent bug" project:work +urgent
 
-# Tatl with --enqueue (adds to clock stack without starting timing)
-task add --enqueue "Review documentation" project:docs
-task add --enqueue "Write tests" project:work due:tomorrow allocation:2h
+# Task with --enqueue (adds to queue without starting timing)
+tatl add --enqueue "Review documentation" project:docs
+tatl add --enqueue "Write tests" project:work due:tomorrow allocation:2h
 
-# Tatl with new project (interactive prompt)
-task add "New feature" project:newproject
+# Task with --onoff (create task and add historical session)
+tatl add "Emergency meeting" --onoff 14:00..15:00 project:meetings
+tatl add "Support request" --onoff 10:30..11:00 +support
+
+# Task with new project (interactive prompt)
+tatl add "New feature" project:newproject
 # Prompts: "This is a new project 'newproject'. Add new project? [y/n/c] (default: y):"
 # - y: Create project and continue (default)
 # - n: Skip project, create task without it
 # - c: Cancel task creation
 
-# Tatl with --auto-create-project (non-interactive)
-task add --auto-create-project "New feature" project:newproject
+# Task with -y (non-interactive)
+tatl add -y "New feature" project:newproject
 # Automatically creates project if it doesn't exist
 ```
 
@@ -330,161 +335,160 @@ task projects archive old-project
 
 ---
 
-## Clock Commands
+## Timing Commands
 
-The clock stack is a queue of tasks. The task at position 0 (clock[0]) is the "active" task. Clock operations (pick, next, drop) affect which task is active. Clock in/out controls timing.
+The task queue controls which tasks are active. The task at position 0 (queue[0]) is the "active" task. Queue operations (enqueue, pick, dequeue) affect which task is active. `on`/`off` controls timing.
 
-### `tatl clock list`
+### `tatl on [<id>] [<start>|<start..end>]`
 
-Display the current clock stack with full task details.
-
-**Options:**
-- `--json` - Output in JSON format
-
-**Output:**
-- Shows clock stack position, task ID, description, status, project, tags, and due date
-- Tasks are sorted by clock stack position (0 = active task)
-
-**Examples:**
-```bash
-# List clock stack with full details
-task clock list
-
-# JSON output
-task clock list --json
-```
-
-### `tatl clock enqueue <id|id,id,...|range|mixed>`
-
-Add task(s) to end of clock stack (do it later).
-
-**Arguments:**
-- `<id>` - Single task ID
-- `<id,id,...>` - Comma-separated list of task IDs (enqueued in listed order)
-- `<start-end>` - Range of task IDs (e.g., `30-31` expands to 30, 31)
-- Mixed syntax - Combine lists and ranges (e.g., `1,3-5,10`)
-
-**Examples:**
-```bash
-# Enqueue single task
-task clock enqueue 10
-
-# Enqueue multiple tasks
-task clock enqueue 1,3,5
-
-# Enqueue range
-task clock enqueue 30-31
-
-# Enqueue mixed (ranges and individual IDs)
-task clock enqueue 1,3-5,10
-
-# Enqueue with spaces
-task clock enqueue 1, 3, 5
-```
-
-### `tatl clock pick <index>`
-
-Move task at position to top of clock stack.
-
-**Examples:**
-```bash
-task clock pick 2
-```
-
-### `tatl clock next [<n>]`
-
-Move to the next task by n positions (default: 1).
-
-**Behavior:**
-- If clock is running: closes current session and starts new one for new clock[0]
-- If clock is not running: only reorders clock stack
-
-**Examples:**
-```bash
-# Move once
-task clock next
-
-# Move 2 positions
-task clock next 2
-```
-
-### `tatl clock drop <index>`
-
-Remove task from clock stack at position.
-
-**Forms:**
-- `task stack drop <index>` (canonical form)
-- `task stack <index> drop` (alternative syntax, equivalent)
-
-**Examples:**
-```bash
-# Canonical form
-task stack drop 1
-
-# Alternative syntax (equivalent)
-task stack 1 drop
-```
-
-### `tatl clock clear`
-
-Clear all tasks from clock stack.
-
-**Examples:**
-```bash
-task clock clear
-```
-
-### `tatl clock in [<id>] [<start>|<start..end>]`
-
-Start timing the current clock[0] task, or a specific task.
+Start timing the current queue[0] task, or a specific task.
 
 **Behavior:**
 - If `<id>` provided: pushes task to top and starts timing
-- If `<id>` omitted: uses clock[0]
+- If `<id>` omitted: uses queue[0]
 - If no time arguments: starts at "now"
 - If single time: starts at specified time
 - If interval (`start..end`): creates closed session
 
-**Notes:**
-- Task ID is always treated as a task ID (not a clock stack position)
-- To clock in by position, use: `task clock pick <index> && task clock in`
-
-**Overlap Prevention:**
-If another session starts before the end time of a closed interval, the interval's end time is automatically amended.
-
 **Examples:**
 ```bash
-# Start now (uses clock[0])
-task clock in
+# Start now (uses queue[0])
+tatl on
 
-# Start at specific time (uses clock[0])
-task clock in 09:00
+# Start at specific time (uses queue[0])
+tatl on 09:00
 
-# Create closed interval (uses clock[0])
-task clock in 09:00..11:00
-task clock in today..eod
+# Create closed interval (uses queue[0])
+tatl on 09:00..11:00
 
-# Push task 5 to top and start timing (new positional syntax)
-task clock in 5
+# Push task 5 to top and start timing
+tatl on 5
 
 # Push task 10 to top and start at specific time
-task clock in 10 09:00
-
-# Push task 10 to top and create interval
-task clock in 10 09:00..11:00
+tatl on 10 09:00
 ```
 
-### `tatl clock out [<end>]`
+### `tatl off [<end>]`
 
 Stop the currently running session.
 
 **Examples:**
 ```bash
 # Stop now
-task clock out
+tatl off
 
 # Stop at specific time
-task clock out 17:00
+tatl off 17:00
+```
+
+### `tatl offon <stop>[..<start>] [<task_id>] [-y]`
+
+Stop current session and resume (with optional break). Useful for capturing breaks after the fact.
+
+**Behavior:**
+- If a session is running: stops it at `<stop>` and starts a new one (at `<start>` or now)
+- If no session is running: operates on history (finds and modifies overlapping sessions)
+
+**Arguments:**
+- `<stop>` - Time to stop the current session
+- `<stop>..<start>` - Stop at first time, resume at second time
+- `<task_id>` - Optional task ID for the new session (defaults to queue[0])
+- `-y` - Skip confirmation for history modifications
+
+**Examples:**
+```bash
+# Interrupted at 14:30, resuming now
+tatl offon 14:30
+
+# Interrupted at 14:30, resuming at 15:00 (30 min break)
+tatl offon 14:30..15:00
+
+# Remove 14:30-15:00 from history (modifies overlapping sessions)
+tatl offon 14:30..15:00 -y
+
+# Split session at 14:30
+tatl offon 14:30 -y
+```
+
+### `tatl onoff <start>..<end> [<task_id>] [-y]`
+
+Add a historical session for a task. Replaces `sessions add`.
+
+**Behavior:**
+- Creates a closed session for the specified interval
+- Defaults to queue[0] task if task_id not provided
+- If overlapping sessions exist: prompts for confirmation, then clears overlapping time and inserts new session
+
+**Arguments:**
+- `<start>..<end>` - Time interval for the session (required)
+- `<task_id>` - Optional task ID (defaults to queue[0])
+- `-y` - Skip confirmation for overlapping session modifications
+
+**Examples:**
+```bash
+# Add session for queue[0] from 09:00 to 12:00 today
+tatl onoff 09:00..12:00
+
+# Add session for task 10 from 09:00 to 12:00
+tatl onoff 09:00..12:00 10
+
+# Insert session into overlapping time without confirmation
+tatl onoff 14:00..15:00 5 -y
+```
+
+### `tatl enqueue <id|id,id,...|range|mixed>`
+
+Add task(s) to end of queue (do it later).
+
+**Arguments:**
+- `<id>` - Single task ID
+- `<id,id,...>` - Comma-separated list of task IDs
+- `<start-end>` - Range of task IDs (e.g., `30-31`)
+- Mixed syntax - Combine lists and ranges (e.g., `1,3-5,10`)
+
+**Examples:**
+```bash
+# Enqueue single task
+tatl enqueue 10
+
+# Enqueue multiple tasks
+tatl enqueue 1,3,5
+
+# Enqueue range
+tatl enqueue 30-31
+```
+
+### `tatl dequeue [<task_id>]`
+
+Remove task from queue without finishing.
+
+**Behavior:**
+- If `<task_id>` provided: removes that task from queue
+- If omitted: removes queue[0]
+
+**Examples:**
+```bash
+# Remove queue[0]
+tatl dequeue
+
+# Remove specific task
+tatl dequeue 5
+```
+
+### `tatl list`
+
+Display the current task queue with full task details.
+
+**Options:**
+- `--json` - Output in JSON format
+
+**Examples:**
+```bash
+# List queue
+tatl list
+
+# JSON output
+tatl list --json
 ```
 
 ---

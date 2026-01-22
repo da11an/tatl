@@ -11,7 +11,17 @@ pub fn find_matching_commands<'a>(prefix: &str, commands: &'a [&str]) -> Vec<&'a
 
 /// Find a unique command match for the given prefix
 /// Returns Ok(command) if exactly one match, Err(matches) if ambiguous, Err(empty) if no match
+/// Note: Exact matches take precedence over prefix matches (e.g., "on" matches "on" not "onoff")
 pub fn find_unique_command<'a>(prefix: &str, commands: &'a [&str]) -> Result<&'a str, Vec<&'a str>> {
+    // First check for exact match (case-insensitive)
+    let prefix_lower = prefix.to_lowercase();
+    for cmd in commands {
+        if cmd.to_lowercase() == prefix_lower {
+            return Ok(*cmd);
+        }
+    }
+    
+    // Then check for prefix matches
     let matches = find_matching_commands(prefix, commands);
     
     if matches.is_empty() {
@@ -25,8 +35,8 @@ pub fn find_unique_command<'a>(prefix: &str, commands: &'a [&str]) -> Result<&'a
 
 /// Top-level commands in Tatl
 pub const TOP_LEVEL_COMMANDS: &[&str] = &[
-    "projects", "add", "list", "modify", "on", "off", "dequeue",
-    "annotate", "finish", "close", "delete", "enqueue", "recur", "sessions", "status", "show"
+    "projects", "add", "list", "modify", "on", "off", "offon", "onoff", "dequeue",
+    "annotate", "finish", "close", "reopen", "delete", "enqueue", "sessions", "status", "show"
 ];
 
 /// Project subcommands
@@ -34,14 +44,9 @@ pub const PROJECT_COMMANDS: &[&str] = &[
     "add", "list", "rename", "archive", "unarchive"
 ];
 
-/// Recur subcommands
-pub const RECUR_COMMANDS: &[&str] = &[
-    "run"
-];
-
 /// Sessions subcommands
 pub const SESSIONS_COMMANDS: &[&str] = &[
-    "list", "show", "modify", "delete", "add", "report"
+    "list", "show", "modify", "delete", "report"
 ];
 
 /// Task subcommands (used with task <id> <subcommand> pattern)
@@ -53,7 +58,6 @@ pub const TASK_SUBCOMMANDS: &[&str] = &[
 pub fn get_subcommands(command: &str) -> Option<&'static [&'static str]> {
     match command {
         "projects" => Some(PROJECT_COMMANDS),
-        "recur" => Some(RECUR_COMMANDS),
         "sessions" => Some(SESSIONS_COMMANDS),
         _ => None,
     }

@@ -96,31 +96,32 @@ fn test_task_add_with_template() {
 }
 
 #[test]
-fn test_recur_with_template() {
+fn test_respawn_with_template() {
     let (temp_dir, _guard) = setup_test_env();
     
-    // Create a template via task creation (without project to avoid project creation issues)
-    get_task_cmd().args(&["add", "Template task", "template:meeting", "allocation:1h", "+meeting"]).assert().success();
+    // Create a task with respawn rule
+    get_task_cmd().args(&["add", "Daily standup", "respawn:daily", "allocation:30m", "+meeting"]).assert().success();
     
-    // Create a seed task with template and recurrence
-    get_task_cmd().args(&["add", "Daily standup", "template:meeting", "recur:daily", "allocation:30m"]).assert().success();
-    
-    // Run recurrence generation
-    get_task_cmd().args(&["recur", "run"]).assert().success();
-    
-    // Verify instances were created with template attributes
+    // Get the task ID
     let conn = DbConnection::connect().unwrap();
     let tasks = TaskRepo::list_all(&conn).unwrap();
-    let instances: Vec<_> = tasks.iter()
-        .filter(|(t, _)| t.recur.is_none() && t.description == "Daily standup")
-        .collect();
-    assert!(!instances.is_empty());
+    let (task, _) = tasks.iter().find(|(t, _)| t.description == "Daily standup").unwrap();
+    let task_id = task.id.unwrap();
     
-    // Check that instance has template attributes (+meeting) but seed override (allocation:30m)
+    // Finish the task to trigger respawn
+    get_task_cmd().args(&["finish", &task_id.to_string(), "-y"]).assert().success();
+    
+    // Verify respawned instance was created
+    let tasks_after = TaskRepo::list_all(&conn).unwrap();
+    let instances: Vec<_> = tasks_after.iter()
+        .filter(|(t, _)| t.id != Some(task_id) && t.description == "Daily standup")
+        .collect();
+    assert!(!instances.is_empty(), "Should have respawned task");
+    
+    // Check that respawned instance has same attributes
     let (instance, tags) = &instances[0];
     assert_eq!(instance.description, "Daily standup");
-    // Verify template tag is present (from template)
-    // Note: Tags from template should be merged with seed tags
+    assert_eq!(instance.respawn, Some("daily".to_string()));
     assert!(tags.contains(&"meeting".to_string()), "Tags: {:?}", tags);
     drop(temp_dir); // Keep temp_dir alive until end
 }
