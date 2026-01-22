@@ -29,7 +29,7 @@ fn e2e_complete_workflow_add_clock_annotate_finish() {
     when.execute_success(&["enqueue", &task_id.to_string()]);
     
     // Step 3: Clock in
-    when.execute_success(&["clock", "in"]);
+    when.execute_success(&["on"]);
     
     // Verify session is running
     let then = ThenBuilder::new(&ctx, None);
@@ -80,7 +80,7 @@ fn e2e_complete_workflow_with_project_and_tags() {
     
     // Step 3: Add to stack and clock in
     when.execute_success(&["enqueue", &task_id.to_string()]);
-    when.execute_success(&["clock", "in"]);
+    when.execute_success(&["on"]);
     
     // Step 4: Add annotation
     when.execute_success(&["annotate", &task_id.to_string(), "Found 3 issues to address"]);
@@ -117,7 +117,7 @@ fn e2e_complete_workflow_with_finish_next() {
     when.execute_success(&["enqueue", &task3.to_string()]);
     
     // Step 3: Clock in (starts task 1)
-    when.execute_success(&["clock", "in"]);
+    when.execute_success(&["on"]);
     
     let then = ThenBuilder::new(&ctx, None);
     then.running_session_exists_for_task(task1);
@@ -538,11 +538,11 @@ fn e2e_multi_task_finish_workflow() {
     let mut when = WhenBuilder::new(&ctx);
     
     // Clock in task 1, complete it
-    when.execute_success(&[&task1.to_string(), "clock", "in"]);
+    when.execute_success(&["on", &task1.to_string()]);
     when.execute_success(&["finish"]);
     
     // Clock in task 2, complete it
-    when.execute_success(&[&task2.to_string(), "clock", "in"]);
+    when.execute_success(&["on", &task2.to_string()]);
     when.execute_success(&["finish"]);
     
     // Verify tasks 1 and 2 are completed, task 3 is not

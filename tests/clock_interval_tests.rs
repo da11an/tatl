@@ -26,49 +26,49 @@ fn get_task_cmd() -> Command {
 }
 
 #[test]
-fn test_clock_in_interval_creates_closed_session() {
+fn test_on_interval_creates_closed_session() {
     let (_temp_dir, _guard) = setup_test_env();
     
-    // Create task and add to stack
+    // Create task and add to queue
     let mut cmd = get_task_cmd();
     cmd.args(&["add", "test task"]).assert().success();
     
     let mut cmd = get_task_cmd();
     cmd.args(&["1", "enqueue"]).assert().success();
     
-    // Clock in with interval - should create closed session
+    // Start timing with interval - should create closed session
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "in", "2026-01-10T09:00..2026-01-10T10:30"])
+    cmd.args(&["on", "2026-01-10T09:00..2026-01-10T10:30"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Recorded session"));
     
     // Verify no open session exists
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "out"])
+    cmd.args(&["off"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("No session is currently running"));
 }
 
 #[test]
-fn test_task_clock_in_interval_creates_closed_session() {
+fn test_on_task_interval_creates_closed_session() {
     let (_temp_dir, _guard) = setup_test_env();
     
     // Create task
     let mut cmd = get_task_cmd();
     cmd.args(&["add", "test task"]).assert().success();
     
-    // Clock in with interval - should create closed session
+    // Start timing with interval - should create closed session
     let mut cmd = get_task_cmd();
-    cmd.args(&["1", "clock", "in", "2026-01-10T09:00..2026-01-10T10:30"])
+    cmd.args(&["on", "1", "2026-01-10T09:00..2026-01-10T10:30"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Recorded session"));
     
     // Verify no open session exists
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "out"])
+    cmd.args(&["off"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("No session is currently running"));
@@ -87,21 +87,21 @@ fn test_overlap_prevention_amends_end_time() {
     
     // Create closed session for task 1: 09:00 to 10:30
     let mut cmd = get_task_cmd();
-    cmd.args(&["1", "clock", "in", "2026-01-10T09:00..2026-01-10T10:30"])
+    cmd.args(&["on", "1", "2026-01-10T09:00..2026-01-10T10:30"])
         .assert()
         .success();
     
     // Create session for task 2 starting at 10:00 (before task 1's end time)
     // This should amend task 1's end time to 10:00
     let mut cmd = get_task_cmd();
-    cmd.args(&["2", "clock", "in", "2026-01-10T10:00"])
+    cmd.args(&["on", "2", "2026-01-10T10:00"])
         .assert()
         .success();
     
     // The overlap prevention should have amended task 1's session end time
     // We can verify this by checking that task 2's session is now running
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "out"])
+    cmd.args(&["off"])
         .assert()
         .success();
 }
@@ -110,18 +110,17 @@ fn test_overlap_prevention_amends_end_time() {
 fn test_interval_with_default_start() {
     let (_temp_dir, _guard) = setup_test_env();
     
-    // Create task and add to stack
+    // Create task and add to queue
     let mut cmd = get_task_cmd();
     cmd.args(&["add", "test task"]).assert().success();
     
     let mut cmd = get_task_cmd();
     cmd.args(&["1", "enqueue"]).assert().success();
     
-    // Clock in with interval where start is omitted (should default to now)
+    // Start timing with interval where start is omitted (should default to now)
     // Note: This test uses a future end time to avoid issues
     let mut cmd = get_task_cmd();
-    // We'll use a specific format that works with our date parser
-    cmd.args(&["clock", "in", "2026-01-10T09:00..2026-01-10T10:30"])
+    cmd.args(&["on", "2026-01-10T09:00..2026-01-10T10:30"])
         .assert()
         .success();
 }
@@ -136,7 +135,7 @@ fn test_interval_parsing() {
     
     // Test various interval formats
     let mut cmd = get_task_cmd();
-    cmd.args(&["1", "clock", "in", "2026-01-10T09:00..2026-01-10T10:30"])
+    cmd.args(&["on", "1", "2026-01-10T09:00..2026-01-10T10:30"])
         .assert()
         .success();
 }

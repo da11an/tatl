@@ -25,7 +25,7 @@ pub fn find_unique_command<'a>(prefix: &str, commands: &'a [&str]) -> Result<&'a
 
 /// Top-level commands in Tatl
 pub const TOP_LEVEL_COMMANDS: &[&str] = &[
-    "projects", "add", "list", "modify", "clock", 
+    "projects", "add", "list", "modify", "on", "off", "dequeue",
     "annotate", "finish", "close", "delete", "enqueue", "recur", "sessions", "status", "show"
 ];
 
@@ -33,13 +33,6 @@ pub const TOP_LEVEL_COMMANDS: &[&str] = &[
 pub const PROJECT_COMMANDS: &[&str] = &[
     "add", "list", "rename", "archive", "unarchive"
 ];
-
-/// Clock subcommands (includes stack operations)
-/// Note: Stack operations (enqueue, pick, next, drop, clear) are under clock, not a separate stack command
-pub const CLOCK_STACK_COMMANDS: &[&str] = &[
-    "list", "enqueue", "pick", "next", "drop", "clear", "in", "out"
-];
-
 
 /// Recur subcommands
 pub const RECUR_COMMANDS: &[&str] = &[
@@ -53,14 +46,13 @@ pub const SESSIONS_COMMANDS: &[&str] = &[
 
 /// Task subcommands (used with task <id> <subcommand> pattern)
 pub const TASK_SUBCOMMANDS: &[&str] = &[
-    "enqueue", "modify", "finish", "close", "delete", "annotate", "summary"
+    "enqueue", "dequeue", "modify", "finish", "close", "delete", "annotate", "show", "on"
 ];
 
 /// Get subcommands for a given top-level command
 pub fn get_subcommands(command: &str) -> Option<&'static [&'static str]> {
     match command {
         "projects" => Some(PROJECT_COMMANDS),
-        "clock" => Some(CLOCK_STACK_COMMANDS),
         "recur" => Some(RECUR_COMMANDS),
         "sessions" => Some(SESSIONS_COMMANDS),
         _ => None,
@@ -282,22 +274,27 @@ mod tests {
             Ok(vec!["annotate".to_string(), "1".to_string()])
         );
         
-        // Test summary abbreviation
+        // Test show abbreviation
         assert_eq!(
-            expand_command_abbreviations(vec!["1".to_string(), "sum".to_string()]),
-            Ok(vec!["summary".to_string(), "1".to_string()])
+            expand_command_abbreviations(vec!["1".to_string(), "sh".to_string()]),
+            Ok(vec!["show".to_string(), "1".to_string()])
         );
         
-        // Test that "d" uniquely matches "delete"
+        // Test that "del" uniquely matches "delete" (since "d" is now ambiguous with "dequeue")
         assert_eq!(
-            expand_command_abbreviations(vec!["1".to_string(), "d".to_string()]),
+            expand_command_abbreviations(vec!["1".to_string(), "del".to_string()]),
             Ok(vec!["delete".to_string(), "1".to_string()])
         );
         
-        // Test that "de" uniquely matches "delete" (not ambiguous)
+        // Test that "deq" uniquely matches "dequeue"
         assert_eq!(
-            expand_command_abbreviations(vec!["1".to_string(), "de".to_string()]),
-            Ok(vec!["delete".to_string(), "1".to_string()])
+            expand_command_abbreviations(vec!["1".to_string(), "deq".to_string()]),
+            Ok(vec!["dequeue".to_string(), "1".to_string()])
+        );
+        
+        // Test that "de" is now ambiguous between "delete" and "dequeue"
+        assert!(
+            expand_command_abbreviations(vec!["1".to_string(), "de".to_string()]).is_err()
         );
         
         // Test non-task-subcommand (should pass through)

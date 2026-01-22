@@ -54,7 +54,7 @@ fn test_status_with_clocked_in_task() {
         .success();
     
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in", "1"])
+    cmd.args(&["on", "1"])
         .assert()
         .success();
     
@@ -138,7 +138,7 @@ fn test_status_with_today_sessions() {
         .success();
     
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in", "1"])
+    cmd.args(&["on", "1"])
         .assert()
         .success();
     
@@ -146,7 +146,7 @@ fn test_status_with_today_sessions() {
     std::thread::sleep(std::time::Duration::from_millis(100));
     
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "out"])
+    cmd.args(&["off"])
         .assert()
         .success();
     
@@ -183,7 +183,7 @@ fn test_status_json_with_data() {
         .success();
     
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in", "1"])
+    cmd.args(&["on", "1"])
         .assert()
         .success();
     

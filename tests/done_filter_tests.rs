@@ -36,9 +36,9 @@ fn test_finish_with_filter_single_match() {
     let mut cmd = get_task_cmd();
     cmd.args(&["add", "Task 2"]).assert().success();
     
-    // Clock in Task 1
+    // Start timing Task 1
     let mut cmd = get_task_cmd();
-    cmd.args(&["1", "clock", "in"]).assert().success();
+    cmd.args(&["on", "1"]).assert().success();
     
     // Finish Task 1 using filter
     let mut cmd = get_task_cmd();
@@ -56,9 +56,9 @@ fn test_finish_with_yes_flag() {
     let mut cmd = get_task_cmd();
     cmd.args(&["add", "Task 1", "+urgent"]).assert().success();
     
-    // Clock in Task 1
+    // Start timing Task 1
     let mut cmd = get_task_cmd();
-    cmd.args(&["1", "clock", "in"]).assert().success();
+    cmd.args(&["on", "1"]).assert().success();
     
     // Finish with --yes flag (should work even for single task)
     let mut cmd = get_task_cmd();
@@ -85,9 +85,9 @@ fn test_finish_with_next_flag() {
     let mut cmd = get_task_cmd();
     cmd.args(&["2", "enqueue"]).assert().success();
     
-    // Clock in Task 1
+    // Start timing Task 1
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "in"]).assert().success();
+    cmd.args(&["on"]).assert().success();
     
     // Finish Task 1 with --next flag
     let mut cmd = get_task_cmd();

@@ -40,14 +40,14 @@ fn test_micro_session_warning() {
     
     // Clock in
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "in"]).assert().success();
+    cmd.args(&["on"]).assert().success();
     
     // Wait a short time (less than 30 seconds)
     thread::sleep(Duration::from_millis(100));
     
     // Clock out - should warn about micro-session
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "out"])
+    cmd.args(&["off"])
         .assert()
         .success()
         .stderr(predicate::str::contains("Warning: Micro-session detected"));
@@ -66,18 +66,18 @@ fn test_micro_session_merge() {
     
     // Clock in
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "in"]).assert().success();
+    cmd.args(&["on"]).assert().success();
     
     // Wait a short time
     thread::sleep(Duration::from_millis(100));
     
     // Clock out (creates micro-session)
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "out"]).assert().success();
+    cmd.args(&["off"]).assert().success();
     
     // Immediately clock in again (within 30 seconds)
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "in"])
+    cmd.args(&["on"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Merged micro-session"));
@@ -103,21 +103,21 @@ fn test_micro_session_purge() {
     
     // Clock in Task 1
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "in"]).assert().success();
+    cmd.args(&["on"]).assert().success();
     
     // Wait a short time
     thread::sleep(Duration::from_millis(100));
     
     // Move to next task (switches to Task 2, creating micro-session for Task 1)
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "next", "1"]).assert().success();
+    cmd.args(&["next", "1"]).assert().success();
     
     // Wait a short time
     thread::sleep(Duration::from_millis(100));
     
     // Move back to Task 1 (should purge Task 2's micro-session)
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "next", "1"])
+    cmd.args(&["next", "1"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Purged micro-session"));
@@ -136,14 +136,14 @@ fn test_micro_session_preserved() {
     
     // Clock in
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "in"]).assert().success();
+    cmd.args(&["on"]).assert().success();
     
     // Wait a short time
     thread::sleep(Duration::from_millis(100));
     
     // Clock out (creates micro-session)
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "out"]).assert().success();
+    cmd.args(&["off"]).assert().success();
     
     // Wait more than 30 seconds (simulated by not doing anything)
     // In a real scenario, we'd wait, but for testing we'll just verify
@@ -153,5 +153,5 @@ fn test_micro_session_preserved() {
     // Note: This test is tricky because we can't easily wait 30+ seconds in a test
     // For now, we'll just verify the warning was printed
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "in"]).assert().success();
+    cmd.args(&["on"]).assert().success();
 }

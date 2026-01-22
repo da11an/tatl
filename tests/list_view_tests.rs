@@ -96,8 +96,8 @@ fn test_sessions_list_view_alias() {
     
     get_task_cmd(&temp_dir).args(&["add", "Session task"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     get_task_cmd(&temp_dir)
         .args(&["sessions", "list", "sort:start", "alias:mysessions"])

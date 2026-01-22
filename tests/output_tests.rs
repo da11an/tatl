@@ -179,7 +179,7 @@ fn test_task_list_priority_empty_for_completed() {
     // Create and complete a task
     get_task_cmd(&temp_dir).args(&["add", "Task to complete"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["finish", "1", "--yes"]).assert().success();
     
     // List tasks - completed tasks should not show priority
@@ -210,8 +210,8 @@ fn test_stack_display_formatting() {
     get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
     
     // Show stack - should show formatted display
-    get_task_cmd(&temp_dir).args(&["clock", "list"]).assert().success()
-        .stdout(predicates::str::contains("Pos"));
+    get_task_cmd(&temp_dir).args(&["list"]).assert().success()
+        .stdout(predicates::str::contains("ID"));
     
     drop(temp_dir);
 }
@@ -224,10 +224,10 @@ fn test_stack_json_format() {
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     
-    // Show stack in JSON format
-    get_task_cmd(&temp_dir).args(&["clock", "list", "--json"]).assert().success()
-        .stdout(predicates::str::contains("\"index\""))
-        .stdout(predicates::str::contains("\"task_id\""));
+    // Show task list in JSON format
+    get_task_cmd(&temp_dir).args(&["list", "--json"]).assert().success()
+        .stdout(predicates::str::contains("\"id\""))
+        .stdout(predicates::str::contains("\"description\""));
     
     drop(temp_dir);
 }
@@ -271,12 +271,12 @@ fn test_clock_transition_messages() {
     get_task_cmd(&temp_dir).args(&["add", "Test task"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     
-    // Clock in - should show explicit message
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success()
+    // On - should show explicit message
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success()
         .stdout(predicates::str::contains("Started timing"));
     
-    // Clock out - should show explicit message
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success()
+    // Off - should show explicit message
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success()
         .stdout(predicates::str::contains("Stopped timing"));
     
     drop(temp_dir);

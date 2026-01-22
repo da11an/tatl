@@ -99,14 +99,14 @@ fn test_kanban_status_live() {
     // Create a task, add to stack, and clock in
     get_task_cmd(&temp_dir).args(&["add", "Live task"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
     
     // Should show as "LIVE" (position 0, clock in)
     get_task_cmd(&temp_dir).args(&["list"]).assert().success()
         .stdout(predicates::str::contains("LIVE"));
     
     // Clean up - clock out
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     drop(temp_dir);
 }
@@ -120,7 +120,7 @@ fn test_kanban_status_next_when_live_in_front() {
     get_task_cmd(&temp_dir).args(&["add", "Next task"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
     
     let output = get_task_cmd(&temp_dir).args(&["list"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
@@ -128,7 +128,7 @@ fn test_kanban_status_next_when_live_in_front() {
     assert!(stdout.lines().any(|l| l.contains("Next task") && l.contains("NEXT")));
     
     // Clean up
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     drop(temp_dir);
 }
 
@@ -139,7 +139,7 @@ fn test_kanban_status_done() {
     // Create a task, add to stack, clock in, complete
     get_task_cmd(&temp_dir).args(&["add", "Done task"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
     get_task_cmd(&temp_dir).args(&["finish", "1", "--yes"]).assert().success();
     
     // Should show as "done"
@@ -195,7 +195,7 @@ fn test_kanban_filter_live() {
     get_task_cmd(&temp_dir).args(&["add", "Live task"]).assert().success();
     get_task_cmd(&temp_dir).args(&["add", "Proposed task"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
     
     // Filter by kanban:live should only show first task
     let output = get_task_cmd(&temp_dir).args(&["list", "kanban:live"]).assert().success();
@@ -205,7 +205,7 @@ fn test_kanban_filter_live() {
     assert!(!stdout.contains("Proposed task"), "Should not show proposed task");
     
     // Clean up
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     drop(temp_dir);
 }
@@ -218,7 +218,7 @@ fn test_kanban_filter_done() {
     get_task_cmd(&temp_dir).args(&["add", "Done task"]).assert().success();
     get_task_cmd(&temp_dir).args(&["add", "Pending task"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
     get_task_cmd(&temp_dir).args(&["finish", "1", "--yes"]).assert().success();
     
     // Filter by kanban:done should only show first task
@@ -257,14 +257,14 @@ fn test_kanban_status_paused() {
     // Create a task, clock in, clock out, then remove from stack
     get_task_cmd(&temp_dir).args(&["add", "Paused task"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
     
     // Wait a moment then clock out
     std::thread::sleep(std::time::Duration::from_millis(100));
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // Remove from stack
-    get_task_cmd(&temp_dir).args(&["clock", "drop", "0"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["dequeue"]).assert().success();
     
     // Should show as "paused" (not in stack, has sessions)
     get_task_cmd(&temp_dir).args(&["list"]).assert().success()
@@ -283,15 +283,15 @@ fn test_kanban_status_working() {
     
     // Add first task to stack and clock in
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
     
     // Wait a moment then clock out
     std::thread::sleep(std::time::Duration::from_millis(100));
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
-    // Add another task on top
-    get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "pick", "1"]).assert().success();
+    // Add another task on top and switch to it
+    get_task_cmd(&temp_dir).args(&["on", "2"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // First task should be "working" (position > 0, has sessions)
     let output = get_task_cmd(&temp_dir).args(&["list"]).assert().success();

@@ -45,15 +45,15 @@ fn test_stack_next_while_clock_running_switches_live_task() {
     
     // Start clock on task 1 (clock[0])
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "in"]).assert().success();
+    cmd.args(&["on"]).assert().success();
     
     // Move to next task - should switch to task 2
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "next"]).assert().success();
+    cmd.args(&["next"]).assert().success();
     
     // Verify task 2 is now at top (check table format)
     let mut cmd = get_task_cmd();
-    let output = cmd.args(&["clock", "list"]).assert().success();
+    let output = cmd.args(&["list"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     // Task 2 should be at position 0
     let pos_0_line = stdout.lines()
@@ -63,7 +63,7 @@ fn test_stack_next_while_clock_running_switches_live_task() {
     
     // Clock out should work (session exists for task 2)
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "out"]).assert().success();
+    cmd.args(&["off"]).assert().success();
 }
 
 #[test]
@@ -92,11 +92,11 @@ fn test_stack_pick_while_stopped_does_not_create_sessions() {
     
     // Pick task at position 2 (task 3) - no session should be created
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "pick", "2"]).assert().success();
+    cmd.args(&["pick", "2"]).assert().success();
     
     // Verify stack order changed (task 3 should be at position 0)
     let mut cmd = get_task_cmd();
-    let output = cmd.args(&["clock", "list"]).assert().success();
+    let output = cmd.args(&["list"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     let pos_0_line = stdout.lines()
         .find(|l| l.trim_start().starts_with("0"))
@@ -105,7 +105,7 @@ fn test_stack_pick_while_stopped_does_not_create_sessions() {
     
     // Verify no session is running
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "out"])
+    cmd.args(&["off"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("No session is currently running"));
@@ -131,15 +131,15 @@ fn test_stack_next_with_clock_in_flag() {
     
     // Move to next task
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "next"]).assert().success();
+    cmd.args(&["next"]).assert().success();
     
     // Start clock on new clock[0]
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "in"]).assert().success();
+    cmd.args(&["on"]).assert().success();
     
     // Verify session is running
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "out"]).assert().success();
+    cmd.args(&["off"]).assert().success();
 }
 
 #[test]
@@ -155,19 +155,19 @@ fn test_stack_clear_with_clock_out_flag() {
     cmd.args(&["enqueue", "1"]).assert().success();
     
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "in"]).assert().success();
+    cmd.args(&["on"]).assert().success();
     
     // Stop clock first
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "out"]).assert().success();
+    cmd.args(&["off"]).assert().success();
     
     // Clear clock stack
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "clear"]).assert().success();
+    cmd.args(&["dequeue", "--all"]).assert().success();
     
     // Verify no session is running
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "out"])
+    cmd.args(&["off"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("No session is currently running"));
@@ -199,15 +199,15 @@ fn test_stack_pick_while_clock_running_switches_task() {
     
     // Start clock on task 1
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "in"]).assert().success();
+    cmd.args(&["on"]).assert().success();
     
     // Pick task at position 2 (task 3) - should switch to task 3
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "pick", "2"]).assert().success();
+    cmd.args(&["pick", "2"]).assert().success();
     
     // Verify task 3 is at top (position 0)
     let mut cmd = get_task_cmd();
-    let output = cmd.args(&["clock", "list"]).assert().success();
+    let output = cmd.args(&["list"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     let pos_0_line = stdout.lines()
         .find(|l| l.trim_start().starts_with("0"))
@@ -216,5 +216,5 @@ fn test_stack_pick_while_clock_running_switches_task() {
     
     // Clock out should work (session exists for task 3)
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "out"]).assert().success();
+    cmd.args(&["off"]).assert().success();
 }

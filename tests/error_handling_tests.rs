@@ -77,7 +77,7 @@ fn test_empty_stack_error() {
     let (temp_dir, _guard) = setup_test_env();
     
     // Test error message for empty stack
-    get_task_cmd().args(&["clock", "in"]).assert()
+    get_task_cmd().args(&["on"]).assert()
         .failure()
         .code(1)
         .stderr(predicate::str::contains("Error:"))
@@ -91,7 +91,7 @@ fn test_no_session_running_error() {
     let (temp_dir, _guard) = setup_test_env();
     
     // Test error message for no running session
-    get_task_cmd().args(&["clock", "out"]).assert()
+    get_task_cmd().args(&["off"]).assert()
         .failure()
         .code(1)
         .stderr(predicate::str::contains("Error:"))

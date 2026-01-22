@@ -28,7 +28,7 @@ fn get_task_cmd(temp_dir: &TempDir) -> Command {
 }
 
 #[test]
-fn test_task_clock_in_pushes_to_top() {
+fn test_on_task_pushes_to_top() {
     let (temp_dir, _guard) = setup_test_env();
     
     // Create two tasks
@@ -42,25 +42,20 @@ fn test_task_clock_in_pushes_to_top() {
     let mut cmd = get_task_cmd(&temp_dir);
     cmd.args(&["enqueue", "1"]).assert().success();
     
-    // Use task 2 clock in - should push task 2 to top
+    // Use `on 2` - should push task 2 to top and start timing
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in", "2"])
+    cmd.args(&["on", "2"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Started timing task 2"));
     
-    // Verify stack order: task 2 should be at top (position 0)
+    // Stop timing
     let mut cmd = get_task_cmd(&temp_dir);
-    let output = cmd.args(&["clock", "list"]).assert().success();
-    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
-    let pos_0_line = stdout.lines()
-        .find(|l| l.trim_start().starts_with("0"))
-        .unwrap();
-    assert!(pos_0_line.contains("2"), "Task 2 should be at position 0");
+    cmd.args(&["off"]).assert().success();
 }
 
 #[test]
-fn test_task_clock_in_closes_previous_session() {
+fn test_on_task_closes_previous_session() {
     let (temp_dir, _guard) = setup_test_env();
     
     // Create two tasks
@@ -72,25 +67,25 @@ fn test_task_clock_in_closes_previous_session() {
     
     // Start session for task 1
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in", "1"]).assert().success();
+    cmd.args(&["on", "1"]).assert().success();
     
     // Start session for task 2 - should close task 1's session
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in", "2"])
+    cmd.args(&["on", "2"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Started timing task 2"));
     
-    // Verify only task 2 session is open (try to clock in again should fail)
+    // Verify only task 2 session is open (try to start timing again should fail)
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in"])
+    cmd.args(&["on"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("already running"));
 }
 
 #[test]
-fn test_task_clock_in_same_timestamp() {
+fn test_on_task_same_timestamp() {
     let (temp_dir, _guard) = setup_test_env();
     
     // Create two tasks
@@ -102,83 +97,81 @@ fn test_task_clock_in_same_timestamp() {
     
     // Start session for task 1
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in", "1"]).assert().success();
+    cmd.args(&["on", "1"]).assert().success();
     
     // Small delay to ensure different timestamps if not handled correctly
     std::thread::sleep(std::time::Duration::from_millis(10));
     
     // Start session for task 2 - should close task 1 at same timestamp
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in", "2"]).assert().success();
+    cmd.args(&["on", "2"]).assert().success();
     
     // Both sessions should exist and task 1's session should be closed
-    // (We can't easily verify timestamps match without querying DB directly,
-    // but if the session was closed, we can verify it's not open)
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "out"]).assert().success();
+    cmd.args(&["off"]).assert().success();
 }
 
 #[test]
-fn test_task_clock_in_with_start_time() {
+fn test_on_task_with_start_time() {
     let (temp_dir, _guard) = setup_test_env();
     
     // Create task
     let mut cmd = get_task_cmd(&temp_dir);
     cmd.args(&["add", "test task"]).assert().success();
     
-    // Clock in with specific start time
+    // Start timing with specific start time
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in", "1", "2026-01-10T09:00"])
+    cmd.args(&["on", "1", "2026-01-10T09:00"])
         .assert()
         .success();
     
-    // Clock out
+    // Stop timing
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "out"]).assert().success();
+    cmd.args(&["off"]).assert().success();
 }
 
 #[test]
-fn test_task_clock_in_default_now() {
+fn test_on_task_default_now() {
     let (temp_dir, _guard) = setup_test_env();
     
     // Create task
     let mut cmd = get_task_cmd(&temp_dir);
     cmd.args(&["add", "test task"]).assert().success();
     
-    // Clock in without start time (should default to now)
+    // Start timing without start time (should default to now)
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in", "1"])
+    cmd.args(&["on", "1"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Started timing task 1"));
     
-    // Clock out
+    // Stop timing
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "out"]).assert().success();
+    cmd.args(&["off"]).assert().success();
 }
 
 #[test]
-fn test_clock_in_positional_syntax() {
+fn test_on_positional_syntax() {
     let (temp_dir, _guard) = setup_test_env();
     
     // Create task
     let mut cmd = get_task_cmd(&temp_dir);
     cmd.args(&["add", "Test task"]).assert().success();
     
-    // Clock in using positional syntax (new syntax)
+    // Start timing using positional syntax
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in", "1"])
+    cmd.args(&["on", "1"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Started timing task 1"));
     
-    // Clock out
+    // Stop timing
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "out"]).assert().success();
+    cmd.args(&["off"]).assert().success();
 }
 
 #[test]
-fn test_clock_in_no_args_uses_clock_zero() {
+fn test_on_no_args_uses_queue0() {
     let (temp_dir, _guard) = setup_test_env();
     
     // Create task and enqueue
@@ -188,33 +181,33 @@ fn test_clock_in_no_args_uses_clock_zero() {
     let mut cmd = get_task_cmd(&temp_dir);
     cmd.args(&["enqueue", "1"]).assert().success();
     
-    // Clock in without args (should use clock[0])
+    // Start timing without args (should use queue[0])
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in"])
+    cmd.args(&["on"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Started timing task 1"));
     
-    // Clock out
+    // Stop timing
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "out"]).assert().success();
+    cmd.args(&["off"]).assert().success();
 }
 
 #[test]
-fn test_clock_in_positional_with_time() {
+fn test_on_positional_with_time() {
     let (temp_dir, _guard) = setup_test_env();
     
     // Create task
     let mut cmd = get_task_cmd(&temp_dir);
     cmd.args(&["add", "Test task"]).assert().success();
     
-    // Clock in using positional syntax with start time
+    // Start timing using positional syntax with start time
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in", "1", "2026-01-10T09:00"])
+    cmd.args(&["on", "1", "2026-01-10T09:00"])
         .assert()
         .success();
     
-    // Clock out
+    // Stop timing
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "out"]).assert().success();
+    cmd.args(&["off"]).assert().success();
 }

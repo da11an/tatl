@@ -221,12 +221,12 @@ fn test_add_with_new_project_invalid_response() {
 }
 
 #[test]
-fn test_add_with_auto_create_project_and_clock_in() {
+fn test_add_with_auto_yes_and_on() {
     let (temp_dir, _guard) = setup_test_env();
     
-    // Add task with both --auto-create-project and --clock-in flags
+    // Add task with both -y and --on flags
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "--auto-create-project", "--clock-in", "Test task", "project:autoproject"])
+    cmd.args(&["add", "-y", "--on", "Test task", "project:autoproject"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created project 'autoproject'"))
@@ -240,10 +240,10 @@ fn test_add_with_auto_create_project_and_clock_in() {
         .success()
         .stdout(predicate::str::contains("autoproject"));
     
-    // Verify task is clocked in
+    // Verify timer is running by stopping it
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "list"])
+    cmd.args(&["off"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Test task"));
+        .stdout(predicate::str::contains("Stopped timing task"));
 }

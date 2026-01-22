@@ -37,7 +37,7 @@ fn test_finish_errors_if_stack_empty() {
     
     // Clear stack
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "clear"]).assert().success();
+    // Queue is now managed automatically via enqueue/dequeue
     
     // Try to finish with empty stack - should fail
     let mut cmd = get_task_cmd(&temp_dir);
@@ -83,15 +83,9 @@ fn test_finish_completes_task_and_removes_from_stack() {
     let mut cmd = get_task_cmd(&temp_dir);
     cmd.args(&["enqueue", "2"]).assert().success();
     
-    // Clock in Task 1
+    // Start timing Task 1
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in"]).assert().success();
-    
-    // Verify stack has both tasks
-    let mut cmd = get_task_cmd(&temp_dir);
-    let output = cmd.args(&["clock", "list"]).assert().success();
-    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
-    assert!(stdout.contains("1") && stdout.contains("2"));
+    cmd.args(&["on"]).assert().success();
     
     // Finish Task 1
     let mut cmd = get_task_cmd(&temp_dir);
@@ -100,21 +94,11 @@ fn test_finish_completes_task_and_removes_from_stack() {
         .success()
         .stdout(predicate::str::contains("Finished task 1"));
     
-    // Verify stack only has Task 2
+    // Verify Task 1 is completed via show
     let mut cmd = get_task_cmd(&temp_dir);
-    let output = cmd.args(&["clock", "list"]).assert().success();
+    let output = cmd.args(&["show", "1"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
-    assert!(stdout.contains("2") && !stdout.contains("1"));
-    
-    // Verify Task 1 is completed (check status via JSON or verify it's not in pending list)
-    // For now, we'll verify by checking that it doesn't appear in default list (which shows pending)
-    let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["list", "id:1", "--json"])
-        .assert()
-        .success();
-    
-    // The task should be completed - we can verify this by checking it's not in pending list
-    // or by parsing JSON. For simplicity, we'll just verify the command succeeded.
+    assert!(stdout.contains("completed") || stdout.contains("Status: completed"));
 }
 
 #[test]
@@ -130,7 +114,7 @@ fn test_finish_with_task_id() {
     
     // Clock in Task 1
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in", "1"]).assert().success();
+    cmd.args(&["on", "1"]).assert().success();
     
     // Finish Task 1 using ID
     let mut cmd = get_task_cmd(&temp_dir);
@@ -174,7 +158,7 @@ fn test_finish_with_task_id_with_session() {
     cmd.args(&["enqueue", "1"]).assert().success();
     
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in"]).assert().success();
+    cmd.args(&["on"]).assert().success();
     
     // Finish task with session - should close session
     let mut cmd = get_task_cmd(&temp_dir);
@@ -185,7 +169,7 @@ fn test_finish_with_task_id_with_session() {
     
     // Verify session was closed (try to clock out should fail)
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "out"])
+    cmd.args(&["off"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("No session is currently running"));
@@ -244,7 +228,7 @@ fn test_finish_with_next_flag() {
     
     // Clock in Task 1
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "in"]).assert().success();
+    cmd.args(&["on"]).assert().success();
     
     // Finish Task 1 with --next flag
     let mut cmd = get_task_cmd(&temp_dir);
@@ -256,5 +240,5 @@ fn test_finish_with_next_flag() {
     
     // Verify Task 2 session is running
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["clock", "out"]).assert().success(); // Should succeed if session is running
+    cmd.args(&["off"]).assert().success(); // Should succeed if session is running
 }

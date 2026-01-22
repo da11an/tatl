@@ -291,6 +291,23 @@ impl StackRepo {
         Ok(())
     }
 
+    /// Remove a specific task from the stack by task_id
+    pub fn remove_task(conn: &Connection, stack_id: i64, task_id: i64) -> Result<()> {
+        // Delete the item
+        conn.execute(
+            "DELETE FROM stack_items WHERE stack_id = ?1 AND task_id = ?2",
+            rusqlite::params![stack_id, task_id],
+        )?;
+        
+        // Record stack_removed event
+        EventRepo::record_stack_removed(conn, task_id, stack_id)?;
+        
+        // Renumber remaining items
+        Self::renumber(conn, stack_id)?;
+        Self::update_modified(conn, stack_id)?;
+        Ok(())
+    }
+
     /// Move task to end of stack
     fn move_to_end(conn: &Connection, stack_id: i64, task_id: i64) -> Result<()> {
         // Remove from current position

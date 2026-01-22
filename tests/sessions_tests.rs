@@ -32,12 +32,12 @@ fn test_sessions_list_all() {
     
     // Create sessions
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // List all sessions
     get_task_cmd(&temp_dir).args(&["sessions", "list"]).assert().success()
@@ -60,12 +60,12 @@ fn test_sessions_list_filter_by_project() {
     
     // Create sessions for both tasks
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // Filter by project
     get_task_cmd(&temp_dir).args(&["sessions", "list", "project:work"]).assert().success()
@@ -85,12 +85,12 @@ fn test_sessions_list_filter_by_tags() {
     
     // Create sessions for both tasks
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // Filter by tag
     get_task_cmd(&temp_dir).args(&["sessions", "list", "+urgent"]).assert().success()
@@ -110,12 +110,12 @@ fn test_sessions_list_filter_by_task_id() {
     
     // Create sessions for both tasks
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // Filter by task ID
     get_task_cmd(&temp_dir).args(&["sessions", "list", "1"]).assert().success()
@@ -135,8 +135,8 @@ fn test_sessions_list_filter_empty_results() {
     
     // Create a session
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // Filter by non-existent project
     get_task_cmd(&temp_dir).args(&["sessions", "list", "project:nonexistent"]).assert().success()
@@ -158,12 +158,12 @@ fn test_sessions_list_filter_multiple_arguments() {
     
     // Create sessions
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // Filter by project and tag
     get_task_cmd(&temp_dir).args(&["sessions", "list", "project:work", "+urgent"]).assert().success()
@@ -183,12 +183,12 @@ fn test_sessions_list_for_task() {
     
     // Create sessions
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // List sessions for task 1 (using new filter syntax)
     get_task_cmd(&temp_dir).args(&["sessions", "list", "1"]).assert().success()
@@ -204,7 +204,7 @@ fn test_sessions_show_current() {
     // Create task and start session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
     
     // Show current session
     get_task_cmd(&temp_dir).args(&["sessions", "show"]).assert().success()
@@ -220,8 +220,8 @@ fn test_sessions_show_for_task() {
     // Create task and session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // Show most recent session for task (using --task flag for backward compatibility)
     get_task_cmd(&temp_dir).args(&["sessions", "--task", "1", "show"]).assert().success()
@@ -237,8 +237,8 @@ fn test_sessions_list_json() {
     // Create task and session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // List sessions in JSON format
     get_task_cmd(&temp_dir).args(&["sessions", "list", "--json"]).assert().success()
@@ -254,8 +254,8 @@ fn test_sessions_list_shows_session_id() {
     // Create task and session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // List sessions - should show Session ID column
     get_task_cmd(&temp_dir).args(&["sessions", "list"]).assert().success()
@@ -271,8 +271,8 @@ fn test_sessions_modify_start_time() {
     // Create task and closed session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // Get session ID from list
     let output = get_task_cmd(&temp_dir).args(&["sessions", "list", "--json"]).assert().success();
@@ -297,8 +297,8 @@ fn test_sessions_modify_end_time() {
     // Create task and closed session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // Get session ID from list
     let output = get_task_cmd(&temp_dir).args(&["sessions", "list", "--json"]).assert().success();
@@ -323,8 +323,8 @@ fn test_sessions_modify_both_times() {
     // Create task and closed session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // Get session ID from list
     let output = get_task_cmd(&temp_dir).args(&["sessions", "list", "--json"]).assert().success();
@@ -349,8 +349,8 @@ fn test_sessions_modify_end_none() {
     // Create task and closed session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // Get session ID from list
     let output = get_task_cmd(&temp_dir).args(&["sessions", "list", "--json"]).assert().success();
@@ -381,7 +381,7 @@ fn test_sessions_modify_end_now() {
     // Create task and open session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
     
     // Get session ID from list
     let output = get_task_cmd(&temp_dir).args(&["sessions", "list", "--json"]).assert().success();
@@ -426,7 +426,7 @@ fn test_sessions_modify_running_session_end_none() {
     // Create task and open session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
     
     // Get session ID from list
     let output = get_task_cmd(&temp_dir).args(&["sessions", "list", "--json"]).assert().success();
@@ -454,13 +454,13 @@ fn test_sessions_modify_overlap_detection() {
     
     // Create first session: 09:00-11:00
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in", "09:00"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out", "11:00"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on", "09:00"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off", "11:00"]).assert().success();
     
     // Create second session: 10:00-12:00 (overlaps with first: 10:00-11:00)
     get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in", "10:00"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out", "12:00"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on", "10:00"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off", "12:00"]).assert().success();
     
     // Get second session ID (newest first, so index 0)
     let output = get_task_cmd(&temp_dir).args(&["sessions", "list", "--json"]).assert().success();
@@ -489,13 +489,13 @@ fn test_sessions_modify_overlap_force() {
     
     // Create first session: 09:00-11:00
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in", "09:00"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out", "11:00"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on", "09:00"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off", "11:00"]).assert().success();
     
     // Create second session: 10:00-12:00 (overlaps with first: 10:00-11:00)
     get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in", "10:00"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out", "12:00"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on", "10:00"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off", "12:00"]).assert().success();
     
     // Get second session ID (newest first, so index 0)
     let output = get_task_cmd(&temp_dir).args(&["sessions", "list", "--json"]).assert().success();
@@ -520,8 +520,8 @@ fn test_sessions_delete() {
     // Create task and closed session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "out"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // Get session ID from list
     let output = get_task_cmd(&temp_dir).args(&["sessions", "list", "--json"]).assert().success();
@@ -566,7 +566,7 @@ fn test_sessions_delete_running_session() {
     // Create task and open session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["clock", "in"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
     
     // Get session ID from list
     let output = get_task_cmd(&temp_dir).args(&["sessions", "list", "--json"]).assert().success();

@@ -1,5 +1,4 @@
 use tatl::cli::run;
-use anyhow::Error;
 
 fn main() {
     if let Err(e) = run() {

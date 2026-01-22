@@ -25,15 +25,12 @@ fn acceptance_stack_auto_initialization_on_first_operation() {
     
     given.tasks_exist(&[1, 2, 3]);
     
-    let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["clock", "list"]);
-    
-    let then = ThenBuilder::new(&ctx, when.result());
-    then.stack_is_empty();
-    
-    // Verify default stack exists
+    // Verify default stack is created on first access
     let stack = StackRepo::get_or_create_default(ctx.db()).unwrap();
     assert_eq!(stack.name, "default");
+    
+    let then = ThenBuilder::new(&ctx, None);
+    then.stack_is_empty();
 }
 
 #[test]
@@ -63,10 +60,10 @@ fn acceptance_enqueue_adds_to_end() {
 }
 
 #[test]
-fn acceptance_clock_in_pushes_to_top() {
+fn acceptance_on_pushes_to_top() {
     // Given tasks 1,2,3 exist
     // And stack is `[1,2]`
-    // When `task 3 clock in`
+    // When `tatl on 3`
     // Then stack order is `[3,1,2]` (task 3 pushed to top)
     
     let ctx = AcceptanceTestContext::new();
@@ -78,63 +75,25 @@ fn acceptance_clock_in_pushes_to_top() {
     given.stack_contains(&[task1, task2]);
     
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["clock", "in", &task3.to_string()]);
+    when.execute_success(&["on", &task3.to_string()]);
     
     let then = ThenBuilder::new(&ctx, None);
     then.stack_order_is(&[task3, task1, task2]);
 }
 
-#[test]
-fn acceptance_stack_pick_moves_to_top() {
-    // Given stack `[10,11,12]`
-    // When `task stack 2 pick`
-    // Then stack is `[12,10,11]`
-    
-    let ctx = AcceptanceTestContext::new();
-    let given = GivenBuilder::new(&ctx);
-    
-    let task10 = given.task_exists("Task 10");
-    let task11 = given.task_exists("Task 11");
-    let task12 = given.task_exists("Task 12");
-    given.stack_contains(&[task10, task11, task12]);
-    
-    let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["clock", "pick", "2"]);
-    
-    let then = ThenBuilder::new(&ctx, None);
-    then.stack_order_is(&[task12, task10, task11]);
-}
-
-#[test]
-fn acceptance_stack_next_rotates() {
-    // Given stack `[10,11,12]`
-    // When `task clock next 1`
-    // Then stack is `[11,12,10]` (next syntax unchanged - n comes after next)
-    
-    let ctx = AcceptanceTestContext::new();
-    let given = GivenBuilder::new(&ctx);
-    
-    let task10 = given.task_exists("Task 10");
-    let task11 = given.task_exists("Task 11");
-    let task12 = given.task_exists("Task 12");
-    given.stack_contains(&[task10, task11, task12]);
-    
-    let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["clock", "next", "1"]);
-    
-    let then = ThenBuilder::new(&ctx, None);
-    then.stack_order_is(&[task11, task12, task10]);
-}
+// NOTE: Stack pick/next tests removed - these commands were removed in CLI overhaul
+// Stack manipulation is now done via `on <task_id>` to switch to a specific task
+// or `dequeue` to remove from queue
 
 // ============================================================================
-// Section 11.2: Clock and stack coupling
+// Section 11.2: Timer and queue coupling
 // ============================================================================
 
 #[test]
-fn acceptance_stack_next_while_clock_running_switches_live_task() {
-    // Given stack `[10,11]`
-    // And clock is running on task 10 since 09:00
-    // When `task clock next 1` at 09:10
+fn acceptance_on_switches_task_and_closes_previous() {
+    // Given queue `[10,11]`
+    // And timer is running on task 10 since 09:00
+    // When `tatl on 11` at 09:10
     // Then session for task 10 ends at 09:10
     // And a new session for task 11 starts at 09:10
     
@@ -146,13 +105,11 @@ fn acceptance_stack_next_while_clock_running_switches_live_task() {
     given.stack_contains(&[task10, task11]);
     given.clock_running_on_task_since(task10, "09:00");
     
-    // Note: We can't easily control the exact time of next, but we can verify
-    // that the session was closed and a new one started
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["clock", "next", "1"]);
+    when.execute_success(&["on", &task11.to_string()]);
     
     let then = ThenBuilder::new(&ctx, None);
-    // Next should close task 10's session and start task 11's session
+    // `on 11` should close task 10's session and start task 11's session
     then.running_session_exists_for_task(task11)
         .stack_order_is(&[task11, task10]);
     
@@ -162,42 +119,10 @@ fn acceptance_stack_next_while_clock_running_switches_live_task() {
 }
 
 #[test]
-fn acceptance_stack_pick_while_stopped_does_not_create_sessions() {
-    // Given stack `[10,11,12]`
+fn acceptance_on_starts_queue0_at_now() {
+    // Given queue `[10,11]`
     // And no running session
-    // When `task stack 2 pick`
-    // Then stack is `[12,10,11]`
-    // And no sessions are created
-    
-    let ctx = AcceptanceTestContext::new();
-    let given = GivenBuilder::new(&ctx);
-    
-    let task10 = given.task_exists("Task 10");
-    let task11 = given.task_exists("Task 11");
-    let task12 = given.task_exists("Task 12");
-    given.stack_contains(&[task10, task11, task12]);
-    given.no_running_session();
-    
-    // Count sessions before
-    let sessions_before = SessionRepo::list_all(ctx.db()).unwrap().len();
-    
-    let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["clock", "pick", "2"]);
-    
-    let then = ThenBuilder::new(&ctx, None);
-    then.stack_order_is(&[task12, task10, task11])
-        .no_sessions_are_created();
-    
-    // Verify no new sessions were created
-    let sessions_after = SessionRepo::list_all(ctx.db()).unwrap().len();
-    assert_eq!(sessions_before, sessions_after, "No sessions should be created");
-}
-
-#[test]
-fn acceptance_task_clock_in_starts_stack0_at_now() {
-    // Given stack `[10,11]`
-    // And no running session
-    // When `task clock in` (no arguments) at 09:00
+    // When `tatl on` (no arguments) at 09:00
     // Then a running session exists for task 10 starting 09:00 (defaults to now)
     
     let ctx = AcceptanceTestContext::new();
@@ -209,18 +134,18 @@ fn acceptance_task_clock_in_starts_stack0_at_now() {
     given.no_running_session();
     
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["clock", "in"]);
+    when.execute_success(&["on"]);
     
     let then = ThenBuilder::new(&ctx, None);
     then.running_session_exists_for_task(task10);
 }
 
 #[test]
-fn acceptance_task_clock_in_errors_on_empty_stack() {
-    // Given stack is empty
-    // When `task clock in`
+fn acceptance_on_errors_on_empty_queue() {
+    // Given queue is empty
+    // When `tatl on`
     // Then exit code is 1
-    // And message contains "No active task"
+    // And message contains "Queue is empty"
     
     let ctx = AcceptanceTestContext::new();
     let given = GivenBuilder::new(&ctx);
@@ -228,18 +153,18 @@ fn acceptance_task_clock_in_errors_on_empty_stack() {
     given.stack_is_empty();
     
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_failure(&["clock", "in"]);
+    when.execute_failure(&["on"]);
     
     let then = ThenBuilder::new(&ctx, when.result());
     then.exit_code_is(1)
-        .message_contains("Stack is empty");
+        .message_contains("Queue is empty");
 }
 
 #[test]
-fn acceptance_clock_in_with_interval_creates_closed_session() {
-    // Given stack `[10]`
+fn acceptance_on_with_interval_creates_closed_session() {
+    // Given queue `[10]`
     // And no running session
-    // When `task clock in 2026-01-10T09:00..2026-01-10T10:30`
+    // When `tatl on 2026-01-10T09:00..2026-01-10T10:30`
     // Then a closed session exists for task 10 from 09:00 to 10:30
     // And no running session exists
     
@@ -251,7 +176,7 @@ fn acceptance_clock_in_with_interval_creates_closed_session() {
     given.no_running_session();
     
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["clock", "in", "2026-01-10T09:00..2026-01-10T10:30"]);
+    when.execute_success(&["on", "2026-01-10T09:00..2026-01-10T10:30"]);
     
     let then = ThenBuilder::new(&ctx, None);
     then.closed_session_exists_for_task(task10, "2026-01-10T09:00", "2026-01-10T10:30")
@@ -260,9 +185,9 @@ fn acceptance_clock_in_with_interval_creates_closed_session() {
 
 #[test]
 fn acceptance_interval_end_time_amended_on_overlap() {
-    // Given stack `[10,11]`
+    // Given queue `[10,11]`
     // And a closed session for task 10 from 09:00 to 10:30
-    // When `task 11 clock in 09:45` (starts before task 10's end time)
+    // When `tatl on 11 2026-01-10T09:45` (starts before task 10's end time)
     // Then task 10's session end time is amended to 09:45
     // And task 10 session is from 09:00 to 09:45
     // And a new session for task 11 starts at 09:45
@@ -276,7 +201,7 @@ fn acceptance_interval_end_time_amended_on_overlap() {
     given.closed_session_exists(task10, "2026-01-10T09:00", "2026-01-10T10:30");
     
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["clock", "in", &task11.to_string(), "2026-01-10T09:45"]);
+    when.execute_success(&["on", &task11.to_string(), "2026-01-10T09:45"]);
     
     let then = ThenBuilder::new(&ctx, None);
     // Verify task 10's session was amended
@@ -376,12 +301,11 @@ fn acceptance_done_next_starts_next() {
 
 #[test]
 fn acceptance_micro_purge_on_rapid_switch() {
-    // Given stack `[10,11]` and clock running on 10
-    // When user rolls stack to 11 at 09:00:00
+    // Given queue `[10,11]` and timer running on 10
+    // When user switches to task 11 at 09:00:00
     // And task 11 session ends at 09:00:20 (20s duration, micro-session)
     // And task 10 session begins at 09:00:25 (within 30s of micro-session end)
     // Then task 11 micro-session is purged (different task, within MICRO of end)
-    // And stdout indicates purge rule applied
     
     let ctx = AcceptanceTestContext::new();
     let given = GivenBuilder::new(&ctx);
@@ -391,10 +315,9 @@ fn acceptance_micro_purge_on_rapid_switch() {
     given.stack_contains(&[task10, task11]);
     given.clock_running_on_task_since(task10, "2026-01-10T09:00");
     
-    // Roll to task 11 - this should close task 10 and start task 11
-    // We'll manually close task 11 to create a micro-session
+    // Switch to task 11 - this should close task 10 and start task 11
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["clock", "next", "1"]);
+    when.execute_success(&["on", &task11.to_string()]);
     
     // Verify task 11 is running
     let then = ThenBuilder::new(&ctx, None);

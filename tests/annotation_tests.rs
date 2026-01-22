@@ -54,9 +54,9 @@ fn test_annotation_without_id_when_clocked_in() {
     let mut cmd = get_task_cmd();
     cmd.args(&["1", "enqueue"]).assert().success();
     
-    // Clock in
+    // Start timing
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "in"]).assert().success();
+    cmd.args(&["on"]).assert().success();
     
     // Add annotation without ID (should use clocked-in task)
     let mut cmd = get_task_cmd();
@@ -93,7 +93,7 @@ fn test_annotation_invalid_id_falls_back_to_live_task() {
     cmd.args(&["1", "enqueue"]).assert().success();
     
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "in"]).assert().success();
+    cmd.args(&["on"]).assert().success();
     
     let output = get_task_cmd()
         .args(&["annotate", "999", "Fallback note"])
@@ -131,9 +131,9 @@ fn test_annotation_session_linking() {
     let mut cmd = get_task_cmd();
     cmd.args(&["1", "enqueue"]).assert().success();
     
-    // Clock in
+    // Start timing
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "in"]).assert().success();
+    cmd.args(&["on"]).assert().success();
     
     // Add annotation - should be linked to session
     let mut cmd = get_task_cmd();
@@ -141,9 +141,9 @@ fn test_annotation_session_linking() {
         .assert()
         .success();
     
-    // Clock out
+    // Stop timing
     let mut cmd = get_task_cmd();
-    cmd.args(&["clock", "out"]).assert().success();
+    cmd.args(&["off"]).assert().success();
     
     // Add another annotation without session - should not be linked
     let mut cmd = get_task_cmd();

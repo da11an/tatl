@@ -5,7 +5,7 @@ use crate::models::Task;
 use crate::repo::{ProjectRepo, TaskRepo, StackRepo, SessionRepo, AnnotationRepo, TemplateRepo, ViewRepo};
 use crate::cli::parser::{parse_task_args, join_description};
 use crate::cli::commands_sessions::{handle_task_sessions_list_with_filter, handle_task_sessions_show_with_filter, handle_sessions_modify, handle_sessions_delete, handle_sessions_add, handle_sessions_report};
-use crate::cli::output::{format_task_list_table, format_task_summary, format_clock_list_table, TaskListOptions};
+use crate::cli::output::{format_task_list_table, format_task_summary, TaskListOptions};
 use crate::cli::error::{user_error, validate_task_id, validate_project_name, parse_task_id_spec, parse_task_id_list};
 use crate::utils::{parse_date_expr, parse_duration, fuzzy};
 use crate::filter::{parse_filter, filter_tasks};
@@ -33,15 +33,15 @@ pub enum Commands {
     },
     /// Add a new task
     Add {
-        /// Automatically clock in after creating task
-        #[arg(long = "clock-in")]
-        clock_in: bool,
+        /// Automatically start timing after creating task
+        #[arg(long = "on", visible_alias = "clock-in")]
+        start_timing: bool,
         /// Automatically enqueue task to clock stack after creating
         #[arg(long = "enqueue")]
         enqueue: bool,
-        /// Automatically create project if it doesn't exist (non-interactive)
-        #[arg(long = "auto-create-project")]
-        auto_create_project: bool,
+        /// Auto-confirm prompts (e.g., create new projects)
+        #[arg(short = 'y', long)]
+        yes: bool,
         /// Task description and fields (e.g., "fix bug project:work +urgent")
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -71,16 +71,33 @@ pub enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
         /// Apply to all matching tasks without confirmation
-        #[arg(long)]
+        #[arg(short = 'y', long)]
         yes: bool,
         /// Force one-by-one confirmation for each task
         #[arg(long)]
         interactive: bool,
+        /// Start timing after modification
+        #[arg(long = "on")]
+        start_timing: bool,
     },
-    /// Start and stop timing or manage clock timing queue
-    Clock {
-        #[command(subcommand)]
-        subcommand: ClockCommands,
+    /// Start timing a task
+    On {
+        /// Task ID (optional, defaults to queue[0])
+        task_id: Option<String>,
+        /// Time expression or interval (e.g., "09:00" or "09:00..11:00")
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        time_args: Vec<String>,
+    },
+    /// Stop timing current task
+    Off {
+        /// End time (optional, defaults to now)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        time_args: Vec<String>,
+    },
+    /// Remove task from queue without finishing
+    Dequeue {
+        /// Task ID (optional, defaults to queue[0])
+        task_id: Option<String>,
     },
     /// Annotate a task
     Annotate {
@@ -93,7 +110,7 @@ pub enum Commands {
         #[arg(long)]
         task: Option<String>,
         /// Apply to all matching tasks without confirmation
-        #[arg(long)]
+        #[arg(short = 'y', long)]
         yes: bool,
         /// Force one-by-one confirmation for each task
         #[arg(long)]
@@ -104,16 +121,16 @@ pub enum Commands {
     },
     /// Mark task(s) as finished
     Finish {
-        /// Task ID or filter (optional, defaults to clock[0])
+        /// Task ID or filter (optional, defaults to queue[0])
         target: Option<String>,
-        /// End time for session (date expression, defaults to now)
-        #[arg(long)]
-        at: Option<String>,
-        /// Start next task in clock after completion
+        /// End time expression (optional, defaults to now)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        time_args: Vec<String>,
+        /// Start next task in queue after completion
         #[arg(long)]
         next: bool,
         /// Complete all matching tasks without confirmation
-        #[arg(long)]
+        #[arg(short = 'y', long)]
         yes: bool,
         /// Force one-by-one confirmation for each task
         #[arg(long)]
@@ -121,10 +138,10 @@ pub enum Commands {
     },
     /// Mark task(s) as closed
     Close {
-        /// Task ID or filter
-        target: String,
+        /// Task ID or filter (optional, defaults to queue[0])
+        target: Option<String>,
         /// Close all matching tasks without confirmation
-        #[arg(long)]
+        #[arg(short = 'y', long)]
         yes: bool,
         /// Force one-by-one confirmation for each task
         #[arg(long)]
@@ -135,7 +152,7 @@ pub enum Commands {
         /// Task ID or filter
         target: String,
         /// Delete all matching tasks without confirmation
-        #[arg(long)]
+        #[arg(short = 'y', long)]
         yes: bool,
         /// Confirm each task one by one
         #[arg(long)]
@@ -237,7 +254,7 @@ pub enum SessionsCommands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
         /// Apply modification without confirmation
-        #[arg(long)]
+        #[arg(short = 'y', long)]
         yes: bool,
         /// Allow modification even with conflicts
         #[arg(long)]
@@ -248,7 +265,7 @@ pub enum SessionsCommands {
         /// Session ID
         session_id: i64,
         /// Delete without confirmation
-        #[arg(long)]
+        #[arg(short = 'y', long)]
         yes: bool,
     },
     /// Add a manual session (for sessions not recorded via clock)
@@ -270,47 +287,6 @@ pub enum SessionsCommands {
     },
 }
 
-#[derive(Subcommand)]
-pub enum ClockCommands {
-    /// List clock stack (shows all tasks in queue)
-    List {
-        /// Output in JSON format
-        #[arg(long)]
-        json: bool,
-    },
-    /// Move task at position to top
-    Pick {
-        /// Clock position/index (0 = top, -1 = end)
-        index: i32,
-    },
-    /// Move to next task in clock stack
-    Next {
-        /// Number of positions to rotate (default: 1)
-        #[arg(default_value = "1")]
-        n: i32,
-    },
-    /// Remove task at position
-    Drop {
-        /// Clock position/index (0 = top, -1 = end)
-        index: i32,
-    },
-    /// Clear all tasks from clock stack
-    Clear,
-    /// Start timing (optionally with task)
-    In {
-        /// Task ID (optional, defaults to clock[0])
-        task_id: Option<String>,
-        /// Start time (date expression, defaults to "now")
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
-    /// Stop timing
-    Out {
-        /// End time (date expression, defaults to "now")
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
-}
 
 pub fn run() -> Result<()> {
     // Get raw args
@@ -402,15 +378,17 @@ pub fn run() -> Result<()> {
 fn handle_command(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Projects { subcommand } => handle_projects(subcommand),
-        Commands::Add { args, clock_in, enqueue, auto_create_project } => handle_task_add(args, clock_in, enqueue, auto_create_project),
+        Commands::Add { args, start_timing, enqueue, yes } => handle_task_add(args, start_timing, enqueue, yes),
         Commands::List { filter, json, relative } => {
             handle_task_list(filter, json, relative)
         },
         Commands::Show { target } => handle_task_summary(target),
-        Commands::Modify { target, args, yes, interactive } => {
-            handle_task_modify(target, args, yes, interactive)
+        Commands::Modify { target, args, yes, interactive, start_timing } => {
+            handle_task_modify_with_on(target, args, yes, interactive, start_timing)
         }
-        Commands::Clock { subcommand } => handle_clock(subcommand),
+        Commands::On { task_id, time_args } => handle_on(task_id, time_args),
+        Commands::Off { time_args } => handle_off(time_args),
+        Commands::Dequeue { task_id } => handle_dequeue(task_id),
         Commands::Annotate { target, note, task, yes, interactive, delete } => {
             if let Some(annotation_id) = delete {
                 let target = target.or(task)
@@ -452,11 +430,13 @@ fn handle_command(cli: Cli) -> Result<()> {
                 }
             }
         }
-        Commands::Finish { target, at, next, yes, interactive } => {
-            handle_task_finish(target, at, next, yes, interactive)
+        Commands::Finish { target, time_args, next, yes, interactive } => {
+            // Convert time_args to optional end time
+            let end_time = if time_args.is_empty() { None } else { Some(time_args.join(" ")) };
+            handle_task_finish(target, end_time, next, yes, interactive)
         }
         Commands::Close { target, yes, interactive } => {
-            handle_task_close(target, yes, interactive)
+            handle_task_close_optional(target, yes, interactive)
         }
         Commands::Delete { target, yes, interactive } => {
             handle_task_delete(target, yes, interactive)
@@ -661,13 +641,13 @@ fn handle_projects(cmd: ProjectCommands) -> Result<()> {
     }
 }
 
-fn handle_task_add(mut args: Vec<String>, mut clock_in: bool, mut enqueue: bool, auto_create_project: bool) -> Result<()> {
-    // Extract --clock-in and --enqueue flags from args if they appear after the description
+fn handle_task_add(mut args: Vec<String>, mut start_timing: bool, mut enqueue: bool, auto_yes: bool) -> Result<()> {
+    // Extract --on and --enqueue flags from args if they appear after the description
     // (CLAP limitation: with trailing_var_arg, flags after args are treated as part of args)
     let mut filtered_args = Vec::new();
     for arg in args.iter() {
-        if arg == "--clock-in" {
-            clock_in = true;
+        if arg == "--on" || arg == "--clock-in" {
+            start_timing = true;
             // Don't include it in the args passed to parse_task_args
         } else if arg == "--enqueue" {
             enqueue = true;
@@ -707,8 +687,8 @@ fn handle_task_add(mut args: Vec<String>, mut clock_in: bool, mut enqueue: bool,
             Some(p.id.unwrap())
         } else {
             // Project doesn't exist - prompt user or auto-create
-            if auto_create_project {
-                // Auto-create project
+            if auto_yes {
+                // Auto-create project (-y flag)
                 if let Err(e) = validate_project_name(&project_name) {
                     user_error(&e);
                 }
@@ -830,13 +810,13 @@ fn handle_task_add(mut args: Vec<String>, mut clock_in: bool, mut enqueue: bool,
     let task_id = task.id.unwrap();
     println!("Created task {}: {}", task_id, description);
     
-    // If --clock-in flag is set, clock in the newly created task (takes precedence over --enqueue)
-    if clock_in {
-        // handle_task_clock_in will push to stack and clock in atomically
-        handle_task_clock_in(task_id.to_string(), Vec::new())
-            .context("Failed to clock in task")?;
+    // If --on flag is set, start timing the newly created task (takes precedence over --enqueue)
+    if start_timing {
+        // handle_task_on will push to stack and start timing atomically
+        handle_task_on(task_id.to_string(), Vec::new())
+            .context("Failed to start timing task")?;
     } else if enqueue {
-        // Enqueue to clock stack (adds to end, does not start timing)
+        // Enqueue to queue (adds to end, does not start timing)
         let stack = StackRepo::get_or_create_default(&conn)?;
         StackRepo::enqueue(&conn, stack.id.unwrap(), task_id)
             .context("Failed to enqueue task")?;
@@ -990,6 +970,25 @@ fn handle_task_list(filter_args: Vec<String>, json: bool, relative: bool) -> Res
         };
         let table = format_task_list_table(&conn, &tasks, &options)?;
         print!("{}", table);
+    }
+    
+    Ok(())
+}
+
+/// Handle task modify with optional --on flag
+fn handle_task_modify_with_on(id_or_filter: String, args: Vec<String>, yes: bool, interactive: bool, start_timing: bool) -> Result<()> {
+    // First, do the modification
+    handle_task_modify(id_or_filter.clone(), args, yes, interactive)?;
+    
+    // If --on flag is set, start timing the task
+    if start_timing {
+        // Only works for single task modification
+        if let Ok(task_id) = validate_task_id(&id_or_filter) {
+            handle_task_on(task_id.to_string(), Vec::new())
+                .context("Failed to start timing task")?;
+        } else {
+            eprintln!("Warning: --on flag only works with single task ID, not filters");
+        }
     }
     
     Ok(())
@@ -1253,185 +1252,6 @@ fn modify_single_task(conn: &Connection, task_id: i64, args: &[String], auto_cre
 }
 
 
-/// Handle stack pick with clock state management
-fn handle_stack_pick_with_clock(conn: &Connection, index: i32, clock_in: bool, clock_out: bool) -> Result<()> {
-    let stack = StackRepo::get_or_create_default(conn)?;
-    let stack_id = stack.id.unwrap();
-    
-    // Get current stack state
-    let items_before = StackRepo::get_items(conn, stack_id)?;
-    let old_top_task = items_before.get(0).map(|item| item.task_id);
-    
-    // Perform the pick operation
-    StackRepo::pick(conn, stack_id, index)
-        .context("Failed to pick task")?;
-    
-    // Get new stack state
-    let items_after = StackRepo::get_items(conn, stack_id)?;
-    let new_top_task = items_after.get(0).map(|item| item.task_id);
-    
-    // Handle clock state
-    handle_stack_clock_state(conn, old_top_task, new_top_task, clock_in, clock_out)?;
-    
-    println!("Moved task at position {} to top", index);
-    Ok(())
-}
-
-/// Handle stack roll with clock state management
-/// This is an atomic operation: stack roll + clock state change must succeed or fail together
-fn handle_stack_roll_with_clock(conn: &Connection, n: i32, clock_in: bool, clock_out: bool) -> Result<()> {
-    // Get current stack state before transaction
-    let stack = StackRepo::get_or_create_default(conn)?;
-    let stack_id = stack.id.unwrap();
-    let items_before = StackRepo::get_items(conn, stack_id)?;
-    let old_top_task = items_before.get(0).map(|item| item.task_id);
-    
-    // Wrap entire operation in a transaction
-    // Note: StackRepo::roll uses its own transaction internally, but we wrap the whole
-    // operation (roll + clock state) to ensure atomicity
-    let tx = conn.unchecked_transaction()?;
-    
-    // Perform the roll operation (it will use its own transaction internally, but that's OK)
-    // We're wrapping the entire operation including clock state changes
-    StackRepo::roll(&tx, stack_id, n)
-        .context("Failed to roll stack")?;
-    
-    // Get new stack state
-    let items_after = StackRepo::get_items(&tx, stack_id)?;
-    let new_top_task = items_after.get(0).map(|item| item.task_id);
-    
-    // Handle clock state (within transaction)
-    handle_stack_clock_state_transactional(&tx, old_top_task, new_top_task, clock_in, clock_out)?;
-    
-    // Commit transaction - all changes applied atomically
-    tx.commit()?;
-    
-    println!("Rotated stack by {} position(s)", n);
-    Ok(())
-}
-
-/// Handle stack drop with clock state management
-/// This is an atomic operation: stack drop + clock state change must succeed or fail together
-fn handle_stack_drop_with_clock(conn: &Connection, index: i32, clock_in: bool, clock_out: bool) -> Result<()> {
-    // Wrap entire operation in a transaction for atomicity
-    let tx = conn.unchecked_transaction()?;
-    
-    let stack = StackRepo::get_or_create_default(&tx)?;
-    let stack_id = stack.id.unwrap();
-    
-    // Get current stack state
-    let items_before = StackRepo::get_items(&tx, stack_id)?;
-    let old_top_task = items_before.get(0).map(|item| item.task_id);
-    
-    // Perform the drop operation
-    StackRepo::drop(&tx, stack_id, index)
-        .context("Failed to drop task")?;
-    
-    // Get new stack state
-    let items_after = StackRepo::get_items(&tx, stack_id)?;
-    let new_top_task = items_after.get(0).map(|item| item.task_id);
-    
-    // Handle clock state (within same transaction)
-    handle_stack_clock_state_transactional(&tx, old_top_task, new_top_task, clock_in, clock_out)?;
-    
-    // Commit transaction - all changes applied atomically
-    tx.commit()?;
-    
-    println!("Removed task at position {}", index);
-    Ok(())
-}
-
-/// Handle stack clear with clock state management
-fn handle_stack_clear_with_clock(conn: &Connection, clock_out: bool) -> Result<()> {
-    let stack = StackRepo::get_or_create_default(conn)?;
-    let stack_id = stack.id.unwrap();
-    
-    // Get current stack state
-    let items_before = StackRepo::get_items(conn, stack_id)?;
-    let old_top_task = items_before.get(0).map(|item| item.task_id);
-    
-    // Perform the clear operation
-    StackRepo::clear(conn, stack_id)
-        .context("Failed to clear stack")?;
-    
-    // Handle clock state (new top is None since stack is empty)
-    handle_stack_clock_state(conn, old_top_task, None, false, clock_out)?;
-    
-    println!("Cleared stack");
-    Ok(())
-}
-
-/// Handle clock state changes for stack operations (non-transactional version)
-/// Default behavior: if clock is running and stack\[0\] changes, close current session and start new one
-/// Flags: --clock_in ensures clock is running, --clock_out ensures clock is stopped
-fn handle_stack_clock_state(
-    conn: &Connection,
-    old_top_task: Option<i64>,
-    new_top_task: Option<i64>,
-    clock_in: bool,
-    clock_out: bool,
-) -> Result<()> {
-    handle_stack_clock_state_transactional(conn, old_top_task, new_top_task, clock_in, clock_out)
-}
-
-/// Handle clock state changes for stack operations (transactional version)
-/// This can be called from within a transaction.
-/// Default behavior: if clock is running and stack\[0\] changes, close current session and start new one
-fn handle_stack_clock_state_transactional(
-    conn: &Connection,
-    old_top_task: Option<i64>,
-    new_top_task: Option<i64>,
-    clock_in: bool,
-    clock_out: bool,
-) -> Result<()> {
-    let now = chrono::Utc::now().timestamp();
-    let open_session = SessionRepo::get_open(conn)?;
-    
-    // Handle --clock_out flag first (takes precedence)
-    if clock_out {
-        if let Some(_) = open_session {
-            SessionRepo::close_open(conn, now)
-                .context("Failed to close session")?;
-        }
-        return Ok(());
-    }
-    
-    // Handle --clock_in flag
-    if clock_in {
-        if let Some(task_id) = new_top_task {
-            // Close existing session if any
-            if let Some(_) = open_session {
-                SessionRepo::close_open(conn, now)
-                    .context("Failed to close existing session")?;
-            }
-            // Start new session for stack[0]
-            SessionRepo::create(conn, task_id, now)
-                .context("Failed to start session")?;
-        }
-        return Ok(());
-    }
-    
-    // Default behavior: if clock is running and stack[0] changed, switch sessions
-    if open_session.is_some() {
-        if old_top_task != new_top_task {
-            // Close current session
-            SessionRepo::close_open(conn, now)
-                .context("Failed to close session")?;
-            
-            // Start new session for new stack[0] if stack is not empty
-            if let Some(task_id) = new_top_task {
-                SessionRepo::create(conn, task_id, now)
-                    .context("Failed to start new session")?;
-            }
-        }
-    }
-    // If clock is not running, do nothing (stack operations don't create sessions)
-    
-    Ok(())
-}
-
-
-
 fn handle_task_enqueue(task_id_str: String) -> Result<()> {
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
@@ -1476,95 +1296,115 @@ fn handle_task_enqueue(task_id_str: String) -> Result<()> {
     Ok(())
 }
 
-fn handle_clock(cmd: ClockCommands) -> Result<()> {
+/// Handle `tatl on [<task_id>] [<time>]` - Start timing
+fn handle_on(task_id_opt: Option<String>, mut time_args: Vec<String>) -> Result<()> {
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
     
-    match cmd {
-        ClockCommands::List { json } => {
-            let stack = StackRepo::get_or_create_default(&conn)?;
-            let stack_id = stack.id.unwrap();
-            let items = StackRepo::get_items(&conn, stack_id)?;
-            
-            if json {
-                // JSON output
-                let json_items: Vec<serde_json::Value> = items.iter().enumerate().map(|(idx, item)| {
-                    let task = TaskRepo::get_by_id(&conn, item.task_id).ok().flatten();
-                    let description = task.as_ref().map(|t| t.description.as_str());
-                    
-                    serde_json::json!({
-                        "index": idx,
-                        "task_id": item.task_id,
-                        "task_description": description,
-                        "ordinal": item.ordinal,
-                    })
-                }).collect();
-                println!("{}", serde_json::to_string_pretty(&json_items)?);
-            } else {
-                // Human-readable table display with full task details
-                // Fetch full task details for each item
-                let mut clock_tasks: Vec<(usize, Task, Vec<String>)> = Vec::new();
-                for (idx, item) in items.iter().enumerate() {
-                    if let Some(task) = TaskRepo::get_by_id(&conn, item.task_id)? {
-                        let tags = TaskRepo::get_tags(&conn, item.task_id)?;
-                        clock_tasks.push((idx, task, tags));
-                    }
-                }
-                
-                if clock_tasks.is_empty() {
-                    println!("Clock stack is empty.");
-                } else {
-                    let table = format_clock_list_table(&conn, &clock_tasks)?;
-                    print!("{}", table);
-                }
-            }
-            Ok(())
+    if let Some(task_id_str) = task_id_opt {
+        // Check if it's a valid task ID (numeric) or if it's actually a time expression
+        if let Ok(_task_id) = task_id_str.parse::<i64>() {
+            // Valid task ID - use it
+            handle_task_on(task_id_str, time_args)
+        } else {
+            // Not a valid task ID - treat as time expression, use queue[0]
+            time_args.insert(0, task_id_str);
+            handle_on_queue_top(&conn, time_args)
         }
-        ClockCommands::Pick { index } => {
-            handle_stack_pick_with_clock(&conn, index, false, false)
-        }
-        ClockCommands::Next { n } => {
-            handle_stack_roll_with_clock(&conn, n, false, false)
-        }
-        ClockCommands::Drop { index } => {
-            handle_stack_drop_with_clock(&conn, index, false, false)
-        }
-        ClockCommands::Clear => {
-            handle_stack_clear_with_clock(&conn, false)
-        }
-        ClockCommands::In { task_id: task_id_opt, mut args } => {
-            if let Some(task_id_str) = task_id_opt {
-                // Check if it's a valid task ID (numeric) or if it's actually a time expression
-                if let Ok(_task_id) = task_id_str.parse::<i64>() {
-                    // Valid task ID - use it
-                    handle_task_clock_in(task_id_str, args)
-                } else {
-                    // Not a valid task ID - treat as time expression, use clock[0]
-                    args.insert(0, task_id_str);
-                    handle_clock_in(&conn, args)
-                }
-            } else {
-                // Use clock[0]
-                handle_clock_in(&conn, args)
-            }
-        }
-        ClockCommands::Out { args } => {
-            handle_clock_out(&conn, args)
-        }
+    } else {
+        // Use queue[0]
+        handle_on_queue_top(&conn, time_args)
     }
 }
 
-fn handle_clock_in(conn: &Connection, args: Vec<String>) -> Result<()> {
+/// Handle `tatl off [<time>]` - Stop timing
+fn handle_off(time_args: Vec<String>) -> Result<()> {
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+    
+    // Check if session is running
+    let session_opt = SessionRepo::get_open(&conn)?;
+    
+    if session_opt.is_none() {
+        user_error("No session is currently running.");
+    }
+    
+    // Parse end time (defaults to "now")
+    let end_ts = if time_args.is_empty() {
+        chrono::Utc::now().timestamp()
+    } else {
+        let end_expr = time_args.join(" ");
+        parse_date_expr(&end_expr)
+            .context("Invalid end time expression")?
+    };
+    
+    // Close session
+    let closed = SessionRepo::close_open(&conn, end_ts)
+        .context("Failed to close session")?;
+    
+    if let Some(session) = closed {
+        // Get task description for better message
+        let task = TaskRepo::get_by_id(&conn, session.task_id)?;
+        let desc = task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
+        println!("Stopped timing task {}: {}", session.task_id, desc);
+    }
+    
+    Ok(())
+}
+
+/// Handle `tatl dequeue [<task_id>]` - Remove from queue without finishing
+fn handle_dequeue(task_id_opt: Option<String>) -> Result<()> {
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+    
+    let stack = StackRepo::get_or_create_default(&conn)?;
+    let stack_id = stack.id.unwrap();
+    let items = StackRepo::get_items(&conn, stack_id)?;
+    
+    if items.is_empty() {
+        user_error("Queue is empty.");
+    }
+    
+    let task_id = if let Some(task_id_str) = task_id_opt {
+        // Specific task ID provided
+        match validate_task_id(&task_id_str) {
+            Ok(id) => id,
+            Err(e) => user_error(&e),
+        }
+    } else {
+        // Default to queue[0]
+        items[0].task_id
+    };
+    
+    // Check if task is in the queue
+    if !items.iter().any(|item| item.task_id == task_id) {
+        user_error(&format!("Task {} is not in the queue", task_id));
+    }
+    
+    // Remove from queue
+    StackRepo::remove_task(&conn, stack_id, task_id)
+        .context("Failed to remove task from queue")?;
+    
+    // Get task description for better message
+    let task = TaskRepo::get_by_id(&conn, task_id)?;
+    let desc = task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
+    println!("Removed task {} from queue: {}", task_id, desc);
+    
+    Ok(())
+}
+
+/// Start timing queue[0]
+fn handle_on_queue_top(conn: &Connection, args: Vec<String>) -> Result<()> {
     // Get stack and check if it's empty
     let stack = StackRepo::get_or_create_default(conn)?;
     let stack_id = stack.id.unwrap();
     let items = StackRepo::get_items(conn, stack_id)?;
     
     if items.is_empty() {
-        user_error("Stack is empty. Add a task to the stack first.");
+        user_error("Queue is empty. Add a task to the queue first.");
     }
     
-    // Get stack[0] task
+    // Get queue[0] task
     let task_id = items[0].task_id;
     
     // Parse arguments - check for interval syntax (start..end)
@@ -1597,7 +1437,7 @@ fn handle_clock_in(conn: &Connection, args: Vec<String>) -> Result<()> {
         // Single start time or "now" (creates open session)
         // Check if session is already running (only for open sessions)
         if let Some(_) = SessionRepo::get_open(conn)? {
-            user_error("A session is already running. Please clock out first.");
+            user_error("A session is already running. Please use 'tatl off' first.");
         }
         
         let start_ts = if args.is_empty() {
@@ -1623,38 +1463,8 @@ fn handle_clock_in(conn: &Connection, args: Vec<String>) -> Result<()> {
     Ok(())
 }
 
-fn handle_clock_out(conn: &Connection, args: Vec<String>) -> Result<()> {
-    // Check if session is running
-    let session_opt = SessionRepo::get_open(conn)?;
-    
-    if session_opt.is_none() {
-        user_error("No session is currently running.");
-    }
-    
-    // Parse end time (defaults to "now")
-    let end_ts = if args.is_empty() {
-        chrono::Utc::now().timestamp()
-    } else {
-        let end_expr = args.join(" ");
-        parse_date_expr(&end_expr)
-            .context("Invalid end time expression")?
-    };
-    
-    // Close session
-    let closed = SessionRepo::close_open(conn, end_ts)
-        .context("Failed to close session")?;
-    
-    if let Some(session) = closed {
-        // Get task description for better message
-        let task = TaskRepo::get_by_id(conn, session.task_id)?;
-        let desc = task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
-        println!("Stopped timing task {}: {}", session.task_id, desc);
-    }
-    
-    Ok(())
-}
-
-fn handle_task_clock_in(task_id_str: String, args: Vec<String>) -> Result<()> {
+/// Start timing a specific task (pushes to queue[0] and starts timing)
+fn handle_task_on(task_id_str: String, args: Vec<String>) -> Result<()> {
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
     
@@ -2319,6 +2129,27 @@ fn handle_finish_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64, n
     }
     
     Ok(())
+}
+
+/// Handle task close with optional target (defaults to queue[0])
+fn handle_task_close_optional(target: Option<String>, yes: bool, interactive: bool) -> Result<()> {
+    let id_or_filter = if let Some(t) = target {
+        t
+    } else {
+        // Default to queue[0]
+        let conn = DbConnection::connect()
+            .context("Failed to connect to database")?;
+        let stack = StackRepo::get_or_create_default(&conn)?;
+        let items = StackRepo::get_items(&conn, stack.id.unwrap())?;
+        
+        if items.is_empty() {
+            user_error("No target specified and queue is empty.");
+        }
+        
+        items[0].task_id.to_string()
+    };
+    
+    handle_task_close(id_or_filter, yes, interactive)
 }
 
 fn handle_task_close(id_or_filter: String, yes: bool, interactive: bool) -> Result<()> {
