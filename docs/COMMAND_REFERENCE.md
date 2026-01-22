@@ -504,6 +504,7 @@ List session history.
 - If filter omitted: lists all sessions
 - Filters sessions by task attributes (project, tags, etc.)
 - Supports same filter syntax as `tatl list`
+- Special `start:<date>` filter: filters sessions by start date (e.g., `start:today`, `start:-7d`, `start:2026-01-19`)
 
 **Options:**
 - `<filter>...` - Filter arguments (e.g., "project:work +urgent")
@@ -527,6 +528,16 @@ tatl sessions list +urgent
 
 # Multiple filter arguments
 tatl sessions list project:work +urgent
+
+# Filter by date (sessions from specific date or relative date)
+tatl sessions list start:today
+tatl sessions list start:yesterday
+tatl sessions list start:-7d          # Last 7 days
+tatl sessions list start:2026-01-19  # Specific date
+
+# Combine task filters with date filters
+tatl sessions list project:work start:-7d
+tatl sessions list +urgent start:today
 
 # Sort/group
 tatl sessions list sort:start group:task

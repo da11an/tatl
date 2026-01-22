@@ -241,7 +241,10 @@ tatl projects archive old-project
 
 ```bash
 tatl sessions list                  # All sessions
-tatl sessions list project:work     # With filter
+tatl sessions list project:work     # With task filter
+tatl sessions list start:today      # Sessions from today
+tatl sessions list start:-7d         # Sessions from last 7 days
+tatl sessions list project:work start:-7d  # Combine filters
 tatl sessions modify 5 start:09:00  # Adjust times
 tatl sessions delete 5 -y           # Delete session
 ```

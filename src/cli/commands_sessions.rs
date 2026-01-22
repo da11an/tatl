@@ -7,7 +7,7 @@ use crate::cli::error::{user_error, validate_task_id};
 use crate::filter::{parse_filter, filter_tasks};
 use crate::utils::parse_date_expr;
 use anyhow::{Context, Result};
-use chrono::{Local, TimeZone};
+use chrono::{Local, TimeZone, Timelike, Datelike, Duration};
 use rusqlite::Connection;
 use serde_json;
 use std::io::{self, Write};
@@ -532,7 +532,27 @@ pub fn handle_task_sessions_list_with_filter(filter_args: Vec<String>, json: boo
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
     
-    let mut request = parse_list_request(filter_args);
+    // Separate session date filters from task filters
+    let mut task_filters = Vec::new();
+    let mut session_start_filter: Option<i64> = None;
+    
+    for arg in &filter_args {
+        if let Some(date_expr) = arg.strip_prefix("start:") {
+            // Parse date expression for session start filtering
+            match crate::utils::parse_date_expr(date_expr) {
+                Ok(filter_ts) => {
+                    session_start_filter = Some(filter_ts);
+                }
+                Err(e) => {
+                    user_error(&format!("Invalid start date expression '{}': {}", date_expr, e));
+                }
+            }
+        } else {
+            task_filters.push(arg.clone());
+        }
+    }
+    
+    let mut request = parse_list_request(task_filters);
     if request.sort_columns.is_empty()
         && request.group_columns.is_empty()
         && request.filter_tokens.len() == 1
@@ -634,6 +654,39 @@ pub fn handle_task_sessions_list_with_filter(filter_args: Vec<String>, json: boo
         // Sort by start time (newest first)
         all_sessions.sort_by(|a, b| b.start_ts.cmp(&a.start_ts));
         all_sessions
+    };
+    
+    // Apply session date filtering if specified
+    let sessions: Vec<_> = if let Some(filter_start_ts) = session_start_filter {
+        let now = Local::now().timestamp();
+        
+        // Check if filter represents start of a day (00:00:00)
+        let filter_dt = Local.timestamp_opt(filter_start_ts, 0)
+            .single()
+            .unwrap_or_else(|| Local::now());
+        let is_start_of_day = filter_dt.time().hour() == 0 && filter_dt.time().minute() == 0 && filter_dt.time().second() == 0;
+        
+        if is_start_of_day && filter_start_ts <= now {
+            // For date-only expressions (today, yesterday, 2026-01-19), match the entire day
+            let filter_date = filter_dt.date_naive();
+            let next_day_start = (filter_date + Duration::days(1)).and_hms_opt(0, 0, 0)
+                .and_then(|ndt| Local.from_local_datetime(&ndt).single())
+                .map(|dt| dt.timestamp())
+                .unwrap_or(now + 86400);
+            
+            sessions.into_iter()
+                .filter(|session| {
+                    session.start_ts >= filter_start_ts && session.start_ts < next_day_start
+                })
+                .collect()
+        } else {
+            // For relative dates (e.g., -7d) or timestamps, match sessions >= filter_start_ts
+            sessions.into_iter()
+                .filter(|session| session.start_ts >= filter_start_ts)
+                .collect()
+        }
+    } else {
+        sessions
     };
     
     if json {
