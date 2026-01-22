@@ -590,7 +590,7 @@ fn handle_projects(cmd: ProjectCommands) -> Result<()> {
                     println!("No projects found.");
                 } else {
                     println!("{:<6} {:<40} {:<10}", "ID", "Name", "Status");
-                    println!("{}", "-".repeat(56));
+                    println!("{} {} {}", "─".repeat(6), "─".repeat(40), "─".repeat(10));
                     for project in projects {
                         let status = if project.is_archived { "[archived]" } else { "[active]" };
                         println!("{:<6} {:<40} {:<10}", 

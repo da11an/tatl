@@ -87,7 +87,7 @@ pub fn handle_task_sessions_list(task_id_opt: Option<String>, json: bool) -> Res
         }
         
         println!("{:<10} {:<6} {:<38} {:<20} {:<20} {:<12}", "Session ID", "Task", "Description", "Start", "End", "Duration");
-        println!("{}", "-".repeat(106));
+        println!("{} {} {} {} {} {}", "─".repeat(10), "─".repeat(6), "─".repeat(38), "─".repeat(20), "─".repeat(20), "─".repeat(12));
         
         for session in &sessions {
             let task = TaskRepo::get_by_id(&conn, session.task_id)?
@@ -447,10 +447,17 @@ fn format_sessions_list_table(
         }
     }
     
-    let total_width: usize = columns.iter()
-        .map(|col| column_widths.get(col).copied().unwrap_or(6))
-        .sum::<usize>() + (columns.len().saturating_sub(1));
-    output.push_str(&format!("{}\n", "-".repeat(total_width)));
+    // Separator line with per-column underlines (gaps between columns)
+    for (idx, column) in columns.iter().enumerate() {
+        let width = *column_widths.get(column).unwrap_or(&6);
+        // Use Unicode box-drawing character for solid underline
+        let underline = "─".repeat(width);
+        if idx == columns.len() - 1 {
+            output.push_str(&format!("{}\n", underline));
+        } else {
+            output.push_str(&format!("{} ", underline));
+        }
+    }
     
     if group_columns.is_empty() {
         for row in &rows {
@@ -496,10 +503,8 @@ fn format_sessions_list_table(
                 .collect::<Vec<_>>()
                 .join(":");
             
-            // Embed group label at the start of the divider line in square brackets
-            let bracket_label = format!("[{}]", group_label);
-            let dash_count = total_width.saturating_sub(bracket_label.len());
-            output.push_str(&format!("{}{}\n", bracket_label, "-".repeat(dash_count)));
+            // Group header in square brackets (no divider line for grouped output)
+            output.push_str(&format!("[{}]\n", group_label));
             
             for row in group_rows {
                 for (idx, column) in columns.iter().enumerate() {
@@ -1374,15 +1379,10 @@ pub fn handle_sessions_report(start: Option<String>, end: Option<String>) -> Res
     let period_days = ((period_end - period_start) / 86400).max(1) + 1;
     
     // Print report
-    let width = 50;
     let project_width = 25;
     
-    println!();
-    println!("Time Report: {} to {}", start_date, end_date);
-    println!("{}", "=".repeat(width));
-    println!();
     println!("{:<width$} {:>12} {:>8}", "Project", "Time", "%", width = project_width);
-    println!("{}", "-".repeat(width));
+    println!("{} {} {}", "─".repeat(project_width), "─".repeat(12), "─".repeat(8));
     
     // Print project hierarchy
     for node in roots.values() {
@@ -1396,13 +1396,13 @@ pub fn handle_sessions_report(start: Option<String>, end: Option<String>) -> Res
         println!("{:<width$} {:>12} {:>8}", "(no project)", time_str, pct_str, width = project_width);
     }
     
-    println!("{}", "-".repeat(width));
+    println!("{} {} {}", "─".repeat(project_width), "─".repeat(12), "─".repeat(8));
     
     // Print grand total
     let total_time_str = format_duration_hm(grand_total);
     println!("{:<width$} {:>12} {:>8}", "TOTAL", total_time_str, "100.0%", width = project_width);
     println!();
-    println!("Sessions: {} | Period: {} days", sessions.len(), period_days);
+    println!("Sessions: {} | Period: {} days | {}..{}", sessions.len(), period_days, start_date, end_date);
     println!();
     
     Ok(())
