@@ -179,18 +179,18 @@ fn parse_sort_spec(spec: &str) -> SortSpec {
 }
 
 /// Ordinal value for kanban status (workflow progression)
-/// Order: proposed → stalled → queued → external → done
+/// Order: proposed → stalled → external → queued → done
 fn kanban_sort_order(kanban: &str) -> i64 {
     match kanban.to_lowercase().as_str() {
         "proposed" => 0,
         "stalled" => 1,
-        "queued" => 2,
-        "external" => 3,
+        "external" => 2,  // Moved before queued
+        "queued" => 3,
         "done" => 4,
         // Legacy support (for migration period)
         "paused" => 1,  // Maps to stalled
-        "next" => 2,   // Maps to queued
-        "live" => 2,   // Maps to queued
+        "next" => 3,   // Maps to queued
+        "live" => 3,   // Maps to queued
         "quit" => 4,   // Maps to done
         _ => 99,
     }

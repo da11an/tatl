@@ -99,7 +99,7 @@ enum FilterToken {
 pub enum FilterTerm {
     Id(i64),
     Status(Vec<String>), // Status filter (pending, completed, closed) - supports comma-separated values
-    Project(String),
+    Project(Vec<String>), // Project filter - supports comma-separated values (OR logic)
     Tag(String, bool), // (tag, is_positive)
     Due(String),
     Scheduled(String),
@@ -135,7 +135,13 @@ fn parse_filter_term(token: &str) -> Result<Option<FilterTerm>, String> {
                     .collect();
                 Ok(Some(FilterTerm::Status(values)))
             },
-            "project" => Ok(Some(FilterTerm::Project(value.to_string()))),
+            "project" => {
+                // Support comma-separated values: project:pro1,pro2
+                let values: Vec<String> = value.split(',')
+                    .map(|v| v.trim().to_string())
+                    .collect();
+                Ok(Some(FilterTerm::Project(values)))
+            },
             "due" => Ok(Some(FilterTerm::Due(value.to_string()))),
             "scheduled" => Ok(Some(FilterTerm::Scheduled(value.to_string()))),
             "wait" => Ok(Some(FilterTerm::Wait(value.to_string()))),
@@ -361,8 +367,8 @@ mod tests {
     fn test_filter_token_abbreviation() {
         let expr = parse_filter(vec!["st:pending".to_string()]).unwrap();
         match expr {
-            FilterExpr::Term(FilterTerm::Status(status)) => {
-                assert_eq!(status, "pending");
+            FilterExpr::Term(FilterTerm::Status(statuses)) => {
+                assert_eq!(statuses, vec!["pending".to_string()]);
             }
             _ => panic!("Expected Status term"),
         }

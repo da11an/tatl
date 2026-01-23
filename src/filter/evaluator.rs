@@ -75,7 +75,8 @@ impl FilterTerm {
                 let task_status = task.status.as_str();
                 Ok(statuses.iter().any(|s| task_status == s.as_str()))
             }
-            FilterTerm::Project(project_name) => {
+            FilterTerm::Project(project_names) => {
+                // Multi-value project filter: project:pro1,pro2 matches if task's project matches ANY of the values (OR logic)
                 // Nested project prefix matching:
                 // - project:admin matches admin, admin.email, admin.other, etc.
                 // - project:admin.email matches only admin.email and nested projects like admin.email.inbox
@@ -84,16 +85,18 @@ impl FilterTerm {
                     let mut stmt = conn.prepare("SELECT name FROM projects WHERE id = ?1")?;
                     let project_name_opt: Option<String> = stmt.query_row([project_id], |row| row.get(0)).ok();
                     if let Some(pname) = project_name_opt {
-                        // Exact match
-                        if pname == *project_name {
-                            Ok(true)
+                        // Check if task's project matches ANY of the provided project names
+                        for project_name in project_names {
+                            // Exact match
+                            if pname == *project_name {
+                                return Ok(true);
+                            }
+                            // Prefix match: pname starts with "project_name."
+                            if pname.starts_with(&format!("{}.", project_name)) {
+                                return Ok(true);
+                            }
                         }
-                        // Prefix match: pname starts with "project_name."
-                        else if pname.starts_with(&format!("{}.", project_name)) {
-                            Ok(true)
-                        } else {
-                            Ok(false)
-                        }
+                        Ok(false)
                     } else {
                         Ok(false)
                     }
