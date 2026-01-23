@@ -419,14 +419,32 @@ fn migration_v5(tx: &rusqlite::Transaction) -> Result<(), rusqlite::Error> {
         [],
     )?;
     
-    tx.execute(
+    // Migrate data from old tasks table to new one
+    // Use COALESCE to handle case where 'recur' column might not exist (databases from before v2)
+    // If recur doesn't exist, SQLite will return an error, so we need to try-catch or check first
+    // For simplicity, we'll try the migration with recur first, and if it fails, try without
+    let migrate_result = tx.execute(
         "INSERT INTO tasks_new (id, uuid, description, status, project_id, due_ts, scheduled_ts, 
                 wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts)
          SELECT id, uuid, description, status, project_id, due_ts, scheduled_ts,
                 wait_ts, alloc_secs, template, recur, udas_json, created_ts, modified_ts
          FROM tasks",
         [],
-    )?;
+    );
+    
+    // If that failed (likely because 'recur' column doesn't exist), try without it
+    if migrate_result.is_err() {
+        tx.execute(
+            "INSERT INTO tasks_new (id, uuid, description, status, project_id, due_ts, scheduled_ts, 
+                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts)
+             SELECT id, uuid, description, status, project_id, due_ts, scheduled_ts,
+                    wait_ts, alloc_secs, template, NULL, udas_json, created_ts, modified_ts
+             FROM tasks",
+            [],
+        )?;
+    } else {
+        migrate_result?;
+    }
     
     tx.execute("DROP TABLE tasks", [])?;
     tx.execute("ALTER TABLE tasks_new RENAME TO tasks", [])?;

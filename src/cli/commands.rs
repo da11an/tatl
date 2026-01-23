@@ -1646,7 +1646,7 @@ fn modify_single_task(conn: &Connection, task_id: i64, args: &[String], auto_cre
         &parsed.tags_add,
         &parsed.tags_remove,
     )
-    .context("Failed to modify task")?;
+    .with_context(|| format!("Failed to modify task {}", task_id))?;
     
     println!("Modified task {}", task_id);
     
