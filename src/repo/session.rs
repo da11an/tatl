@@ -140,9 +140,19 @@ impl SessionRepo {
     }
 
     /// Create a closed session (with both start and end times)
+    ///
+    /// # Errors
+    /// Returns an error if end_ts <= start_ts (session must have positive duration)
     pub fn create_closed(conn: &Connection, task_id: i64, start_ts: i64, end_ts: i64) -> Result<Session> {
+        if end_ts <= start_ts {
+            return Err(anyhow::anyhow!(
+                "Session end time ({}) must be after start time ({})",
+                end_ts, start_ts
+            ));
+        }
+
         let now = chrono::Utc::now().timestamp();
-        
+
         conn.execute(
             "INSERT INTO sessions (task_id, start_ts, end_ts, created_ts) VALUES (?1, ?2, ?3, ?4)",
             rusqlite::params![task_id, start_ts, end_ts, now],
@@ -179,14 +189,25 @@ impl SessionRepo {
 
     /// Close the currently open session
     /// Returns the closed session and whether it was a micro-session
+    ///
+    /// # Errors
+    /// Returns an error if end_ts <= start_ts (session must have positive duration)
     pub fn close_open(conn: &Connection, end_ts: i64) -> Result<Option<Session>> {
         // Get the open session first
         let session_opt = Self::get_open(conn)?;
-        
+
         if let Some(session) = session_opt {
             let session_id = session.id.unwrap();
             let duration = end_ts - session.start_ts;
-            
+
+            // Validate end time is after start time
+            if duration <= 0 {
+                return Err(anyhow::anyhow!(
+                    "Session end time must be after start time (start: {}, end: {})",
+                    session.start_ts, end_ts
+                ));
+            }
+
             // Update the session
             conn.execute(
                 "UPDATE sessions SET end_ts = ?1 WHERE id = ?2",
@@ -431,7 +452,20 @@ impl SessionRepo {
     /// * `session_id` - ID of session to update
     /// * `start_ts` - New start timestamp
     /// * `end_ts` - New end timestamp (None for open session)
+    ///
+    /// # Errors
+    /// Returns an error if end_ts is Some and end_ts <= start_ts
     pub fn update_times(conn: &Connection, session_id: i64, start_ts: i64, end_ts: Option<i64>) -> Result<()> {
+        // Validate end time is after start time (for closed sessions)
+        if let Some(end) = end_ts {
+            if end <= start_ts {
+                return Err(anyhow::anyhow!(
+                    "Session end time ({}) must be after start time ({})",
+                    end, start_ts
+                ));
+            }
+        }
+
         conn.execute(
             "UPDATE sessions SET start_ts = ?1, end_ts = ?2 WHERE id = ?3",
             rusqlite::params![start_ts, end_ts, session_id],

@@ -36,7 +36,7 @@ pub fn find_unique_command<'a>(prefix: &str, commands: &'a [&str]) -> Result<&'a
 /// Top-level commands in Tatl
 pub const TOP_LEVEL_COMMANDS: &[&str] = &[
     "projects", "add", "list", "modify", "on", "off", "offon", "onoff", "dequeue",
-    "annotate", "finish", "close", "reopen", "delete", "enqueue", "queue", "sessions", "show"
+    "annotate", "finish", "close", "reopen", "delete", "enqueue", "sessions", "show"
 ];
 
 /// Project subcommands

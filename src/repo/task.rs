@@ -470,26 +470,41 @@ impl TaskRepo {
     }
 
     /// Update task status
+    /// Also clears wait_ts when status changes to Completed or Closed
     pub fn set_status(conn: &Connection, task_id: i64, new_status: crate::models::TaskStatus) -> Result<()> {
         let old_task = Self::get_by_id(conn, task_id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", task_id))?;
         let old_status = old_task.status.as_str();
         let new_status_str = new_status.as_str();
-        
+
         let now = chrono::Utc::now().timestamp();
-        let rows_affected = conn.execute(
-            "UPDATE tasks SET status = ?1, modified_ts = ?2 WHERE id = ?3",
-            rusqlite::params![new_status_str, now, task_id],
-        )?;
-        
+
+        // Clear wait_ts when completing or closing a task
+        let should_clear_wait = matches!(
+            new_status,
+            crate::models::TaskStatus::Completed | crate::models::TaskStatus::Closed
+        );
+
+        let rows_affected = if should_clear_wait {
+            conn.execute(
+                "UPDATE tasks SET status = ?1, modified_ts = ?2, wait_ts = NULL WHERE id = ?3",
+                rusqlite::params![new_status_str, now, task_id],
+            )?
+        } else {
+            conn.execute(
+                "UPDATE tasks SET status = ?1, modified_ts = ?2 WHERE id = ?3",
+                rusqlite::params![new_status_str, now, task_id],
+            )?
+        };
+
         if rows_affected == 0 {
             anyhow::bail!("Task {} not found", task_id);
         }
-        
+
         if old_status != new_status_str {
             EventRepo::record_status_changed(conn, task_id, old_status, new_status_str)?;
         }
-        
+
         Ok(())
     }
     

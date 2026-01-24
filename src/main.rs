@@ -4,9 +4,8 @@ fn main() {
     if let Err(e) = run() {
         // Check if this is an internal error (database corruption, etc.)
         let error_str: String = e.to_string();
-        if error_str.contains("database") || error_str.contains("constraint") || 
-           error_str.contains("corruption") || error_str.contains("SQLite") ||
-           error_str.contains("Failed to") {
+        if error_str.contains("database") || error_str.contains("constraint") ||
+           error_str.contains("corruption") || error_str.contains("SQLite") {
             eprintln!("Internal error: {}", e);
             // Show error chain if available
             let mut source = e.source();

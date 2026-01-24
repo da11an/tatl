@@ -37,6 +37,9 @@ pub enum FieldParseError {
     UnknownFieldToken {
         token: String,
     },
+    InvalidTag {
+        message: String,
+    },
 }
 
 impl std::fmt::Display for FieldParseError {
@@ -54,6 +57,9 @@ impl std::fmt::Display for FieldParseError {
             }
             FieldParseError::UnknownFieldToken { token } => {
                 write!(f, "Unrecognized field token '{}'\n  If this is meant to be part of the description, remove the colon or quote the entire description.", token)
+            }
+            FieldParseError::InvalidTag { message } => {
+                write!(f, "{}", message)
             }
         }
     }
@@ -279,11 +285,26 @@ pub fn parse_task_args(args: Vec<String>) -> Result<ParsedTaskArgs, FieldParseEr
         // If not handled as field token, check for tags or treat as description
         if !handled {
             // Check for tag tokens (+tag or -tag)
-            if let Some(tag) = parse_tag_token(arg) {
-                if tag.starts_with('+') {
-                    parsed.tags_add.push(tag.strip_prefix('+').unwrap().to_string());
-                } else if tag.starts_with('-') {
-                    parsed.tags_remove.push(tag.strip_prefix('-').unwrap().to_string());
+            if arg.starts_with('+') || arg.starts_with('-') {
+                // This looks like a tag token
+                if let Some(tag) = parse_tag_token(arg) {
+                    if tag.starts_with('+') {
+                        parsed.tags_add.push(tag.strip_prefix('+').unwrap().to_string());
+                    } else if tag.starts_with('-') {
+                        parsed.tags_remove.push(tag.strip_prefix('-').unwrap().to_string());
+                    }
+                } else {
+                    // Tag syntax used but invalid
+                    let tag_part = &arg[1..];
+                    if tag_part.is_empty() {
+                        return Err(FieldParseError::InvalidTag {
+                            message: "Tag name cannot be empty. Use '+tagname' to add a tag.".to_string(),
+                        });
+                    } else {
+                        return Err(FieldParseError::InvalidTag {
+                            message: format!("Invalid tag '{}'. Tags can only contain letters, numbers, underscores, hyphens, and dots.", tag_part),
+                        });
+                    }
                 }
             } else {
                 // Regular description token
@@ -299,15 +320,20 @@ pub fn parse_task_args(args: Vec<String>) -> Result<ParsedTaskArgs, FieldParseEr
 }
 
 /// Parse a tag token (+tag or -tag)
+/// Returns None if:
+/// - Token doesn't start with + or -
+/// - Tag name is empty (just "+" or "-")
+/// - Tag name contains invalid characters
 fn parse_tag_token(token: &str) -> Option<String> {
     if token.starts_with('+') || token.starts_with('-') {
         // Validate tag charset: [A-Za-z0-9_\-\.]+
-        let tag_part = if token.starts_with('+') {
-            &token[1..]
-        } else {
-            &token[1..]
-        };
-        
+        let tag_part = &token[1..];
+
+        // Tag name cannot be empty
+        if tag_part.is_empty() {
+            return None;
+        }
+
         if tag_part.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.') {
             Some(token.to_string())
         } else {

@@ -930,7 +930,16 @@ pub fn format_task_summary(
         output.push_str("Stack:\n");
         output.push_str(&format!("  Position:    {} of {}\n\n", position + 1, total));
     }
-    
+
+    // Priority Score (only for pending tasks)
+    if task.status == TaskStatus::Pending {
+        if let Ok(priority) = calculate_priority(task, conn) {
+            output.push_str("Priority:\n");
+            output.push_str(&format!("  Score:       {:.1}\n", priority));
+            output.push_str("  (Auto-calculated based on due date, allocation remaining, and task age)\n\n");
+        }
+    }
+
     // Respawn details (if respawning)
     if task.respawn.is_some() {
         output.push_str("Respawn:\n");

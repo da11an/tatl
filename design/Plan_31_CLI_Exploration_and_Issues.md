@@ -32,6 +32,13 @@ TARGET SYNTAX:
 
 **Impact:** Users following documentation will hit errors. ID list syntax (`1,3,5`) works correctly.
 
+**Decision:** Distinguish between numerical RANGES and date, datetime, or time INTERVALS.
+
+- Ranges notation (1-5) for indexes, numeric ids, etc.
+- Interval notation (e.g. 1..5) for date, datetime, or time intervals.
+
+Update behavior and documentation to match this decision. This should apply throughout the CLI and user documentation.
+
 ---
 
 ### 2. kanban:NEXT and kanban:LIVE Filters Don't Match
@@ -58,6 +65,8 @@ No tasks found.
 
 **Root Cause:** Likely the kanban field value stored/computed doesn't include LIVE/NEXT as separate states - they may be display-only concepts.
 
+**Decision:** The LIVE and NEXT kanban stages have been intentionally removed. Their related filters should also be removed. It is not now possible to filter by queue position, e.g. queue:1 or queue:2-4, but this could cover that removed capability. Please add this capability if it is consistent with the overall behavior of the CLI. Note outcome in Implementation document.
+
 ---
 
 ### 3. kanban:paused vs kanban:stalled Naming Inconsistency
@@ -82,6 +91,8 @@ ID   Q    Description Status  Kanban  Project ...
 
 **Impact:** Users following documentation will get no results when filtering for paused tasks.
 
+**Decision:** Update documentation to match the actual kanban stages (stalled is now correct, not paused. The code is right, not the documentation on this).
+
 ---
 
 ### 4. Sessions with Negative Duration Display
@@ -101,6 +112,8 @@ Session ID Task   Description Start               End                 Duration
 - Timezone handling issues
 - Improper session splitting during `onoff` operations
 - Data entry edge cases with historical sessions
+
+**Decision:** Do not allow sessions with non-chronological start and ends. Figure out what scenarios allow these broken sessions to be created to make sure that is not allowed.
 
 ---
 
@@ -129,6 +142,8 @@ Queue sorted by priority (descending)
 ```
 
 **Fix:** Either document the `--` separator requirement, or change the syntax to `priority:desc` or `--desc priority`.
+
+**Decision:** Drop the queue sort capability from the code and documentation. This feature is not a good idea. Instead uses, can just run `tatl enqueue <comma separated list of ids>` to sort.
 
 ---
 
@@ -176,6 +191,8 @@ Error: Filter parse error: Invalid filter token: start:2026-01-24
 
 The simple `-7d` syntax works, but the explicit `start:`/`end:` format does not.
 
+**Decision:** `start:`/`end:` format was intentionally removed. Update syntax to reflect. We are going all in on interval syntax for intervals.
+
 ---
 
 ### 8. Template Field Has No Associated Commands
@@ -197,6 +214,8 @@ The field is stored but appears non-functional. No `tatl templates` subcommand e
 
 **Question:** Is this feature planned for future implementation, or should the field be removed from documentation?
 
+**Decision:** Document what you found, but take no action at this time. We don't need it, but I'd want to make sure we clean it up everywhere it may exist (documentation, database, tasks, etc.). Just note a plan in the Implementation document.
+
 ---
 
 ### 9. Priority Cannot Be Set Manually
@@ -210,6 +229,8 @@ Error: Unrecognized field token 'priority:5'
 ```
 
 **Analysis:** Priority appears to be auto-calculated (possibly based on due date, allocation, tags, etc.). This should be documented more clearly, or the ability to set priority manually should be added.
+
+**Decision:** Document more clearly that the priority score is automatically calculated. If you can expose the scoring in the `task show <id>` output, that would be helpful.
 
 ---
 
@@ -227,6 +248,8 @@ Created task 11: test
 ```
 
 **Expected:** Error message indicating project name is required.
+
+**Decision:** Using project with no value in add or modify should assign no project and if modifying remove any associated projects from the task.
 
 ---
 
@@ -248,6 +271,8 @@ The tag column shows `+` as a tag name.
 
 **Expected:** Error message indicating tag name is required.
 
+**Decision:** Error message indicating tag name is required.
+
 ---
 
 ### 12. Invalid Date Gives "Internal error"
@@ -265,6 +290,8 @@ Caused by:
 
 **Expected:** User error (not "Internal error") with suggestions for valid date formats.
 
+**Decision:** User error (not "Internal error") with suggestions for valid date formats.
+
 ---
 
 ## Inconsistencies
@@ -277,6 +304,8 @@ Caused by:
 - System errors: `Internal error: ...`
 
 Some errors that should be user errors are shown as internal errors (like invalid date above).
+
+**Decision:** Ensure capitalization and error messaging is accurate and follows consistent patterns.
 
 ---
 
@@ -295,6 +324,8 @@ SUBCOMMANDS
        (no send, collect, or externals listed)
 ```
 
+**Decision:** Fix this.
+
 ---
 
 ### 15. sessions list vs sessions report Filtering
@@ -311,6 +342,8 @@ SUBCOMMANDS
 - `tatl sessions report start:DATE` - Fails ✗
 
 The `start:`/`end:` prefix syntax from the help doesn't work in practice.
+
+**Decision:** Unify the filter syntax behavior between list and report. But remember that we are dropping start and end terms. For an open interval, you can use ..DATE (like end:DATE) or DATE.. (like start:DATE). If a single date makes sense, that should be allowed instead of an interval.
 
 ---
 
@@ -330,6 +363,8 @@ $ tatl off
 Warning: Micro-session detected (-31781s). This session may be merged or purged...
 ```
 
+**Decision:** Debug and fix.
+
 ---
 
 ### 17. `waiting` Filter Includes Closed Tasks
@@ -343,7 +378,7 @@ ID   Q    Description  Status Kanban Project ...
 8         Waiting task closed done   ...
 ```
 
-**Question:** Should `waiting` exclude completed/closed tasks?
+**Question:** Should `waiting` exclude completed/closed tasks? That's a weird state to get into in the first place. When a task is completed or closed, its waiting status should probably be cleared. Please resolve by ensuring that closing or completing clears the waiting.
 
 ---
 

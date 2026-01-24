@@ -18,7 +18,7 @@
 //! - `scheduled:<expr>` - Match by scheduled date
 //! - `wait:<expr>` - Match by wait date
 //! - `waiting` - Derived: matches tasks with wait_ts in the future
-//! - `kanban:<status>` - Derived: matches tasks by kanban status (proposed, paused, queued, working, NEXT, LIVE, done)
+//! - `kanban:<status>` - Derived: matches tasks by kanban status (proposed, stalled, queued, done)
 
 use crate::models::{Task, TaskStatus};
 use crate::repo::{TaskRepo, SessionRepo, StackRepo, ExternalRepo};

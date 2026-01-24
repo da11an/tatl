@@ -89,7 +89,7 @@ FILTER SYNTAX:
     due:<expr>           - Match by due date (see DATE EXPRESSIONS)
     scheduled:<expr>     - Match by scheduled date
     wait:<expr>          - Match by wait date
-    kanban:<status>      - Match by kanban status (proposed, paused, queued, NEXT, LIVE, done)
+    kanban:<status>      - Match by kanban status (proposed, stalled, queued, done)
     desc:<pattern>       - Match description containing pattern (case-insensitive)
     description:<pattern> - Alias for desc:
   
@@ -111,20 +111,20 @@ FILTER SYNTAX:
     not +waiting
     project:work +urgent or project:home +important
     desc:bug status:pending
-    due:tomorrow kanban:NEXT
+    due:tomorrow kanban:queued
 
 DATE EXPRESSIONS (for due:, scheduled:, wait:):
   Relative: tomorrow, +3d, -1w, +2m, +1y
   Absolute: 2024-01-15, 2024-01-15 14:30
   Time-only: 09:00, 14:30
-  Ranges: start:..end:, -7d..now
+  Intervals: -7d..now, 2024-01-01..2024-01-31
 
 EXAMPLES:
   tatl list
   tatl list project:work +urgent
   tatl list +urgent or +important
   tatl list desc:bug status:pending
-  tatl list due:tomorrow kanban:NEXT --relative")]
+  tatl list due:tomorrow kanban:queued --relative")]
     List {
         /// Filter arguments. Multiple filters are ANDed together. Use 'or' for OR, 'not' for NOT. Examples: \"project:work +urgent\", \"+urgent or +important\", \"desc:bug status:pending\"
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -141,7 +141,7 @@ EXAMPLES:
 
 TARGET SYNTAX:
   Single ID:       10
-  ID range:        1..5 (tasks 1, 2, 3, 4, 5)
+  ID range:        1-5 (tasks 1, 2, 3, 4, 5)
   ID list:         1,3,5 (tasks 1, 3, and 5)
   Filter:          project:work +urgent (same filter syntax as 'tatl list')
 
@@ -149,14 +149,14 @@ The output includes task details, annotations, sessions, and related information
 
 EXAMPLES:
   tatl show 10
-  tatl show 1..5
+  tatl show 1-5
   tatl show project:work +urgent")]
     Show {
-        /// Task ID, ID range (e.g., \"1..5\"), ID list (e.g., \"1,3,5\"), or filter expression. Examples: \"10\", \"1..5\", \"1,3,5\", \"project:work +urgent\"
+        /// Task ID, ID range (e.g., \"1-5\"), ID list (e.g., \"1,3,5\"), or filter expression. Examples: \"10\", \"1-5\", \"1,3,5\", \"project:work +urgent\"
         target: String,
     },
     /// Modify tasks
-    #[command(long_about = "Modify one or more tasks. Target can be a task ID, ID range (e.g., \"1..5\"), ID list (e.g., \"1,3,5\"), or filter expression.
+    #[command(long_about = "Modify one or more tasks. Target can be a task ID, ID range (e.g., \"1-5\"), ID list (e.g., \"1,3,5\"), or filter expression.
 
 MODIFICATION SYNTAX:
   Field modifications:
@@ -195,9 +195,9 @@ EXAMPLES:
   tatl modify project:work description:Updated description
   tatl modify +urgent due:+1d --yes
   tatl modify 5 respawn:daily due:09:00
-  tatl modify 1..5 project:work --yes")]
+  tatl modify 1-5 project:work --yes")]
     Modify {
-        /// Task ID, ID range (e.g., \"1..5\"), ID list (e.g., \"1,3,5\"), or filter expression. Examples: \"10\", \"1..5\", \"1,3,5\", \"project:work +urgent\"
+        /// Task ID, ID range (e.g., \"1-5\"), ID list (e.g., \"1,3,5\"), or filter expression. Examples: \"10\", \"1-5\", \"1,3,5\", \"project:work +urgent\"
         target: String,
         /// Modification arguments. Field syntax: project:<name>, due:<expr>, +tag, -tag, etc. Any text not matching field patterns becomes the new description.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -284,13 +284,13 @@ If the interval overlaps with existing sessions, you'll be prompted to modify th
 TARGET SYNTAX:
   Omit (when clocked in):  Uses queue[0] and current session
   Task ID:                 10
-  ID range:                1..5
+  ID range:                1-5
   ID list:                 1,3,5
   Filter:                  project:work +urgent
 
 Use --delete <annotation_id> to remove an annotation.")]
     Annotate {
-        /// Task ID, ID range, ID list, or filter (optional when clocked in, defaults to queue[0]). Examples: \"10\", \"1..5\", \"1,3,5\", \"project:work +urgent\"
+        /// Task ID, ID range, ID list, or filter (optional when clocked in, defaults to queue[0]). Examples: \"10\", \"1-5\", \"1,3,5\", \"project:work +urgent\"
         target: Option<String>,
         /// Annotation note text
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -314,7 +314,7 @@ Use --delete <annotation_id> to remove an annotation.")]
 TARGET SYNTAX:
   Omit:              Uses queue[0] (current task)
   Task ID:           10
-  ID range:          1..5
+  ID range:          1-5
   ID list:           1,3,5
   Filter:            project:work +urgent
 
@@ -325,7 +325,7 @@ TIME EXPRESSIONS:
 
 If --next is specified, automatically starts timing the next task in queue after completion.")]
     Finish {
-        /// Task ID, ID range, ID list, or filter (optional, defaults to queue[0]). Examples: \"10\", \"1..5\", \"1,3,5\", \"project:work +urgent\"
+        /// Task ID, ID range, ID list, or filter (optional, defaults to queue[0]). Examples: \"10\", \"1-5\", \"1,3,5\", \"project:work +urgent\"
         target: Option<String>,
         /// End time expression (optional, defaults to now). Time-only (e.g., \"14:30\") ends session at that time today.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -346,11 +346,11 @@ If --next is specified, automatically starts timing the next task in queue after
 TARGET SYNTAX:
   Omit:              Uses queue[0] (current task)
   Task ID:           10
-  ID range:          1..5
+  ID range:          1-5
   ID list:           1,3,5
   Filter:            project:work +urgent")]
     Close {
-        /// Task ID, ID range, ID list, or filter (optional, defaults to queue[0]). Examples: \"10\", \"1..5\", \"1,3,5\", \"project:work +urgent\"
+        /// Task ID, ID range, ID list, or filter (optional, defaults to queue[0]). Examples: \"10\", \"1-5\", \"1,3,5\", \"project:work +urgent\"
         target: Option<String>,
         /// Close all matching tasks without confirmation
         #[arg(short = 'y', long)]
@@ -364,11 +364,11 @@ TARGET SYNTAX:
 
 TARGET SYNTAX:
   Task ID:           10
-  ID range:          1..5
+  ID range:          1-5
   ID list:           1,3,5
   Filter:            project:work status:completed")]
     Reopen {
-        /// Task ID, ID range, ID list, or filter. Examples: \"10\", \"1..5\", \"1,3,5\", \"project:work status:completed\"
+        /// Task ID, ID range, ID list, or filter. Examples: \"10\", \"1-5\", \"1,3,5\", \"project:work status:completed\"
         target: String,
         /// Reopen all matching tasks without confirmation
         #[arg(short = 'y', long)]
@@ -382,11 +382,11 @@ TARGET SYNTAX:
 
 TARGET SYNTAX:
   Task ID:           10
-  ID range:          1..5
+  ID range:          1-5
   ID list:           1,3,5
   Filter:            project:work status:completed")]
     Delete {
-        /// Task ID, ID range, ID list, or filter. Examples: \"10\", \"1..5\", \"1,3,5\", \"project:work status:completed\"
+        /// Task ID, ID range, ID list, or filter. Examples: \"10\", \"1-5\", \"1,3,5\", \"project:work status:completed\"
         target: String,
         /// Delete all matching tasks without confirmation
         #[arg(short = 'y', long)]
@@ -400,12 +400,6 @@ TARGET SYNTAX:
     Enqueue {
         /// Task ID(s) to enqueue. Can be a single ID or comma-separated list (e.g., \"5\" or \"1,3,5\")
         task_id: String,
-    },
-    /// Queue management commands
-    #[command(long_about = "Manage the task queue. The queue is your \"currently working on\" list. Position 0 is always \"what's next\".")]
-    Queue {
-        #[command(subcommand)]
-        subcommand: QueueCommands,
     },
     /// Send task to external party for review/approval
     #[command(long_about = "Send a task to an external party (colleague, supervisor, release window, etc.). The task will be removed from the queue and marked as 'external' in kanban view.
@@ -507,7 +501,7 @@ pub enum ProjectCommands {
         name: String,
     },
     /// Show task counts by kanban status per project
-    #[command(long_about = "Generate a report showing task counts grouped by project and kanban status (proposed, queued, paused, NEXT, LIVE, done).")]
+    #[command(long_about = "Generate a report showing task counts grouped by project and kanban status (proposed, stalled, queued, done).")]
     Report,
 }
 
@@ -519,10 +513,9 @@ pub enum SessionsCommands {
 
 FILTER SYNTAX:
   Date filters:
-    start:<expr>     - Sessions starting on or after date
-    end:<expr>       - Sessions ending on or before date
     -7d              - Last 7 days (relative date)
-    -7d..now         - Date range (last 7 days to now)
+    -7d..now         - Date interval (last 7 days to now)
+    2024-01-01..now  - Date interval (absolute start to now)
   
   Task filters:
     project:<name>   - Sessions for tasks in project
@@ -530,20 +523,20 @@ FILTER SYNTAX:
     task:<id>        - Sessions for specific task
   
   Examples:
-    tatl sessions list start:today
+    tatl sessions list -7d
     tatl sessions list -7d..now
     tatl sessions list project:work
-    tatl sessions list start:-7d project:work")]
+    tatl sessions list -7d project:work")]
     List {
-        /// Filter arguments. Date filters: start:<expr>, end:<expr>, -7d, -7d..now. Task filters: project:<name>, +tag, task:<id>. Examples: \"start:today\", \"-7d..now\", \"project:work\"
+        /// Filter arguments. Date filters: -7d, -7d..now, <start>..<end>. Task filters: project:<name>, +tag, task:<id>. Examples: \"-7d\", \"-7d..now\", \"project:work\"
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         filter: Vec<String>,
         /// Output in JSON format
         #[arg(long)]
         json: bool,
     },
-    /// Show detailed session information
-    #[command(long_about = "Show detailed information about the current session (if one is active).")]
+    /// Show details of the current active session
+    #[command(long_about = "Show detailed information about the current active session. If no session is active, displays a message indicating so.")]
     Show,
     /// Modify session start/end times
     #[command(long_about = "Modify the start and/or end time of a session.
@@ -586,42 +579,21 @@ If the modification creates overlapping sessions, you'll be prompted to resolve 
     #[command(long_about = "Generate a time report showing total hours worked by project, optionally filtered by date range and task criteria.
 
 REPORT SYNTAX:
-  Date range:        -7d, -7d..now, start:2024-01-01..end:2024-01-31
+  Date interval:     -7d, -7d..now, 2024-01-01..2024-01-31
   Task filters:      project:<name>, +tag, task:<id>
   
   Examples:
     tatl sessions report
     tatl sessions report -7d
     tatl sessions report -7d..now project:work
-    tatl sessions report start:2024-01-01..end:2024-01-31 +urgent")]
+    tatl sessions report 2024-01-01..2024-01-31 +urgent")]
     Report {
-        /// Report arguments. Date range: -7d, -7d..now, start:<expr>..end:<expr>. Task filters: project:<name>, +tag, task:<id>. Examples: \"-7d\", \"-7d..now\", \"-7d project:work\"
+        /// Report arguments. Date interval: -7d, -7d..now, <start>..<end>. Task filters: project:<name>, +tag, task:<id>. Examples: \"-7d\", \"-7d..now\", \"-7d project:work\"
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
 }
 
-#[derive(Subcommand)]
-pub enum QueueCommands {
-    /// Sort the queue by a field
-    #[command(long_about = "Sort the queue by a specified field. Use prefix '-' for descending order.
-
-SORT FIELDS:
-  priority    - Sort by priority (higher first by default)
-  due         - Sort by due date (earlier first by default)
-  scheduled   - Sort by scheduled date (earlier first by default)
-  alloc       - Sort by time allocation (longer first by default)
-
-EXAMPLES:
-  tatl queue sort priority      - Sort by priority (ascending)
-  tatl queue sort -priority    - Sort by priority (descending)
-  tatl queue sort due          - Sort by due date (ascending)
-  tatl queue sort -due         - Sort by due date (descending)")]
-    Sort {
-        /// Field to sort by. Options: priority, due, scheduled, alloc. Prefix with '-' for descending (e.g., \"-priority\", \"-due\")
-        field: String,
-    },
-}
 
 
 pub fn run() -> Result<()> {
@@ -785,13 +757,6 @@ fn handle_command(cli: Cli) -> Result<()> {
         Commands::Enqueue { task_id } => {
             handle_task_enqueue(task_id)
         }
-        Commands::Queue { subcommand } => {
-            match subcommand {
-                QueueCommands::Sort { field } => {
-                    handle_queue_sort(&field)
-                }
-            }
-        },
         Commands::Send { task_id, recipient, request } => {
             handle_send(task_id, recipient, request)
         },
@@ -1152,118 +1117,6 @@ fn truncate_str(s: &str, max_len: usize) -> String {
     }
 }
 
-fn handle_queue_sort(field: &str) -> Result<()> {
-    let conn = DbConnection::connect()?;
-    
-    // Parse field and direction
-    let (field_name, descending) = if field.starts_with('-') {
-        (&field[1..], true)
-    } else {
-        (field, false)
-    };
-    
-    // Validate field
-    let valid_fields = ["priority", "due", "scheduled", "alloc", "allocation", "id", "description"];
-    let field_lower = field_name.to_lowercase();
-    if !valid_fields.iter().any(|f| f.starts_with(&field_lower)) {
-        user_error(&format!(
-            "Invalid sort field '{}'. Valid fields: priority, due, scheduled, alloc, id, description",
-            field_name
-        ));
-    }
-    
-    // Normalize allocation field name
-    let sort_field = if field_lower.starts_with("alloc") { "alloc" } else { &field_lower };
-    
-    // Get current queue
-    let stack = StackRepo::get_or_create_default(&conn)?;
-    let stack_id = stack.id.unwrap();
-    let items = StackRepo::get_items(&conn, stack_id)?;
-    
-    if items.is_empty() {
-        println!("Queue is empty.");
-        return Ok(());
-    }
-    
-    // Fetch tasks for all items
-    let mut task_items: Vec<(i64, Option<crate::models::Task>)> = items.iter()
-        .map(|item| {
-            let task = TaskRepo::get_by_id(&conn, item.task_id).ok().flatten();
-            (item.task_id, task)
-        })
-        .collect();
-    
-    // Sort by the specified field
-    task_items.sort_by(|a, b| {
-        let (_, task_a) = a;
-        let (_, task_b) = b;
-        
-        match (task_a, task_b) {
-            (Some(ta), Some(tb)) => {
-                let cmp = match sort_field {
-                    "priority" => {
-                        // Use priority UDA if available
-                        let pa = ta.udas.get("priority").and_then(|v| v.parse::<i64>().ok()).unwrap_or(i64::MAX);
-                        let pb = tb.udas.get("priority").and_then(|v| v.parse::<i64>().ok()).unwrap_or(i64::MAX);
-                        pa.cmp(&pb)
-                    }
-                    "due" => {
-                        let da = ta.due_ts.unwrap_or(i64::MAX);
-                        let db = tb.due_ts.unwrap_or(i64::MAX);
-                        da.cmp(&db)
-                    }
-                    "scheduled" => {
-                        let sa = ta.scheduled_ts.unwrap_or(i64::MAX);
-                        let sb = tb.scheduled_ts.unwrap_or(i64::MAX);
-                        sa.cmp(&sb)
-                    }
-                    "alloc" => {
-                        let aa = ta.alloc_secs.unwrap_or(i64::MAX);
-                        let ab = tb.alloc_secs.unwrap_or(i64::MAX);
-                        aa.cmp(&ab)
-                    }
-                    "id" => {
-                        let ia = ta.id.unwrap_or(0);
-                        let ib = tb.id.unwrap_or(0);
-                        ia.cmp(&ib)
-                    }
-                    "description" => ta.description.cmp(&tb.description),
-                    _ => std::cmp::Ordering::Equal,
-                };
-                if descending { cmp.reverse() } else { cmp }
-            }
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, None) => std::cmp::Ordering::Equal,
-        }
-    });
-    
-    // Reorder the stack
-    let new_order: Vec<i64> = task_items.iter().map(|(id, _)| *id).collect();
-    
-    // Update stack positions
-    let tx = conn.unchecked_transaction()?;
-    
-    // Delete all current items
-    tx.execute("DELETE FROM stack_items WHERE stack_id = ?1", rusqlite::params![stack_id])?;
-    
-    // Re-insert in new order
-    let now = chrono::Utc::now().timestamp();
-    for (ordinal, task_id) in new_order.iter().enumerate() {
-        tx.execute(
-            "INSERT INTO stack_items (stack_id, task_id, ordinal, added_ts) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![stack_id, task_id, ordinal as i64, now],
-        )?;
-    }
-    
-    tx.commit()?;
-    
-    let direction = if descending { "descending" } else { "ascending" };
-    println!("Queue sorted by {} ({})", sort_field, direction);
-    
-    Ok(())
-}
-
 fn handle_send(task_id_str: String, recipient: String, request: Vec<String>) -> Result<()> {
     let conn = DbConnection::connect()?;
     let task_id = validate_task_id(&task_id_str)
@@ -1431,43 +1284,48 @@ fn handle_task_add(mut args: Vec<String>, mut start_timing: Option<String>, mut 
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
     
-    // Resolve project
+    // Resolve project (handle clearing with project:none or project:)
     let project_id = if let Some(project_name) = parsed.project {
-        let project = ProjectRepo::get_by_name(&conn, &project_name)?;
-        if let Some(p) = project {
-            Some(p.id.unwrap())
+        if project_name == "none" {
+            // project:none or project: (empty) means no project
+            None
         } else {
-            // Project doesn't exist - prompt user or auto-create
-            if auto_yes {
-                // Auto-create project (-y flag)
-                if let Err(e) = validate_project_name(&project_name) {
-                    user_error(&e);
-                }
-                let project = ProjectRepo::create(&conn, &project_name)
-                    .map_err(|e| anyhow::anyhow!("Failed to create project: {}", e))?;
-                println!("Created project '{}' (id: {})", project.name, project.id.unwrap());
-                Some(project.id.unwrap())
+            let project = ProjectRepo::get_by_name(&conn, &project_name)?;
+            if let Some(p) = project {
+                Some(p.id.unwrap())
             } else {
-                // Interactive prompt
-                match prompt_create_project(&project_name, &conn)? {
-                    Some(true) => {
-                        // User said yes - create project
-                        if let Err(e) = validate_project_name(&project_name) {
-                            user_error(&e);
+                // Project doesn't exist - prompt user or auto-create
+                if auto_yes {
+                    // Auto-create project (-y flag)
+                    if let Err(e) = validate_project_name(&project_name) {
+                        user_error(&e);
+                    }
+                    let project = ProjectRepo::create(&conn, &project_name)
+                        .map_err(|e| anyhow::anyhow!("Failed to create project: {}", e))?;
+                    println!("Created project '{}' (id: {})", project.name, project.id.unwrap());
+                    Some(project.id.unwrap())
+                } else {
+                    // Interactive prompt
+                    match prompt_create_project(&project_name, &conn)? {
+                        Some(true) => {
+                            // User said yes - create project
+                            if let Err(e) = validate_project_name(&project_name) {
+                                user_error(&e);
+                            }
+                            let project = ProjectRepo::create(&conn, &project_name)
+                                .map_err(|e| anyhow::anyhow!("Failed to create project: {}", e))?;
+                            println!("Created project '{}' (id: {})", project.name, project.id.unwrap());
+                            Some(project.id.unwrap())
                         }
-                        let project = ProjectRepo::create(&conn, &project_name)
-                            .map_err(|e| anyhow::anyhow!("Failed to create project: {}", e))?;
-                        println!("Created project '{}' (id: {})", project.name, project.id.unwrap());
-                        Some(project.id.unwrap())
-                    }
-                    Some(false) => {
-                        // User said no - skip project, create task without it
-                        None
-                    }
-                    None => {
-                        // User cancelled
-                        println!("Cancelled.");
-                        return Ok(());
+                        Some(false) => {
+                            // User said no - skip project, create task without it
+                            None
+                        }
+                        None => {
+                            // User cancelled
+                            println!("Cancelled.");
+                            return Ok(());
+                        }
                     }
                 }
             }
