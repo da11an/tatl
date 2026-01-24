@@ -25,7 +25,8 @@ TATL is designed around a simple insight: **most task management is procrastinat
 - **UDAs**: User-defined attributes for custom task properties
 - **Annotations**: Timestamped notes linked to tasks and sessions
 - **Filters**: Powerful filter expressions with AND, OR, NOT operators
-- **Kanban Status**: Derived statuses (proposed, queued, paused, NEXT, LIVE, done)
+- **Kanban Status**: Derived statuses (proposed, stalled, queued, external, done)
+- **Externals**: Send tasks to external parties and track their return
 - **Immutable History**: Complete audit trail of all task changes via event log
 
 ### Potential Future Work
@@ -160,15 +161,15 @@ Tasks have derived Kanban statuses based on their state:
 | Status | Meaning |
 |--------|---------|
 | `proposed` | Not in queue, no work done yet |
-| `queued` | In queue, waiting its turn |
-| `paused` | Has sessions but not currently in queue |
-| `NEXT` | At queue[0], ready to work |
-| `LIVE` | At queue[0] with active timing session |
+| `stalled` | Has sessions but not currently in queue |
+| `queued` | In queue (Q column shows position: 0, 1, 2... or ▶ if timing) |
+| `external` | Sent to external party for review/approval |
 | `done` | Completed or closed |
 
 ```bash
-tatl list kanban:LIVE        # Show actively-timed task
 tatl list kanban:queued      # Show queued tasks
+tatl list kanban:stalled     # Show tasks needing attention
+tatl list kanban:external    # Show tasks with external parties
 ```
 
 ## Command Reference
@@ -225,9 +226,6 @@ tatl enqueue 5              # Add task to queue
 tatl enqueue 1,3,5          # Add multiple tasks
 tatl dequeue                # Remove queue[0]
 tatl dequeue 5              # Remove specific task
-tatl dequeue --all          # Clear entire queue
-tatl queue sort due         # Sort queue by due date
-tatl queue sort -priority   # Sort by priority (descending)
 ```
 
 ### Projects
@@ -238,7 +236,20 @@ tatl projects add work.email        # Nested project
 tatl projects list
 tatl projects rename old new
 tatl projects archive old-project
+tatl projects unarchive old-project # Restore archived project
 tatl projects report                # Task counts by project and status
+```
+
+### Externals
+
+Send tasks to external parties (colleagues, supervisors, release windows):
+
+```bash
+tatl send 5 colleague "Please review this PR"
+tatl send 3 Release_5.2             # Send to release window
+tatl externals                       # List all external tasks
+tatl externals colleague            # Filter by recipient
+tatl collect 5                       # Collect task back
 ```
 
 ### Sessions
@@ -246,12 +257,12 @@ tatl projects report                # Task counts by project and status
 ```bash
 tatl sessions list                  # All sessions
 tatl sessions list project:work     # With task filter
-tatl sessions list start:today      # Sessions from today
-tatl sessions list start:-7d        # Sessions from last 7 days
-tatl sessions list project:work start:-7d  # Combine filters
-tatl sessions modify 5 09:00..17:00 # Adjust both times (interval syntax)
-tatl sessions modify 5 ..17:00      # Adjust end time only
-tatl sessions modify 5 09:00..      # Adjust start time only
+tatl sessions list -7d              # Sessions from last 7 days
+tatl sessions list -7d..now         # Sessions from date interval
+tatl sessions list -7d project:work # Combine filters
+tatl sessions modify 5 start:09:00..end:17:00  # Adjust both times
+tatl sessions modify 5 end:17:00    # Adjust end time only
+tatl sessions modify 5 start:09:00  # Adjust start time only
 tatl sessions delete 5 -y           # Delete session
 tatl sessions report -7d            # Time report for last 7 days
 tatl sessions report -7d..now project:work  # Report with filter
@@ -277,8 +288,9 @@ tatl list desc:"code review"     # Phrase search
 tatl list project:work status:pending not +blocked
 
 # Kanban status
-tatl list kanban:LIVE
 tatl list kanban:queued
+tatl list kanban:stalled
+tatl list kanban:external
 ```
 
 ## Configuration
@@ -305,10 +317,11 @@ data.location=/path/to/my/tasks.db
 All data is stored in a single SQLite database (`~/.tatl/ledger.db`):
 
 - **Tasks**: Core task data and metadata
-- **Sessions**: Time tracking entries  
+- **Sessions**: Time tracking entries
 - **Events**: Immutable audit log of all changes
 - **Projects**: Project hierarchy
 - **Annotations**: Timestamped notes
+- **Externals**: Tasks sent to external parties
 
 The database is created automatically on first use and migrations are applied automatically on upgrade.
 
