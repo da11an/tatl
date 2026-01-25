@@ -629,7 +629,7 @@ pub fn format_task_list_table(
         // Buffer accounts for: potential newline handling, ANSI codes in bold formatting, rounding errors,
         // and any discrepancies between calculated width and actual formatted output
         // Increased to 10 to handle edge cases where calculations don't perfectly match output
-        let target_width = terminal_width.saturating_sub(10); // Leave 10 char buffer for safety
+        let target_width = terminal_width.saturating_sub(0); // Leave 0 char buffer for safety
         let mut iterations = 0;
         const MAX_ITERATIONS: usize = 20; // Prevent infinite loops
         while calc_total_width(&columns, &column_widths) > target_width 
