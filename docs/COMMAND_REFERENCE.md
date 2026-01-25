@@ -1,4 +1,4 @@
-# Tatl Ninja Command Reference
+# TATL Command Reference
 
 Complete reference for all Tatl commands with examples and usage patterns.
 
@@ -16,7 +16,7 @@ Complete reference for all Tatl commands with examples and usage patterns.
 
 ---
 
-## Tatl Commands
+## Task Commands
 
 ### `tatl add [--on] [--onoff <start>..<end>] [--enqueue] [-y] <description> [attributes...]`
 
@@ -49,16 +49,16 @@ Add a new task with optional attributes.
 # Simple task
 tatl add Fix bug in authentication
 
-# Tatl with project and tags
+# Task with project and tags
 tatl add Review PR project:work +code-review +urgent
 
-# Tatl with due date and allocation
+# Task with due date and allocation
 tatl add Write documentation project:docs due:tomorrow allocation:2h
 
-# Tatl with respawn rule (creates new instance when completed)
+# Task with respawn rule (creates new instance when completed)
 tatl add "Daily standup" respawn:daily due:09:00
 
-# Tatl with UDA
+# Task with UDA
 tatl add Customer call uda.client:acme uda.priority:high
 
 # Task with --on (automatically starts timing)
@@ -89,14 +89,13 @@ tatl add -y "New feature" project:newproject
 # Automatically creates project if it doesn't exist
 ```
 
-### `tatl list [filter] [--json] [--relative] [--add-alias <name>]`
+### `tatl list [filter] [--json] [--relative]`
 
 List tasks matching optional filter.
 
 **Options:**
 - `--json` - Output in JSON format
-- `--relative` - Show due dates as relative time
-- `--add-alias <name>` - Save current list options as a named view
+- `--relative` - Show due dates as relative time (e.g., "2 days ago", "in 3 days")
 
 **Examples:**
 ```bash
@@ -110,10 +109,6 @@ tatl list status:pending
 
 # Sort and group
 tatl list sort:project,priority group:kanban
-
-# Save a list view alias
-tatl list project:work sort:project --add-alias mywork
-tatl list mywork
 
 # JSON output
 tatl list --json
@@ -248,7 +243,7 @@ tatl show 10
 # Show task range
 tatl show 1-3
 
-# Show tatl list
+# Show task list
 tatl show 1,3,5
 
 # Show with filter
@@ -394,7 +389,7 @@ tatl on 09:00..11:00
 # Push task 5 to top and start timing
 tatl on 5
 
-# Push tatl 10 to top and start at specific time
+# Push task 10 to top and start at specific time
 tatl on 10 09:00
 ```
 
@@ -459,7 +454,7 @@ Add a historical session for a task. Replaces `sessions add`.
 # Add session for queue[0] from 09:00 to 12:00 today
 tatl onoff 09:00..12:00
 
-# Add session for tatl 10 from 09:00 to 12:00
+# Add session for task 10 from 09:00 to 12:00
 tatl onoff 09:00..12:00 10
 
 # Insert session into overlapping time without confirmation
@@ -553,7 +548,7 @@ tatl list --json
 
 ## Session Commands
 
-### `tatl sessions list [<filter>...] [--json] [--add-alias <name>]`
+### `tatl sessions list [<filter>...] [--json]`
 
 List session history.
 
@@ -562,13 +557,11 @@ List session history.
 - If filter omitted: lists all sessions
 - Filters sessions by task attributes (project, tags, etc.)
 - Supports same filter syntax as `tatl list`
-- Special `start:<date>` filter: filters sessions by start date (e.g., `start:today`, `start:-7d`, `start:2026-01-19`)
+- Date filters: `-7d`, `-7d..now`, `start:today`
 
 **Options:**
 - `<filter>...` - Filter arguments (e.g., "project:work +urgent")
 - `--json` - Output in JSON format
-- `--add-alias <name>` - Save current list options as a named view
-- `--task <id|filter>` - Legacy flag (backward compatibility, use filter arguments instead)
 
 **Examples:**
 ```bash
@@ -587,29 +580,18 @@ tatl sessions list +urgent
 # Multiple filter arguments
 tatl sessions list project:work +urgent
 
-# Filter by date (sessions from specific date or relative date)
-tatl sessions list start:today
-tatl sessions list start:yesterday
-tatl sessions list start:-7d          # Last 7 days
-tatl sessions list start:2026-01-19  # Specific date
+# Filter by date range
+tatl sessions list -7d              # Last 7 days
+tatl sessions list -7d..now         # Last 7 days (interval syntax)
+tatl sessions list start:today      # Sessions starting today
 
 # Combine task filters with date filters
-tatl sessions list project:work start:-7d
-tatl sessions list +urgent start:today
-
-# Sort/group
-tatl sessions list sort:start group:task
-
-# Save a list view alias
-tatl sessions list project:work sort:start --add-alias worksessions
-tatl sessions list worksessions
+tatl sessions list -7d project:work
+tatl sessions list start:today +urgent
 
 # JSON output
 tatl sessions list --json
 tatl sessions list project:work --json
-
-# Legacy --task flag (still supported)
-tatl sessions list --tatl 10
 ```
 
 ### `tatl sessions show [--task <id|filter>]`
@@ -626,27 +608,17 @@ Show detailed session information.
 tatl sessions show
 
 # Show most recent session for task
-tatl sessions show --tatl 10
+tatl sessions show --task 10
 ```
 
-### `tatl sessions modify <session_id> [<start>..<end>] [--yes] [--force]`
+### `tatl sessions modify <session_id> <interval> [--yes] [--force]`
 
 Modify session start and/or end times using interval syntax.
-
-**Syntax:** 
-- Interval syntax: `tatl sessions modify <session_id> <start>..<end>`
-- Legacy syntax: `tatl sessions modify <session_id> start:<expr> end:<expr>`
 
 **Interval Syntax:**
 - `<start>..<end>` - Set both start and end times
 - `<start>..` - Set start time only (keep current end)
 - `..<end>` - Set end time only (keep current start)
-
-**Legacy Fields:**
-- `start:<expr>` - Modify start time (date expression)
-- `end:<expr>` - Modify end time (date expression)
-- `end:none` - Clear end time (make session open, only for closed sessions)
-- `end:now` - Set end time to current time (close session, only for open sessions)
 
 **Options:**
 - `--yes` - Apply modification without confirmation
@@ -657,46 +629,22 @@ Modify session start and/or end times using interval syntax.
 - Reports all conflicting sessions with details
 - Prevents modification by default if conflicts exist (use `--force` to override)
 
-**Behavior:**
-- Cannot clear end time of a running session (it's already open)
-- Cannot modify running session's end time to `none`
-- Can modify running session's start time (but checks for conflicts)
-
 **Examples:**
 ```bash
-# Using interval syntax (recommended)
-tatl sessions modify 5 09:00..17:00      # Set both start and end
-tatl sessions modify 5 09:00..           # Set start time only
-tatl sessions modify 5 ..17:00           # Set end time only
+# Set both start and end
+tatl sessions modify 5 09:00..17:00
 
-# Using legacy syntax
-tatl sessions modify 5 start:09:00       # Set start time
-tatl sessions modify 5 end:17:00         # Set end time
-tatl sessions modify 5 start:09:00 end:17:00  # Set both
+# Set start time only (keep current end)
+tatl sessions modify 5 09:00..
 
-# Close an open session
-tatl sessions modify 5 end:now
-
-# Make a closed session open (clear end time)
-tatl sessions modify 5 end:none
+# Set end time only (keep current start)
+tatl sessions modify 5 ..17:00
 
 # Modify with confirmation bypass
-tatl sessions modify 5 09:00..17:00 --yes
+tatl sessions modify 5 --yes 09:00..17:00
 
 # Force modification despite conflicts
-tatl sessions modify 5 10:00..11:00 --force
-```
-
-**Conflict Example:**
-```bash
-$ tatl sessions 5 modify start:10:00
-Error: Session modification would create conflicts:
-
-  Session 5 (Task 10): 2024-01-15 10:00:00 - 2024-01-15 11:00:00
-  Conflicts with:
-    - Session 3 (Task 8): 2024-01-15 10:00:00 - 2024-01-15 12:00:00
-
-Use --force to override (may require resolving conflicts manually).
+tatl sessions modify 5 --force 10:00..11:00
 ```
 
 ### `tatl sessions delete <session_id> [--yes]`

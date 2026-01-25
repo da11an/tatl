@@ -89,7 +89,7 @@ FILTER SYNTAX:
     due:<expr>           - Match by due date (see DATE EXPRESSIONS)
     scheduled:<expr>     - Match by scheduled date
     wait:<expr>          - Match by wait date
-    kanban:<status>      - Match by kanban status (proposed, stalled, queued, done)
+    kanban:<status>      - Match by kanban status (proposed, stalled, queued, external, done)
     desc:<pattern>       - Match description containing pattern (case-insensitive)
     description:<pattern> - Alias for desc:
   
@@ -501,7 +501,7 @@ pub enum ProjectCommands {
         name: String,
     },
     /// Show task counts by kanban status per project
-    #[command(long_about = "Generate a report showing task counts grouped by project and kanban status (proposed, stalled, queued, done).")]
+    #[command(long_about = "Generate a report showing task counts grouped by project and kanban status (proposed, stalled, queued, external, done).")]
     Report,
 }
 
@@ -542,21 +542,21 @@ FILTER SYNTAX:
     #[command(long_about = "Modify the start and/or end time of a session.
 
 INTERVAL SYNTAX:
-  start:<time>..end:<time>  - Modify both start and end
-  start:<time>              - Modify only start time
-  end:<time>                - Modify only end time
-  
+  <start>..<end>   - Modify both start and end times
+  <start>..        - Modify start time only (keep current end)
+  ..<end>          - Modify end time only (keep current start)
+
   Examples:
-    start:09:00..end:12:00
-    start:2024-01-15 09:00..end:2024-01-15 12:00
-    start:09:00
-    end:12:00
+    09:00..17:00              - Set session to 09:00-17:00 today
+    09:00..                   - Change start to 09:00
+    ..17:00                   - Change end to 17:00
+    2024-01-15 09:00..12:00   - Set specific date and times
 
 If the modification creates overlapping sessions, you'll be prompted to resolve conflicts (use --force to allow overlaps).")]
     Modify {
         /// Session ID to modify
         session_id: i64,
-        /// Modification arguments. Format: \"start:<time>..end:<time>\" or \"start:<time>\" or \"end:<time>\". Examples: \"start:09:00..end:12:00\", \"start:09:00\"
+        /// Time interval: \"<start>..<end>\", \"<start>..\", or \"..<end>\". Examples: \"09:00..17:00\", \"09:00..\", \"..17:00\"
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
         /// Apply modification without confirmation

@@ -260,9 +260,9 @@ tatl sessions list project:work     # With task filter
 tatl sessions list -7d              # Sessions from last 7 days
 tatl sessions list -7d..now         # Sessions from date interval
 tatl sessions list -7d project:work # Combine filters
-tatl sessions modify 5 start:09:00..end:17:00  # Adjust both times
-tatl sessions modify 5 end:17:00    # Adjust end time only
-tatl sessions modify 5 start:09:00  # Adjust start time only
+tatl sessions modify 5 09:00..17:00  # Adjust both times
+tatl sessions modify 5 ..17:00      # Adjust end time only
+tatl sessions modify 5 09:00..      # Adjust start time only
 tatl sessions delete 5 -y           # Delete session
 tatl sessions report -7d            # Time report for last 7 days
 tatl sessions report -7d..now project:work  # Report with filter
