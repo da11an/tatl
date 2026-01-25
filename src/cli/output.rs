@@ -8,6 +8,33 @@ use rusqlite::Connection;
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::cmp::Ordering;
+use std::io::IsTerminal;
+
+// ANSI escape codes for terminal formatting
+const ANSI_BOLD: &str = "\x1b[1m";
+const ANSI_RESET: &str = "\x1b[0m";
+
+/// Check if stdout is a terminal (TTY)
+pub fn is_tty() -> bool {
+    std::io::stdout().is_terminal()
+}
+
+/// Get terminal width from COLUMNS env var or default
+pub fn get_terminal_width() -> usize {
+    std::env::var("COLUMNS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(120) // Default width
+}
+
+/// Apply bold formatting if in TTY mode
+fn bold_if_tty(text: &str, is_tty: bool) -> String {
+    if is_tty {
+        format!("{}{}{}", ANSI_BOLD, text, ANSI_RESET)
+    } else {
+        text.to_string()
+    }
+}
 
 /// Kanban status values (derived from task state)
 /// 
@@ -162,6 +189,7 @@ pub struct TaskListOptions {
     pub sort_columns: Vec<String>,
     pub group_columns: Vec<String>,
     pub hide_columns: Vec<String>,
+    pub full_width: bool, // Show all columns regardless of terminal width
 }
 
 /// Parse a sort specification, detecting negation prefix for descending order
@@ -219,6 +247,43 @@ enum TaskListColumn {
     Priority,
     Clock,
     Status,
+}
+
+/// Column display priority for adaptive width (lower = more important)
+/// Priority 1: Essential (never hide)
+/// Priority 2-3: Important (truncate last)
+/// Priority 4+: Secondary/Optional (hide first)
+fn column_priority(column: TaskListColumn) -> u8 {
+    match column {
+        TaskListColumn::Id => 1,
+        TaskListColumn::Queue => 1,
+        TaskListColumn::Description => 2,
+        TaskListColumn::Project => 3,
+        TaskListColumn::Status => 4,
+        TaskListColumn::Kanban => 4,
+        TaskListColumn::Due => 5,
+        TaskListColumn::Priority => 6,
+        TaskListColumn::Tags => 7,
+        TaskListColumn::Alloc => 8,
+        TaskListColumn::Clock => 8,
+    }
+}
+
+/// Minimum column width before hiding
+fn column_min_width(column: TaskListColumn) -> usize {
+    match column {
+        TaskListColumn::Id => 4,
+        TaskListColumn::Queue => 4,
+        TaskListColumn::Description => 15,
+        TaskListColumn::Project => 8,
+        TaskListColumn::Status => 7,
+        TaskListColumn::Kanban => 8,
+        TaskListColumn::Due => 10,
+        TaskListColumn::Priority => 8,
+        TaskListColumn::Tags => 6,
+        TaskListColumn::Alloc => 5,
+        TaskListColumn::Clock => 5,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -478,13 +543,16 @@ pub fn format_task_list_table(
         .filter_map(|name| parse_task_column(name))
         .collect();
     columns.retain(|col| !hidden_columns.contains(col));
-    
+
+    // Detect TTY for formatting
+    let tty_mode = is_tty();
+
     // Calculate column widths
     let mut column_widths: HashMap<TaskListColumn, usize> = HashMap::new();
     for column in &columns {
         column_widths.insert(*column, column_label(*column).len().max(4));
     }
-    
+
     for row in &rows {
         for column in &columns {
             if let Some(value) = row.values.get(column) {
@@ -498,7 +566,50 @@ pub fn format_task_list_table(
             }
         }
     }
-    
+
+    // Adaptive width: hide low-priority columns if terminal is too narrow
+    if !options.full_width {
+        let terminal_width = get_terminal_width();
+
+        // Helper to calculate total width
+        fn calc_total_width(columns: &[TaskListColumn], column_widths: &HashMap<TaskListColumn, usize>) -> usize {
+            columns.iter().map(|c| column_widths.get(c).unwrap_or(&4) + 1).sum::<usize>()
+        }
+
+        // If total width exceeds terminal, start hiding columns by priority (highest priority number = hide first)
+        while calc_total_width(&columns, &column_widths) > terminal_width && columns.len() > 2 {
+            // Find the lowest priority column (highest priority number) that can be hidden
+            let hide_candidate = columns.iter()
+                .filter(|c| column_priority(**c) > 1) // Never hide priority 1 columns (ID, Queue)
+                .max_by_key(|c| column_priority(**c))
+                .copied();
+
+            if let Some(col_to_hide) = hide_candidate {
+                columns.retain(|c| *c != col_to_hide);
+            } else {
+                break; // No more columns to hide
+            }
+        }
+
+        // If still too wide, truncate Description to minimum width
+        let current_total = calc_total_width(&columns, &column_widths);
+        if current_total > terminal_width {
+            if let Some(width) = column_widths.get_mut(&TaskListColumn::Description) {
+                let excess = current_total.saturating_sub(terminal_width);
+                *width = (*width).saturating_sub(excess).max(column_min_width(TaskListColumn::Description));
+            }
+        }
+
+        // If still too wide, truncate Project to minimum width
+        let current_total = calc_total_width(&columns, &column_widths);
+        if current_total > terminal_width {
+            if let Some(width) = column_widths.get_mut(&TaskListColumn::Project) {
+                let excess = current_total.saturating_sub(terminal_width);
+                *width = (*width).saturating_sub(excess).max(column_min_width(TaskListColumn::Project));
+            }
+        }
+    }
+
     // Build header
     let mut output = String::new();
     for (idx, column) in columns.iter().enumerate() {
@@ -577,17 +688,27 @@ pub fn format_task_list_table(
             for (idx, column) in columns.iter().enumerate() {
                 let width = *column_widths.get(column).unwrap_or(&4);
                 let raw_value = row.values.get(column).cloned().unwrap_or_default();
-                let value = if *column == TaskListColumn::Description && raw_value.len() > width {
-                    format!("{}..", &raw_value[..width.saturating_sub(2)])
-                } else if raw_value.len() > width {
-                    format!("{}..", &raw_value[..width.saturating_sub(2)])
+                let value = if *column == TaskListColumn::Description && raw_value.chars().count() > width {
+                    // Truncate by character count to avoid cutting multi-byte chars
+                    let truncated: String = raw_value.chars().take(width.saturating_sub(2)).collect();
+                    format!("{}..", truncated)
+                } else if raw_value.chars().count() > width {
+                    let truncated: String = raw_value.chars().take(width.saturating_sub(2)).collect();
+                    format!("{}..", truncated)
                 } else {
                     raw_value
                 };
-                if idx == columns.len() - 1 {
-                    output.push_str(&format!("{:<width$}\n", value, width = width));
+                // Apply bold to ID column in TTY mode
+                let formatted = format!("{:<width$}", value, width = width);
+                let formatted = if *column == TaskListColumn::Id && tty_mode {
+                    bold_if_tty(&formatted, true)
                 } else {
-                    output.push_str(&format!("{:<width$} ", value, width = width));
+                    formatted
+                };
+                if idx == columns.len() - 1 {
+                    output.push_str(&format!("{}\n", formatted));
+                } else {
+                    output.push_str(&format!("{} ", formatted));
                 }
             }
         }
@@ -628,17 +749,26 @@ pub fn format_task_list_table(
                 for (idx, column) in columns.iter().enumerate() {
                     let width = *column_widths.get(column).unwrap_or(&4);
                     let raw_value = row.values.get(column).cloned().unwrap_or_default();
-                    let value = if *column == TaskListColumn::Description && raw_value.len() > width {
-                        format!("{}..", &raw_value[..width.saturating_sub(2)])
-                    } else if raw_value.len() > width {
-                        format!("{}..", &raw_value[..width.saturating_sub(2)])
+                    let value = if *column == TaskListColumn::Description && raw_value.chars().count() > width {
+                        let truncated: String = raw_value.chars().take(width.saturating_sub(2)).collect();
+                        format!("{}..", truncated)
+                    } else if raw_value.chars().count() > width {
+                        let truncated: String = raw_value.chars().take(width.saturating_sub(2)).collect();
+                        format!("{}..", truncated)
                     } else {
                         raw_value
                     };
-                    if idx == columns.len() - 1 {
-                        output.push_str(&format!("{:<width$}\n", value, width = width));
+                    // Apply bold to ID column in TTY mode
+                    let formatted = format!("{:<width$}", value, width = width);
+                    let formatted = if *column == TaskListColumn::Id && tty_mode {
+                        bold_if_tty(&formatted, true)
                     } else {
-                        output.push_str(&format!("{:<width$} ", value, width = width));
+                        formatted
+                    };
+                    if idx == columns.len() - 1 {
+                        output.push_str(&format!("{}\n", formatted));
+                    } else {
+                        output.push_str(&format!("{} ", formatted));
                     }
                 }
             }
@@ -905,11 +1035,11 @@ pub fn format_task_summary(
         output.push_str("  Template:    (none)\n");
     }
     
-    // Recurrence
+    // Respawn
     if let Some(ref respawn) = task.respawn {
         output.push_str(&format!("  Respawn:     {}\n", respawn));
     } else {
-        output.push_str("  Recurrence:  none\n");
+        output.push_str("  Respawn:     (none)\n");
     }
     
     output.push_str("\n");

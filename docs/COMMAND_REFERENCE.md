@@ -557,7 +557,22 @@ List session history.
 - If filter omitted: lists all sessions
 - Filters sessions by task attributes (project, tags, etc.)
 - Supports same filter syntax as `tatl list`
-- Date filters: `-7d`, `-7d..now`, `start:today`
+
+**Session Date Filters:**
+
+Filter sessions by start or end time using `start:` and `end:` prefixes:
+
+| Filter | Description |
+|--------|-------------|
+| `start:<date>` | Sessions starting on or after date |
+| `start:<date>..<date>` | Sessions starting within date range |
+| `end:<date>` | Sessions ending on or after date |
+| `end:<date>..<date>` | Sessions ending within date range |
+
+Date expressions support:
+- Relative dates: `-7d`, `-1w`, `today`, `yesterday`
+- Absolute dates: `2024-01-15`, `2024-01-15T14:30`
+- Time-only: `09:00`, `14:30`
 
 **Options:**
 - `<filter>...` - Filter arguments (e.g., "project:work +urgent")
@@ -580,14 +595,25 @@ tatl sessions list +urgent
 # Multiple filter arguments
 tatl sessions list project:work +urgent
 
-# Filter by date range
-tatl sessions list -7d              # Last 7 days
-tatl sessions list -7d..now         # Last 7 days (interval syntax)
-tatl sessions list start:today      # Sessions starting today
+# Filter by session start date
+tatl sessions list start:today       # Sessions starting today
+tatl sessions list start:-7d         # Sessions starting in last 7 days
+tatl sessions list start:2024-01-01  # Sessions starting on or after Jan 1
 
-# Combine task filters with date filters
-tatl sessions list -7d project:work
+# Filter by session end date
+tatl sessions list end:today         # Sessions ending today
+tatl sessions list end:-7d           # Sessions ending in last 7 days
+
+# Filter by date range (interval syntax)
+tatl sessions list start:2024-01-01..2024-01-31  # Start date range
+tatl sessions list end:-7d..-1d                  # End date range
+tatl sessions list start:-7d..                   # Starting 7+ days ago (open-ended)
+tatl sessions list start:..today                 # Starting up to today
+
+# Combine date filters with task filters
+tatl sessions list start:-7d project:work
 tatl sessions list start:today +urgent
+tatl sessions list end:today project:work +billable
 
 # JSON output
 tatl sessions list --json
@@ -721,6 +747,75 @@ tatl sessions report -30d +urgent
 
 # Combining all options
 tatl sessions report -7d..now project:work +billable
+```
+
+---
+
+## Dashboard
+
+### `tatl dashboard [--period <week|month|year>]`
+
+Display a composite dashboard view with queue, sessions, statistics, and attention items.
+
+**Sections:**
+1. **Queue** - Current work queue showing top tasks with priorities
+2. **Today's Sessions** - Time tracked today with running total
+3. **Period Statistics** - Summary stats and project breakdown for selected period
+4. **Attention Needed** - Overdue, stalled, and external tasks requiring action
+
+**Options:**
+- `--period <period>` - Time period for statistics (default: `week`)
+  - `week` - Current week (Monday to now)
+  - `month` - Current month
+  - `year` - Current year
+
+**Examples:**
+```bash
+# Show dashboard with this week's statistics
+tatl dashboard
+
+# Show dashboard with this month's statistics
+tatl dashboard --period=month
+
+# Show dashboard with this year's statistics
+tatl dashboard --period=year
+```
+
+**Sample Output:**
+```
+═══════════════════════════════════════════════════════════════════════════
+                           TATL DASHBOARD
+═══════════════════════════════════════════════════════════════════════════
+
+📋 QUEUE (3 tasks)
+───────────────────────────────────────────────────────────────────────────
+ #  ID   Description                              Project    Priority
+▶ 0  12   Fix auth bug                             work       11.2
+  1  15   Review PR                                work        8.5
+  2   8   Update docs                              docs        5.1
+
+⏰ TODAY'S SESSIONS (2h 15m)
+───────────────────────────────────────────────────────────────────────────
+           09:00-10:30 Fix auth bug                   work        1h 30m
+           10:45-11:30 Code review                    work           45m
+ [current] 11:45-now   Fix auth bug                   work           23m
+
+📊 THIS WEEK
+───────────────────────────────────────────────────────────────────────────
+ Total time:     12h 30m    │  Tasks completed:  5
+
+ By project:
+   work            8h 15m ████████████████░░░░  66%
+   home            2h 45m █████░░░░░░░░░░░░░░░  22%
+   docs            1h 30m ███░░░░░░░░░░░░░░░░░  12%
+
+⚠️  ATTENTION NEEDED
+───────────────────────────────────────────────────────────────────────────
+ Overdue (2):     #5 Submit report (3 days), #9 Pay invoice (1 day)
+ Stalled (1):     #7 Waiting on feedback
+ External (1):    #11 Sent to @manager
+
+═══════════════════════════════════════════════════════════════════════════
 ```
 
 ---

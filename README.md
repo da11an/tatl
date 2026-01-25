@@ -258,8 +258,12 @@ tatl collect 5                       # Collect task back
 tatl sessions list                  # All sessions
 tatl sessions list project:work     # With task filter
 tatl sessions list -7d              # Sessions from last 7 days
-tatl sessions list -7d..now         # Sessions from date interval
-tatl sessions list -7d project:work # Combine filters
+tatl sessions list start:-7d        # Sessions starting on/after 7 days ago
+tatl sessions list start:today      # Sessions starting today
+tatl sessions list end:today        # Sessions ending today
+tatl sessions list start:2024-01-01..2024-01-31  # Start date range
+tatl sessions list end:-7d..-1d     # End date range
+tatl sessions list start:-7d project:work  # Combine date and task filters
 tatl sessions modify 5 09:00..17:00  # Adjust both times
 tatl sessions modify 5 ..17:00      # Adjust end time only
 tatl sessions modify 5 09:00..      # Adjust start time only
@@ -267,6 +271,21 @@ tatl sessions delete 5 -y           # Delete session
 tatl sessions report -7d            # Time report for last 7 days
 tatl sessions report -7d..now project:work  # Report with filter
 ```
+
+### Dashboard
+
+```bash
+tatl dashboard                    # Show dashboard with this week's stats
+tatl dashboard --period=week      # Same as above (default)
+tatl dashboard --period=month     # Show this month's stats
+tatl dashboard --period=year      # Show this year's stats
+```
+
+The dashboard shows:
+- Current work queue with priorities
+- Today's sessions and time tracked
+- Period statistics with project breakdown
+- Tasks needing attention (overdue, stalled, external)
 
 ## Filter Syntax
 

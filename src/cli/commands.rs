@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use rusqlite::Connection;
+use chrono::{Local, TimeZone};
 use crate::db::DbConnection;
 use crate::repo::{ProjectRepo, TaskRepo, StackRepo, SessionRepo, AnnotationRepo, TemplateRepo, ViewRepo, ExternalRepo};
 use crate::cli::parser::{parse_task_args, join_description};
@@ -135,6 +136,9 @@ EXAMPLES:
         /// Show due dates as relative time (e.g., \"2 days ago\", \"in 3 days\")
         #[arg(long)]
         relative: bool,
+        /// Show all columns regardless of terminal width
+        #[arg(long)]
+        full: bool,
     },
     /// Show detailed summary of task(s)
     #[command(long_about = "Show detailed information about one or more tasks.
@@ -457,6 +461,27 @@ EXAMPLES:
         #[arg(long)]
         task: Option<String>,
     },
+    /// Show dashboard with queue, sessions, and statistics
+    #[command(long_about = "Display a composite dashboard view showing:
+- Current work queue with immediate priorities
+- Today's work sessions with running total
+- This week's statistics and project breakdown
+- Tasks needing attention (overdue, stalled, external)
+
+PERIOD:
+  The --period option controls the time range for statistics:
+  - week (default): Show this week's data
+  - month: Show this month's data
+  - year: Show this year's data
+
+EXAMPLES:
+  tatl dashboard
+  tatl dashboard --period=month")]
+    Dashboard {
+        /// Time period for statistics (week, month, year)
+        #[arg(long, default_value = "week")]
+        period: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -687,8 +712,8 @@ fn handle_command(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Projects { subcommand } => handle_projects(subcommand),
         Commands::Add { args, start_timing, onoff_interval, enqueue, yes } => handle_task_add(args, start_timing, onoff_interval, enqueue, yes),
-        Commands::List { filter, json, relative } => {
-            handle_task_list(filter, json, relative)
+        Commands::List { filter, json, relative, full } => {
+            handle_task_list(filter, json, relative, full)
         },
         Commands::Show { target } => handle_task_summary(target),
         Commands::Modify { target, args, yes, interactive, start_timing } => {
@@ -792,6 +817,9 @@ fn handle_command(cli: Cli) -> Result<()> {
                     handle_sessions_report(args)
                 }
             }
+        }
+        Commands::Dashboard { period } => {
+            handle_dashboard(period)
         }
     }
 }
@@ -969,143 +997,436 @@ fn handle_projects(cmd: ProjectCommands) -> Result<()> {
     }
 }
 
+/// Handle the dashboard command
+fn handle_dashboard(period: String) -> Result<()> {
+    use crate::models::TaskStatus;
+    use chrono::{Datelike, Duration, NaiveTime};
+
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+
+    let now = Local::now();
+    let today_start = now.date_naive().and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+    let today_start_ts = Local.from_local_datetime(&today_start).single()
+        .map(|dt| dt.timestamp())
+        .unwrap_or(now.timestamp());
+
+    // Calculate period start based on --period flag
+    let period_start_ts = match period.to_lowercase().as_str() {
+        "week" => {
+            let days_since_monday = now.weekday().num_days_from_monday() as i64;
+            let week_start = now.date_naive() - Duration::days(days_since_monday);
+            let week_start_dt = week_start.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+            Local.from_local_datetime(&week_start_dt).single()
+                .map(|dt| dt.timestamp())
+                .unwrap_or(today_start_ts - 7 * 86400)
+        }
+        "month" => {
+            let month_start = now.date_naive().with_day(1).unwrap_or(now.date_naive());
+            let month_start_dt = month_start.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+            Local.from_local_datetime(&month_start_dt).single()
+                .map(|dt| dt.timestamp())
+                .unwrap_or(today_start_ts - 30 * 86400)
+        }
+        "year" => {
+            let year_start = now.date_naive().with_month(1).and_then(|d| d.with_day(1)).unwrap_or(now.date_naive());
+            let year_start_dt = year_start.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+            Local.from_local_datetime(&year_start_dt).single()
+                .map(|dt| dt.timestamp())
+                .unwrap_or(today_start_ts - 365 * 86400)
+        }
+        _ => {
+            eprintln!("Warning: Unknown period '{}', defaulting to 'week'", period);
+            let days_since_monday = now.weekday().num_days_from_monday() as i64;
+            let week_start = now.date_naive() - Duration::days(days_since_monday);
+            let week_start_dt = week_start.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+            Local.from_local_datetime(&week_start_dt).single()
+                .map(|dt| dt.timestamp())
+                .unwrap_or(today_start_ts - 7 * 86400)
+        }
+    };
+
+    // Get queue (tasks in stack)
+    let stack = StackRepo::get_or_create_default(&conn)?;
+    let stack_items = StackRepo::get_items(&conn, stack.id.unwrap())?;
+
+    // Get open session for detecting active task
+    let open_session = SessionRepo::get_open(&conn)?;
+    let active_task_id = open_session.as_ref().map(|s| s.task_id);
+
+    // Print header
+    println!("═══════════════════════════════════════════════════════════════════════════");
+    println!("                           TATL DASHBOARD");
+    println!("═══════════════════════════════════════════════════════════════════════════");
+    println!();
+
+    // SECTION 1: Queue
+    println!("📋 QUEUE ({} tasks)", stack_items.len());
+    println!("───────────────────────────────────────────────────────────────────────────");
+
+    if stack_items.is_empty() {
+        println!("  (no tasks in queue)");
+    } else {
+        println!(" #  ID   Description                              Project    Priority");
+        for (pos, item) in stack_items.iter().take(5).enumerate() {
+            if let Ok(Some(task)) = TaskRepo::get_by_id(&conn, item.task_id) {
+                let project = if let Some(pid) = task.project_id {
+                    ProjectRepo::get_by_id(&conn, pid).ok().flatten()
+                        .map(|p| p.name)
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                let priority = crate::cli::priority::calculate_priority(&task, &conn)
+                    .unwrap_or(0.0);
+                let indicator = if active_task_id == Some(item.task_id) { "▶" } else { " " };
+                let desc: String = task.description.chars().take(40).collect();
+                println!("{}{:>2}  {:<4} {:<40} {:<10} {:.1}",
+                    indicator, pos, item.task_id, desc, project, priority);
+            }
+        }
+        if stack_items.len() > 5 {
+            println!("    ... and {} more", stack_items.len() - 5);
+        }
+    }
+    println!();
+
+    // SECTION 2: Today's Sessions
+    let today_sessions = SessionRepo::list_all(&conn)?
+        .into_iter()
+        .filter(|s| s.start_ts >= today_start_ts)
+        .collect::<Vec<_>>();
+
+    // Helper to get session duration, using current time for open sessions
+    let get_session_duration = |s: &crate::models::Session| -> i64 {
+        s.duration_secs().unwrap_or_else(|| now.timestamp() - s.start_ts)
+    };
+
+    let today_total_secs: i64 = today_sessions.iter()
+        .map(get_session_duration)
+        .sum();
+
+    println!("⏰ TODAY'S SESSIONS ({})", format_duration_short(today_total_secs));
+    println!("───────────────────────────────────────────────────────────────────────────");
+
+    if today_sessions.is_empty() {
+        println!("  (no sessions today)");
+    } else {
+        for session in today_sessions.iter().take(5) {
+            let task = TaskRepo::get_by_id(&conn, session.task_id).ok().flatten();
+            let task_desc: String = task.as_ref()
+                .map(|t| t.description.chars().take(30).collect())
+                .unwrap_or_else(|| format!("Task {}", session.task_id));
+            let project = task.as_ref()
+                .and_then(|t| t.project_id)
+                .and_then(|pid| ProjectRepo::get_by_id(&conn, pid).ok().flatten())
+                .map(|p| p.name)
+                .unwrap_or_default();
+
+            let start_time = Local.timestamp_opt(session.start_ts, 0).single()
+                .map(|dt| dt.format("%H:%M").to_string())
+                .unwrap_or_default();
+            let end_time = session.end_ts
+                .and_then(|ts| Local.timestamp_opt(ts, 0).single())
+                .map(|dt| dt.format("%H:%M").to_string())
+                .unwrap_or_else(|| "now".to_string());
+
+            let duration = format_duration_short(get_session_duration(session));
+            let indicator = if session.is_open() { "[current]" } else { "" };
+
+            println!(" {:>9} {:<5}-{:<5} {:<30} {:<10} {:>8}",
+                indicator, start_time, end_time, task_desc, project, duration);
+        }
+        if today_sessions.len() > 5 {
+            println!("    ... and {} more sessions", today_sessions.len() - 5);
+        }
+    }
+    println!();
+
+    // SECTION 3: Period Statistics
+    let period_label = match period.to_lowercase().as_str() {
+        "week" => "THIS WEEK",
+        "month" => "THIS MONTH",
+        "year" => "THIS YEAR",
+        _ => "THIS WEEK",
+    };
+
+    let period_sessions = SessionRepo::list_all(&conn)?
+        .into_iter()
+        .filter(|s| s.start_ts >= period_start_ts)
+        .collect::<Vec<_>>();
+
+    let period_total_secs: i64 = period_sessions.iter()
+        .map(get_session_duration)
+        .sum();
+
+    // Count completed tasks in period
+    let all_tasks = TaskRepo::list_all(&conn)?;
+    let completed_in_period = all_tasks.iter()
+        .filter(|(t, _)| {
+            t.status == TaskStatus::Completed || t.status == TaskStatus::Closed
+        })
+        .count();
+
+    // Calculate time by project
+    let mut time_by_project: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    for session in &period_sessions {
+        let project = TaskRepo::get_by_id(&conn, session.task_id).ok().flatten()
+            .and_then(|t| t.project_id)
+            .and_then(|pid| ProjectRepo::get_by_id(&conn, pid).ok().flatten())
+            .map(|p| p.name)
+            .unwrap_or_else(|| "(no project)".to_string());
+        *time_by_project.entry(project).or_insert(0) += get_session_duration(session);
+    }
+
+    println!("📊 {}", period_label);
+    println!("───────────────────────────────────────────────────────────────────────────");
+    println!(" Total time:     {:>10}    │  Tasks completed:  {}",
+        format_duration_short(period_total_secs), completed_in_period);
+    println!();
+
+    if !time_by_project.is_empty() {
+        println!(" By project:");
+        let mut sorted_projects: Vec<_> = time_by_project.iter().collect();
+        sorted_projects.sort_by(|a, b| b.1.cmp(a.1)); // Sort by time descending
+
+        for (project, &secs) in sorted_projects.iter().take(5) {
+            let pct = if period_total_secs > 0 {
+                (secs as f64 / period_total_secs as f64 * 100.0) as usize
+            } else {
+                0
+            };
+            let bar_len = pct / 5; // Scale to max 20 chars
+            let bar = "█".repeat(bar_len) + &"░".repeat(20 - bar_len);
+            println!("   {:<15} {:>10} {} {:>3}%",
+                project.chars().take(15).collect::<String>(),
+                format_duration_short(secs), bar, pct);
+        }
+    }
+    println!();
+
+    // SECTION 4: Attention Needed
+    println!("⚠️  ATTENTION NEEDED");
+    println!("───────────────────────────────────────────────────────────────────────────");
+
+    // Overdue tasks
+    let overdue_tasks: Vec<_> = all_tasks.iter()
+        .filter(|(t, _)| {
+            t.status == TaskStatus::Pending
+                && t.due_ts.map(|d| d < now.timestamp()).unwrap_or(false)
+        })
+        .collect();
+
+    // Stalled tasks (has sessions but not in queue)
+    let stack_task_ids: std::collections::HashSet<i64> = stack_items.iter()
+        .map(|i| i.task_id)
+        .collect();
+    let tasks_with_sessions: std::collections::HashSet<i64> = period_sessions.iter()
+        .map(|s| s.task_id)
+        .collect();
+    let stalled_tasks: Vec<_> = all_tasks.iter()
+        .filter(|(t, _)| {
+            t.status == TaskStatus::Pending
+                && !stack_task_ids.contains(&t.id.unwrap_or(0))
+                && tasks_with_sessions.contains(&t.id.unwrap_or(0))
+                && !ExternalRepo::has_active_externals(&conn, t.id.unwrap_or(0)).unwrap_or(false)
+        })
+        .collect();
+
+    // External tasks
+    let external_tasks: Vec<_> = all_tasks.iter()
+        .filter(|(t, _)| {
+            t.status == TaskStatus::Pending
+                && ExternalRepo::has_active_externals(&conn, t.id.unwrap_or(0)).unwrap_or(false)
+        })
+        .collect();
+
+    let mut has_attention_items = false;
+
+    if !overdue_tasks.is_empty() {
+        has_attention_items = true;
+        let overdue_list: Vec<String> = overdue_tasks.iter()
+            .take(3)
+            .map(|(t, _)| {
+                let days = (now.timestamp() - t.due_ts.unwrap_or(0)) / 86400;
+                format!("#{} {} ({} days)", t.id.unwrap_or(0),
+                    t.description.chars().take(20).collect::<String>(), days)
+            })
+            .collect();
+        println!(" Overdue ({}):     {}", overdue_tasks.len(), overdue_list.join(", "));
+    }
+
+    if !stalled_tasks.is_empty() {
+        has_attention_items = true;
+        let stalled_list: Vec<String> = stalled_tasks.iter()
+            .take(3)
+            .map(|(t, _)| format!("#{} {}", t.id.unwrap_or(0),
+                t.description.chars().take(20).collect::<String>()))
+            .collect();
+        println!(" Stalled ({}):     {}", stalled_tasks.len(), stalled_list.join(", "));
+    }
+
+    if !external_tasks.is_empty() {
+        has_attention_items = true;
+        let external_list: Vec<String> = external_tasks.iter()
+            .take(3)
+            .map(|(t, _)| format!("#{} {}", t.id.unwrap_or(0),
+                t.description.chars().take(20).collect::<String>()))
+            .collect();
+        println!(" External ({}):    {}", external_tasks.len(), external_list.join(", "));
+    }
+
+    if !has_attention_items {
+        println!("  (nothing needs attention)");
+    }
+
+    println!();
+    println!("═══════════════════════════════════════════════════════════════════════════");
+
+    Ok(())
+}
+
+/// Format duration in short form (e.g., "2h 15m")
+fn format_duration_short(secs: i64) -> String {
+    let hours = secs / 3600;
+    let minutes = (secs % 3600) / 60;
+
+    if hours > 0 {
+        format!("{}h {}m", hours, minutes)
+    } else {
+        format!("{}m", minutes)
+    }
+}
+
 fn handle_projects_report(conn: &Connection) -> Result<()> {
     use crate::models::TaskStatus;
     use std::collections::BTreeMap;
-    
+
     // Get all tasks
     let all_tasks = TaskRepo::list_all(conn)?;
-    
+
     // Get stack items for kanban status calculation
     let stack = StackRepo::get_or_create_default(conn)?;
     let stack_items = StackRepo::get_items(conn, stack.id.unwrap())?;
     let stack_task_ids: std::collections::HashSet<i64> = stack_items.iter().map(|i| i.task_id).collect();
-    
-    // Get open session for LIVE status
-    let open_session = SessionRepo::get_open(conn)?;
-    let live_task_id = open_session.as_ref().map(|s| s.task_id);
-    
+
     // Build project hierarchy with counts
+    // New kanban stages: proposed, stalled, queued, external, done
     #[derive(Default)]
     struct ProjectStats {
         proposed: i64,
+        stalled: i64,
         queued: i64,
-        paused: i64,
-        next: i64,
-        live: i64,
+        external: i64,
         done: i64,
     }
-    
+
     impl ProjectStats {
         fn total(&self) -> i64 {
-            self.proposed + self.queued + self.paused + self.next + self.live + self.done
+            self.proposed + self.stalled + self.queued + self.external + self.done
         }
     }
-    
+
     let mut project_stats: BTreeMap<String, ProjectStats> = BTreeMap::new();
     let mut no_project_stats = ProjectStats::default();
-    
+
     // Calculate kanban status for each task
     for (task, _tags) in &all_tasks {
         let task_id = task.id.unwrap();
-        
-        // Calculate kanban status
+
+        // Calculate kanban status (updated stages)
         let kanban = if task.status == TaskStatus::Completed || task.status == TaskStatus::Closed {
             "done"
-        } else if Some(task_id) == live_task_id {
-            "live"
+        } else if ExternalRepo::has_active_externals(conn, task_id)? {
+            "external"
         } else if stack_task_ids.contains(&task_id) {
-            if stack_items.first().map(|i| i.task_id) == Some(task_id) {
-                "next"
-            } else {
-                "queued"
-            }
+            // All queued tasks (including position 0 and timing) are "queued"
+            "queued"
         } else {
-            // Not in queue - check if has sessions
+            // Not in queue - check if has sessions (stalled) or not (proposed)
             let sessions = SessionRepo::get_by_task(conn, task_id)?;
             if !sessions.is_empty() {
-                "paused"
+                "stalled"
             } else {
                 "proposed"
             }
         };
-        
-        // Get project name
+
+        // Get project name and extract top-level project (aggregate children)
         let project_name = if let Some(pid) = task.project_id {
             let mut stmt = conn.prepare("SELECT name FROM projects WHERE id = ?1")?;
-            stmt.query_row([pid], |row| row.get::<_, String>(0)).ok()
+            let full_name: Option<String> = stmt.query_row([pid], |row| row.get::<_, String>(0)).ok();
+            // Extract top-level project (e.g., "work.email" -> "work")
+            full_name.map(|n| n.split('.').next().unwrap_or(&n).to_string())
         } else {
             None
         };
-        
+
         // Update stats
         let stats = if let Some(name) = project_name {
             project_stats.entry(name).or_default()
         } else {
             &mut no_project_stats
         };
-        
+
         match kanban {
             "proposed" => stats.proposed += 1,
+            "stalled" => stats.stalled += 1,
             "queued" => stats.queued += 1,
-            "paused" => stats.paused += 1,
-            "next" => stats.next += 1,
-            "live" => stats.live += 1,
+            "external" => stats.external += 1,
             "done" => stats.done += 1,
             _ => {}
         }
     }
-    
+
     // Calculate totals
     let mut total_stats = ProjectStats::default();
     for stats in project_stats.values() {
         total_stats.proposed += stats.proposed;
+        total_stats.stalled += stats.stalled;
         total_stats.queued += stats.queued;
-        total_stats.paused += stats.paused;
-        total_stats.next += stats.next;
-        total_stats.live += stats.live;
+        total_stats.external += stats.external;
         total_stats.done += stats.done;
     }
     total_stats.proposed += no_project_stats.proposed;
+    total_stats.stalled += no_project_stats.stalled;
     total_stats.queued += no_project_stats.queued;
-    total_stats.paused += no_project_stats.paused;
-    total_stats.next += no_project_stats.next;
-    total_stats.live += no_project_stats.live;
+    total_stats.external += no_project_stats.external;
     total_stats.done += no_project_stats.done;
-    
+
     // Print report
     let pw = 25; // project width
-    println!("{:<pw$} {:>8} {:>8} {:>8} {:>6} {:>6} {:>6} {:>6}", 
-        "Project", "Proposed", "Queued", "Paused", "NEXT", "LIVE", "Done", "Total", pw = pw);
-    println!("{} {} {} {} {} {} {} {}", 
-        "─".repeat(pw), "─".repeat(8), "─".repeat(8), "─".repeat(8), 
-        "─".repeat(6), "─".repeat(6), "─".repeat(6), "─".repeat(6));
-    
+    println!("{:<pw$} {:>8} {:>8} {:>8} {:>8} {:>6} {:>6}",
+        "Project", "Proposed", "Stalled", "Queued", "External", "Done", "Total", pw = pw);
+    println!("{} {} {} {} {} {} {}",
+        "─".repeat(pw), "─".repeat(8), "─".repeat(8), "─".repeat(8),
+        "─".repeat(8), "─".repeat(6), "─".repeat(6));
+
     for (name, stats) in &project_stats {
-        println!("{:<pw$} {:>8} {:>8} {:>8} {:>6} {:>6} {:>6} {:>6}",
+        println!("{:<pw$} {:>8} {:>8} {:>8} {:>8} {:>6} {:>6}",
             truncate_str(name, pw),
-            stats.proposed, stats.queued, stats.paused, 
-            stats.next, stats.live, stats.done, stats.total(),
+            stats.proposed, stats.stalled, stats.queued,
+            stats.external, stats.done, stats.total(),
             pw = pw);
     }
-    
+
     if no_project_stats.total() > 0 {
-        println!("{:<pw$} {:>8} {:>8} {:>8} {:>6} {:>6} {:>6} {:>6}",
+        println!("{:<pw$} {:>8} {:>8} {:>8} {:>8} {:>6} {:>6}",
             "(no project)",
-            no_project_stats.proposed, no_project_stats.queued, no_project_stats.paused,
-            no_project_stats.next, no_project_stats.live, no_project_stats.done, no_project_stats.total(),
+            no_project_stats.proposed, no_project_stats.stalled, no_project_stats.queued,
+            no_project_stats.external, no_project_stats.done, no_project_stats.total(),
             pw = pw);
     }
-    
-    println!("{} {} {} {} {} {} {} {}", 
-        "─".repeat(pw), "─".repeat(8), "─".repeat(8), "─".repeat(8), 
-        "─".repeat(6), "─".repeat(6), "─".repeat(6), "─".repeat(6));
-    println!("{:<pw$} {:>8} {:>8} {:>8} {:>6} {:>6} {:>6} {:>6}",
+
+    println!("{} {} {} {} {} {} {}",
+        "─".repeat(pw), "─".repeat(8), "─".repeat(8), "─".repeat(8),
+        "─".repeat(8), "─".repeat(6), "─".repeat(6));
+    println!("{:<pw$} {:>8} {:>8} {:>8} {:>8} {:>6} {:>6}",
         "TOTAL",
-        total_stats.proposed, total_stats.queued, total_stats.paused,
-        total_stats.next, total_stats.live, total_stats.done, total_stats.total(),
+        total_stats.proposed, total_stats.stalled, total_stats.queued,
+        total_stats.external, total_stats.done, total_stats.total(),
         pw = pw);
-    
+
     Ok(())
 }
 
@@ -1568,7 +1889,7 @@ fn looks_like_filter(token: &str) -> bool {
     token.contains(':') || token.starts_with('+') || token.starts_with('-') || token == "waiting"
 }
 
-fn handle_task_list(filter_args: Vec<String>, json: bool, relative: bool) -> Result<()> {
+fn handle_task_list(filter_args: Vec<String>, json: bool, relative: bool, full: bool) -> Result<()> {
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
     
@@ -1661,6 +1982,7 @@ fn handle_task_list(filter_args: Vec<String>, json: bool, relative: bool) -> Res
             sort_columns: request.sort_columns,
             group_columns: request.group_columns,
             hide_columns: request.hide_columns,
+            full_width: full,
         };
         let table = format_task_list_table(&conn, &tasks, &options)?;
         print!("{}", table);

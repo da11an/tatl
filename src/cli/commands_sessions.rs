@@ -26,13 +26,75 @@ fn format_duration(secs: i64) -> String {
     let hours = secs / 3600;
     let minutes = (secs % 3600) / 60;
     let seconds = secs % 60;
-    
+
     if hours > 0 {
         format!("{}h{}m{}s", hours, minutes, seconds)
     } else if minutes > 0 {
         format!("{}m{}s", minutes, seconds)
     } else {
         format!("{}s", seconds)
+    }
+}
+
+/// Parse a session date filter expression
+/// Supports:
+/// - Single date: "today", "-7d", "2024-01-01"
+/// - Interval: "2024-01-01..2024-01-31", "-7d..-1d"
+/// Returns: (from_timestamp, optional_to_timestamp)
+fn parse_session_date_filter(expr: &str, filter_type: &str) -> Option<(i64, Option<i64>)> {
+    // Check for interval syntax (contains "..")
+    if let Some(sep_idx) = expr.find("..") {
+        let from_expr = &expr[..sep_idx];
+        let to_expr = &expr[sep_idx + 2..];
+
+        let from_ts = if from_expr.is_empty() {
+            None
+        } else {
+            match parse_date_expr(from_expr) {
+                Ok(ts) => Some(ts),
+                Err(e) => {
+                    eprintln!("Warning: Invalid {} date '{}': {}", filter_type, from_expr, e);
+                    return None;
+                }
+            }
+        };
+
+        let to_ts = if to_expr.is_empty() {
+            None
+        } else {
+            match parse_date_expr(to_expr) {
+                Ok(ts) => {
+                    // For end of interval, use end of day if it's a date-only expression
+                    let dt = Local.timestamp_opt(ts, 0).single().unwrap_or_else(|| Local::now());
+                    if dt.time().hour() == 0 && dt.time().minute() == 0 {
+                        // Add 24 hours - 1 second to include the whole day
+                        Some(ts + 86400 - 1)
+                    } else {
+                        Some(ts)
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Warning: Invalid {} date '{}': {}", filter_type, to_expr, e);
+                    return None;
+                }
+            }
+        };
+
+        // Handle one-sided intervals
+        match (from_ts, to_ts) {
+            (Some(from), to) => Some((from, to)),
+            (None, Some(to)) => Some((0, Some(to))), // Open-ended start (all before to)
+            (None, None) => None, // Invalid
+        }
+    } else {
+        // Single date expression
+        match parse_date_expr(expr) {
+            Ok(ts) => Some((ts, None)),
+            Err(e) => {
+                eprintln!("Warning: Invalid {} date '{}': {}", filter_type, expr, e);
+                None
+            }
+        }
     }
 }
 
@@ -534,19 +596,17 @@ pub fn handle_task_sessions_list_with_filter(filter_args: Vec<String>, json: boo
     
     // Separate session date filters from task filters
     let mut task_filters = Vec::new();
-    let mut session_start_filter: Option<i64> = None;
-    
+    let mut session_start_filter: Option<(i64, Option<i64>)> = None; // (from, optional to)
+    let mut session_end_filter: Option<(i64, Option<i64>)> = None;   // (from, optional to)
+
     for arg in &filter_args {
         if let Some(date_expr) = arg.strip_prefix("start:") {
             // Parse date expression for session start filtering
-            match crate::utils::parse_date_expr(date_expr) {
-                Ok(filter_ts) => {
-                    session_start_filter = Some(filter_ts);
-                }
-                Err(e) => {
-                    user_error(&format!("Invalid start date expression '{}': {}", date_expr, e));
-                }
-            }
+            // Supports interval syntax: start:2024-01-01..2024-01-31
+            session_start_filter = parse_session_date_filter(date_expr, "start");
+        } else if let Some(date_expr) = arg.strip_prefix("end:") {
+            // Parse date expression for session end filtering
+            session_end_filter = parse_session_date_filter(date_expr, "end");
         } else {
             task_filters.push(arg.clone());
         }
@@ -657,37 +717,47 @@ pub fn handle_task_sessions_list_with_filter(filter_args: Vec<String>, json: boo
     };
     
     // Apply session date filtering if specified
-    let sessions: Vec<_> = if let Some(filter_start_ts) = session_start_filter {
-        let now = Local::now().timestamp();
-        
-        // Check if filter represents start of a day (00:00:00)
-        let filter_dt = Local.timestamp_opt(filter_start_ts, 0)
-            .single()
-            .unwrap_or_else(|| Local::now());
-        let is_start_of_day = filter_dt.time().hour() == 0 && filter_dt.time().minute() == 0 && filter_dt.time().second() == 0;
-        
-        if is_start_of_day && filter_start_ts <= now {
-            // For date-only expressions (today, yesterday, 2026-01-19), match the entire day
-            let filter_date = filter_dt.date_naive();
-            let next_day_start = (filter_date + Duration::days(1)).and_hms_opt(0, 0, 0)
-                .and_then(|ndt| Local.from_local_datetime(&ndt).single())
-                .map(|dt| dt.timestamp())
-                .unwrap_or(now + 86400);
-            
-            sessions.into_iter()
-                .filter(|session| {
-                    session.start_ts >= filter_start_ts && session.start_ts < next_day_start
-                })
-                .collect()
-        } else {
-            // For relative dates (e.g., -7d) or timestamps, match sessions >= filter_start_ts
-            sessions.into_iter()
-                .filter(|session| session.start_ts >= filter_start_ts)
-                .collect()
-        }
-    } else {
-        sessions
-    };
+    let sessions: Vec<_> = sessions.into_iter()
+        .filter(|session| {
+            // Apply start: filter
+            // For start: filter, we always use "on or after" semantics
+            // The decision in Plan 33 states: start:<date> means "on or after this date"
+            if let Some((from_ts, to_ts)) = session_start_filter {
+                // Check from bound: session must start on or after from_ts
+                if session.start_ts < from_ts {
+                    return false;
+                }
+                // Check to bound if specified
+                if let Some(to) = to_ts {
+                    if session.start_ts > to {
+                        return false;
+                    }
+                }
+            }
+
+            // Apply end: filter
+            if let Some((from_ts, to_ts)) = session_end_filter {
+                // Only filter closed sessions for end: filter
+                if let Some(end_ts) = session.end_ts {
+                    // Check from bound (end time should be >= from_ts)
+                    if end_ts < from_ts {
+                        return false;
+                    }
+                    // Check to bound if specified
+                    if let Some(to) = to_ts {
+                        if end_ts > to {
+                            return false;
+                        }
+                    }
+                } else {
+                    // Open sessions have no end time, exclude from end: filter results
+                    return false;
+                }
+            }
+
+            true
+        })
+        .collect();
     
     if json {
         // JSON output

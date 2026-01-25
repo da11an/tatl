@@ -122,9 +122,9 @@ mod tests {
     #[test]
     fn test_connect_in_memory() {
         let conn = DbConnection::connect_in_memory().unwrap();
-        
+
         // Verify schema was initialized
         let version = MigrationManager::get_version(&conn).unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
     }
 }
