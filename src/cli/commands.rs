@@ -1995,6 +1995,8 @@ fn handle_task_list(filter_args: Vec<String>, json: bool, relative: bool, full: 
             request.sort_columns = view.sort_columns;
             request.group_columns = view.group_columns;
             request.hide_columns = view.hide_columns;
+            request.color_column = view.color_column;
+            request.fill_column = view.fill_column;
         }
     }
     
@@ -2007,6 +2009,8 @@ fn handle_task_list(filter_args: Vec<String>, json: bool, relative: bool, full: 
             &request.sort_columns,
             &request.group_columns,
             &request.hide_columns,
+            &request.color_column,
+            &request.fill_column,
         )?;
         println!("Saved view '{}'.", alias);
     }

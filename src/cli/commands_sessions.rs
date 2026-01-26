@@ -665,6 +665,8 @@ pub fn handle_task_sessions_list_with_filter(filter_args: Vec<String>, json: boo
             &request.sort_columns,
             &request.group_columns,
             &request.hide_columns,
+            &None, // color_column not used for sessions
+            &None, // fill_column not used for sessions
         )?;
         println!("Saved view '{}'.", alias);
     }

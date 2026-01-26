@@ -2,7 +2,7 @@ use rusqlite::{Connection, Result};
 use std::collections::HashMap;
 
 /// Current database schema version
-const CURRENT_VERSION: u32 = 6;
+const CURRENT_VERSION: u32 = 7;
 
 /// Migration system for managing database schema versions
 pub struct MigrationManager;
@@ -88,6 +88,7 @@ fn get_migrations() -> HashMap<u32, fn(&rusqlite::Transaction) -> Result<(), rus
     migrations.insert(4, migration_v4);
     migrations.insert(5, migration_v5);
     migrations.insert(6, migration_v6);
+    migrations.insert(7, migration_v7);
     migrations
 }
 
@@ -490,6 +491,21 @@ fn migration_v6(tx: &rusqlite::Transaction) -> Result<(), rusqlite::Error> {
     
     tx.execute(
         "CREATE INDEX idx_externals_returned ON externals(returned_ts) WHERE returned_ts IS NULL",
+        [],
+    )?;
+    
+    Ok(())
+}
+
+/// Migration v7: Add color_json and fill_json columns to list_views
+fn migration_v7(tx: &rusqlite::Transaction) -> Result<(), rusqlite::Error> {
+    tx.execute(
+        "ALTER TABLE list_views ADD COLUMN color_json TEXT",
+        [],
+    )?;
+    
+    tx.execute(
+        "ALTER TABLE list_views ADD COLUMN fill_json TEXT",
         [],
     )?;
     
