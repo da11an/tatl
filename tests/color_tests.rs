@@ -238,3 +238,65 @@ fn test_color_with_hide() {
         .success()
         .stdout(predicate::str::contains("Task"));
 }
+
+#[test]
+fn test_color_matches_group_colors_headers_only() {
+    let (temp_dir, _guard) = setup_test_env();
+    
+    // Create tasks with different projects
+    get_task_cmd(&temp_dir)
+        .args(&["add", "-y", "Work task 1", "project:work"])
+        .assert()
+        .success();
+    
+    get_task_cmd(&temp_dir)
+        .args(&["add", "-y", "Work task 2", "project:work"])
+        .assert()
+        .success();
+    
+    get_task_cmd(&temp_dir)
+        .args(&["add", "-y", "Home task", "project:home"])
+        .assert()
+        .success();
+    
+    // When color:project matches group:project, only headers should be colored
+    // (rows won't be colored, but command should succeed)
+    get_task_cmd(&temp_dir)
+        .args(&["list", "group:project", "color:project"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[work]"))
+        .stdout(predicate::str::contains("[home]"));
+}
+
+#[test]
+fn test_color_does_not_match_group_colors_rows() {
+    let (temp_dir, _guard) = setup_test_env();
+    
+    // Create tasks with different priorities (via due dates)
+    get_task_cmd(&temp_dir)
+        .args(&["add", "-y", "Urgent task", "project:work", "due:today"])
+        .assert()
+        .success();
+    
+    get_task_cmd(&temp_dir)
+        .args(&["add", "-y", "Less urgent", "project:work", "due:+7d"])
+        .assert()
+        .success();
+    
+    get_task_cmd(&temp_dir)
+        .args(&["add", "-y", "Another urgent", "project:home", "due:today"])
+        .assert()
+        .success();
+    
+    // When color:priority does NOT match group:project, rows should be colored
+    // (group headers won't be colored, but rows will)
+    get_task_cmd(&temp_dir)
+        .args(&["list", "group:project", "color:priority"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[work]"))
+        .stdout(predicate::str::contains("[home]"))
+        .stdout(predicate::str::contains("Urgent task"))
+        .stdout(predicate::str::contains("Less urgent"));
+}

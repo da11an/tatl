@@ -15,18 +15,21 @@ const ANSI_BOLD: &str = "\x1b[1m";
 const ANSI_RESET: &str = "\x1b[0m";
 
 // ANSI foreground colors (standard 16-color palette)
+const ANSI_FG_BLACK: &str = "\x1b[30m";
 const ANSI_FG_RED: &str = "\x1b[31m";
 const ANSI_FG_GREEN: &str = "\x1b[32m";
 const ANSI_FG_YELLOW: &str = "\x1b[33m";
 const ANSI_FG_BLUE: &str = "\x1b[34m";
 const ANSI_FG_MAGENTA: &str = "\x1b[35m";
 const ANSI_FG_CYAN: &str = "\x1b[36m";
+const ANSI_FG_WHITE: &str = "\x1b[37m";
 const ANSI_FG_BRIGHT_BLACK: &str = "\x1b[90m";
 const ANSI_FG_BRIGHT_GREEN: &str = "\x1b[92m";
 const ANSI_FG_BRIGHT_YELLOW: &str = "\x1b[93m";
 const ANSI_FG_BRIGHT_BLUE: &str = "\x1b[94m";
 const ANSI_FG_BRIGHT_MAGENTA: &str = "\x1b[95m";
 const ANSI_FG_BRIGHT_CYAN: &str = "\x1b[96m";
+const ANSI_FG_BRIGHT_WHITE: &str = "\x1b[97m";
 
 // ANSI background colors
 const ANSI_BG_RED: &str = "\x1b[41m";
@@ -137,6 +140,26 @@ fn get_gradient_bg_color(normalized: f64) -> &'static str {
         ANSI_BG_YELLOW
     } else {
         ANSI_BG_RED
+    }
+}
+
+/// Get contrasting foreground color for a background color to ensure legibility
+/// Returns a foreground color that contrasts well with the given background
+/// Uses black text for lighter/medium backgrounds and white for very dark ones
+fn get_contrasting_fg_for_bg(bg_color: &str) -> &'static str {
+    // Map background colors to contrasting foreground colors
+    match bg_color {
+        // Light/medium backgrounds -> use black foreground for better legibility
+        ANSI_BG_GREEN => ANSI_FG_BLACK,      // Light green needs black text
+        ANSI_BG_CYAN => ANSI_FG_BLACK,      // Cyan needs black text
+        ANSI_BG_MAGENTA => ANSI_FG_BLACK,   // Magenta/coral needs black text
+        ANSI_BG_YELLOW => ANSI_FG_BLACK,    // Yellow needs black text
+        ANSI_BG_BLUE => ANSI_FG_BLACK,      // Blue (queued) needs black text
+        ANSI_BG_BRIGHT_BLACK => ANSI_FG_BLACK, // Gray (proposed) needs black text
+        // Very dark backgrounds -> use white/bright foreground
+        ANSI_BG_RED => ANSI_FG_WHITE,       // Dark red needs white text
+        // Default to black if unknown (safer for most backgrounds)
+        _ => ANSI_FG_BLACK,
     }
 }
 
@@ -498,6 +521,13 @@ fn get_row_colors(
                 };
             }
         }
+    }
+    
+    // If background color is set, automatically ensure we have a contrasting foreground
+    // to preserve legibility (e.g., light backgrounds need dark text, dark backgrounds need light text)
+    // If color_column was also specified, it takes precedence; otherwise use automatic contrast
+    if !bg_color.is_empty() && fg_color.is_empty() {
+        fg_color = get_contrasting_fg_for_bg(&bg_color).to_string();
     }
     
     let reset_needed = !fg_color.is_empty() || !bg_color.is_empty();
@@ -1042,18 +1072,12 @@ pub fn format_task_list_table(
     // Build rows with optional grouping
     if options.group_columns.is_empty() {
         for row in &rows {
-            // Get row colors
-            let (fg_color, bg_color, reset_needed) = if colors_enabled {
+            // Get row colors (based on the column value, but will be applied selectively)
+            let (fg_color, bg_color, _) = if colors_enabled {
                 get_row_colors(row, &options.color_column, &options.fill_column, priority_range, due_range)
             } else {
                 (String::new(), String::new(), false)
             };
-            
-            // Start row with colors
-            if reset_needed {
-                output.push_str(&fg_color);
-                output.push_str(&bg_color);
-            }
             
             for (idx, column) in columns.iter().enumerate() {
                 let width = *column_widths.get(column).unwrap_or(&4);
@@ -1068,26 +1092,62 @@ pub fn format_task_list_table(
                 } else {
                     raw_value
                 };
+                
+                // Apply colors selectively:
+                // - fill: applies to Q column only
+                // - color: applies to ID and Description columns only
+                let mut cell_fg = String::new();
+                let mut cell_bg = String::new();
+                let mut needs_reset = false;
+                
+                if colors_enabled {
+                    // Apply fill to Q column (background only, never foreground from color column)
+                    if *column == TaskListColumn::Queue && !bg_color.is_empty() {
+                        cell_bg = bg_color.clone();
+                        // Always add contrasting foreground for fill background (regardless of color column)
+                        // This ensures legibility on blue/gray backgrounds
+                        cell_fg = get_contrasting_fg_for_bg(&bg_color).to_string();
+                        // Note: We intentionally don't apply fg_color (from color column) to Q column
+                        needs_reset = true;
+                    }
+                    // Apply color to ID and Description columns only
+                    if (*column == TaskListColumn::Id || *column == TaskListColumn::Description) && !fg_color.is_empty() {
+                        cell_fg = fg_color.clone();
+                        needs_reset = true;
+                    }
+                }
+                
                 // Apply bold to ID column in TTY mode (bold works with colors)
-                let formatted = if *column == TaskListColumn::Id && tty_mode {
+                let mut formatted = if *column == TaskListColumn::Id && tty_mode {
                     let padded = format!("{:<width$}", value, width = width);
                     bold_if_tty(&padded, true)
                 } else {
                     format!("{:<width$}", value, width = width)
                 };
+                
+                // Wrap with colors if needed
+                if needs_reset {
+                    formatted = format!("{}{}{}{}", cell_fg, cell_bg, formatted, ANSI_RESET);
+                }
+                
                 if idx == columns.len() - 1 {
-                    // End of row - reset colors after newline
-                    if reset_needed {
-                        output.push_str(&format!("{}{}\n", formatted, ANSI_RESET));
-                    } else {
-                        output.push_str(&format!("{}\n", formatted));
-                    }
+                    output.push_str(&format!("{}\n", formatted));
                 } else {
                     output.push_str(&format!("{} ", formatted));
                 }
             }
         }
     } else {
+        // Check if color/fill column matches any group column (independently)
+        let color_column_enum = options.color_column.as_deref()
+            .and_then(|name| parse_task_column(name));
+        let fill_column_enum = options.fill_column.as_deref()
+            .and_then(|name| parse_task_column(name));
+        
+        let color_matches_group = color_column_enum.map(|col| group_columns_parsed.contains(&col)).unwrap_or(false);
+        let fill_matches_group = fill_column_enum.map(|col| group_columns_parsed.contains(&col)).unwrap_or(false);
+        let color_or_fill_matches_group = color_matches_group || fill_matches_group;
+        
         // Use the group_columns_parsed from earlier (already handles negation prefix)
         let mut groups: Vec<(Vec<String>, Vec<&TaskRow>)> = Vec::new();
         let mut group_index: HashMap<String, usize> = HashMap::new();
@@ -1115,38 +1175,64 @@ pub fn format_task_list_table(
                 .collect::<Vec<_>>()
                 .join(":");
             
-            // Get color for group header (based on first group value, typically the color column)
-            let group_color = if colors_enabled && !group_values.is_empty() {
-                // Use the first group value for color (typically matches the color column)
-                let first_value = &group_values[0];
-                let col_name = options.color_column.as_deref()
-                    .or(options.fill_column.as_deref())
-                    .unwrap_or("");
+            // Get color for group header (only if color/fill column matches group column)
+            let (group_fg_color, group_bg_color) = if colors_enabled && color_or_fill_matches_group && !group_values.is_empty() {
+                let mut fg = String::new();
+                let mut bg = String::new();
                 
-                if options.color_column.is_some() {
-                    get_semantic_fg_color(col_name, first_value)
-                        .unwrap_or_else(|| get_hash_fg_color(first_value))
-                        .to_string()
-                } else if options.fill_column.is_some() {
-                    get_semantic_bg_color(col_name, first_value)
-                        .unwrap_or_else(|| get_hash_bg_color(first_value))
-                        .to_string()
-                } else {
-                    String::new()
+                // Apply color_column if it matches group
+                if color_matches_group {
+                    // Find which group column matches the color_column
+                    let color_col_idx = group_columns_parsed.iter()
+                        .position(|&col| Some(col) == color_column_enum);
+                    let group_value = color_col_idx
+                        .and_then(|idx| group_values.get(idx))
+                        .unwrap_or(&group_values[0]); // Fallback to first if not found
+                    let col_name = options.color_column.as_deref().unwrap_or("");
+                    fg = get_semantic_fg_color(col_name, group_value)
+                        .unwrap_or_else(|| get_hash_fg_color(group_value))
+                        .to_string();
                 }
+                
+                // Apply fill_column if it matches group (independently)
+                if fill_matches_group {
+                    // Find which group column matches the fill_column
+                    let fill_col_idx = group_columns_parsed.iter()
+                        .position(|&col| Some(col) == fill_column_enum);
+                    let group_value = fill_col_idx
+                        .and_then(|idx| group_values.get(idx))
+                        .unwrap_or(&group_values[0]); // Fallback to first if not found
+                    let col_name = options.fill_column.as_deref().unwrap_or("");
+                    bg = get_semantic_bg_color(col_name, group_value)
+                        .unwrap_or_else(|| get_hash_bg_color(group_value))
+                        .to_string();
+                    // Automatically add contrasting foreground for legibility if no color_column was set
+                    if !bg.is_empty() && fg.is_empty() {
+                        fg = get_contrasting_fg_for_bg(&bg).to_string();
+                    }
+                }
+                
+                (fg, bg)
             } else {
-                String::new()
+                (String::new(), String::new())
             };
             
             // Group header in square brackets (with optional color)
-            if group_color.is_empty() {
+            if group_fg_color.is_empty() && group_bg_color.is_empty() {
                 output.push_str(&format!("[{}]\n", group_label));
             } else {
-                output.push_str(&format!("{}[{}]{}\n", group_color, group_label, ANSI_RESET));
+                output.push_str(&format!("{}{}[{}]{}\n", group_fg_color, group_bg_color, group_label, ANSI_RESET));
             }
             
-            // Task rows are NOT colored when grouped (per user decision: minimalism/readability)
+            // Color task rows: fill applies to Q column, color applies to ID+Description columns
             for row in group_rows {
+                // Get row colors (always compute, but apply selectively)
+                let (fg_color, bg_color, _) = if colors_enabled {
+                    get_row_colors(row, &options.color_column, &options.fill_column, priority_range, due_range)
+                } else {
+                    (String::new(), String::new(), false)
+                };
+                
                 for (idx, column) in columns.iter().enumerate() {
                     let width = *column_widths.get(column).unwrap_or(&4);
                     let raw_value = row.values.get(column).cloned().unwrap_or_default();
@@ -1159,13 +1245,44 @@ pub fn format_task_list_table(
                     } else {
                         raw_value
                     };
+                    
+                    // Apply colors selectively:
+                    // - fill: applies to Q column only
+                    // - color: applies to ID and Description columns only
+                    let mut cell_fg = String::new();
+                    let mut cell_bg = String::new();
+                    let mut needs_reset = false;
+                    
+                    if colors_enabled {
+                        // Apply fill to Q column (background only, never foreground from color column)
+                        if *column == TaskListColumn::Queue && !bg_color.is_empty() {
+                            cell_bg = bg_color.clone();
+                            // Always add contrasting foreground for fill background (regardless of color column)
+                            // This ensures legibility on blue/gray backgrounds
+                            cell_fg = get_contrasting_fg_for_bg(&bg_color).to_string();
+                            // Note: We intentionally don't apply fg_color (from color column) to Q column
+                            needs_reset = true;
+                        }
+                        // Apply color to ID and Description columns only
+                        if (*column == TaskListColumn::Id || *column == TaskListColumn::Description) && !fg_color.is_empty() {
+                            cell_fg = fg_color.clone();
+                            needs_reset = true;
+                        }
+                    }
+                    
                     // Apply bold to ID column in TTY mode
-                    let formatted = if *column == TaskListColumn::Id && tty_mode {
+                    let mut formatted = if *column == TaskListColumn::Id && tty_mode {
                         let padded = format!("{:<width$}", value, width = width);
                         bold_if_tty(&padded, true)
                     } else {
                         format!("{:<width$}", value, width = width)
                     };
+                    
+                    // Wrap with colors if needed
+                    if needs_reset {
+                        formatted = format!("{}{}{}{}", cell_fg, cell_bg, formatted, ANSI_RESET);
+                    }
+                    
                     if idx == columns.len() - 1 {
                         output.push_str(&format!("{}\n", formatted));
                     } else {
