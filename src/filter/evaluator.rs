@@ -77,16 +77,32 @@ impl FilterTerm {
             }
             FilterTerm::Project(project_names) => {
                 // Multi-value project filter: project:pro1,pro2 matches if task's project matches ANY of the values (OR logic)
+                // Special cases:
+                // - project: or project:none matches tasks WITHOUT a project
                 // Nested project prefix matching:
                 // - project:admin matches admin, admin.email, admin.other, etc.
                 // - project:admin.email matches only admin.email and nested projects like admin.email.inbox
+                
+                // Check if any of the filter values is empty or "none" (meaning: match tasks without project)
+                let wants_no_project = project_names.iter().any(|n| n.is_empty() || n.eq_ignore_ascii_case("none"));
+                
                 if let Some(project_id) = task.project_id {
+                    // Task HAS a project
+                    if wants_no_project && project_names.len() == 1 {
+                        // Only filtering for no-project, but task has one
+                        return Ok(false);
+                    }
+                    
                     // Get project name from database by ID
                     let mut stmt = conn.prepare("SELECT name FROM projects WHERE id = ?1")?;
                     let project_name_opt: Option<String> = stmt.query_row([project_id], |row| row.get(0)).ok();
                     if let Some(pname) = project_name_opt {
                         // Check if task's project matches ANY of the provided project names
                         for project_name in project_names {
+                            // Skip empty/none values (already handled above)
+                            if project_name.is_empty() || project_name.eq_ignore_ascii_case("none") {
+                                continue;
+                            }
                             // Exact match
                             if pname == *project_name {
                                 return Ok(true);
@@ -101,7 +117,8 @@ impl FilterTerm {
                         Ok(false)
                     }
                 } else {
-                    Ok(false)
+                    // Task has NO project - match if filter wants no-project
+                    Ok(wants_no_project)
                 }
             }
             FilterTerm::Tag(tag, is_positive) => {
