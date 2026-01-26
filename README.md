@@ -162,7 +162,7 @@ Tasks have derived Kanban statuses based on their state:
 |--------|---------|
 | `proposed` | Not in queue, no work done yet |
 | `stalled` | Has sessions but not currently in queue |
-| `queued` | In queue (Q column shows position: 0, 1, 2... or ▶ if timing) |
+| `queued` | In queue (Q column shows position: 1, 2, 3... or ⏻ if active) |
 | `external` | Sent to external party for review/approval |
 | `done` | Completed or closed |
 
@@ -314,6 +314,37 @@ tatl list kanban:queued
 tatl list kanban:stalled
 tatl list kanban:external
 ```
+
+### Display Options
+
+```bash
+# Sort by column
+tatl list sort:project
+tatl list sort:-priority    # Descending
+
+# Group by column
+tatl list group:project
+tatl list group:kanban
+
+# Hide columns
+tatl list hide:tags
+tatl list hide:status,kanban
+
+# Color output (text color by column value)
+tatl list color:project     # Hash-based colors per project
+tatl list color:kanban      # Semantic colors for kanban stages
+tatl list color:priority    # Gradient (green→yellow→red)
+
+# Fill output (background color by column value)
+tatl list fill:status       # Semantic colors for status
+tatl list fill:project      # Hash-based colors per project
+
+# Combine display options
+tatl list group:project color:project    # Colored group headers
+tatl list sort:priority color:kanban     # Sorted with colored rows
+```
+
+**Note:** Colors only appear in terminal (TTY) output. Piped output has no ANSI codes.
 
 ## Configuration
 

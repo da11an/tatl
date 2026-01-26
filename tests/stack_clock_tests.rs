@@ -124,7 +124,7 @@ fn test_switch_task_with_on_command() {
     let output = cmd.args(&["list"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     
-    // Find task 2's line and verify Q=▶ (LIVE indicator)
+    // Find task 2's line and verify Q=⏻ (active indicator)
     let task_2_line = stdout.lines()
         .find(|l| {
             let parts: Vec<&str> = l.split_whitespace().collect();
@@ -133,7 +133,7 @@ fn test_switch_task_with_on_command() {
         .expect("Should find task 2");
     let parts: Vec<&str> = task_2_line.split_whitespace().collect();
     assert!(parts.len() > 1, "Line should have Q column");
-    assert_eq!(parts[1], "▶", "Task 2 should show ▶ (LIVE at position 0)");
+    assert_eq!(parts[1], "⏻", "Task 2 should show ⏻ (active at position 0)");
     
     // Clock out should work
     let mut cmd = get_task_cmd();

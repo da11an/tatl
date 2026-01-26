@@ -1095,7 +1095,7 @@ fn handle_report(period: String) -> Result<()> {
                 };
                 let priority = crate::cli::priority::calculate_priority(&task, &conn)
                     .unwrap_or(0.0);
-                let indicator = if active_task_id == Some(item.task_id) { "▶" } else { " " };
+                let indicator = if active_task_id == Some(item.task_id) { "⏻" } else { " " };
                 let desc: String = task.description.chars().take(40).collect();
                 println!("{}{:>2}  {:<4} {:<40} {:<10} {:.1}",
                     indicator, pos, item.task_id, desc, project, priority);
@@ -1922,6 +1922,8 @@ struct ListRequest {
     sort_columns: Vec<String>,
     group_columns: Vec<String>,
     hide_columns: Vec<String>,
+    color_column: Option<String>,
+    fill_column: Option<String>,
     save_alias: Option<String>,
 }
 
@@ -1930,6 +1932,8 @@ fn parse_list_request(tokens: Vec<String>) -> ListRequest {
     let mut sort_columns = Vec::new();
     let mut group_columns = Vec::new();
     let mut hide_columns = Vec::new();
+    let mut color_column: Option<String> = None;
+    let mut fill_column: Option<String> = None;
     let mut save_alias: Option<String> = None;
     
     for token in tokens {
@@ -1939,6 +1943,14 @@ fn parse_list_request(tokens: Vec<String>) -> ListRequest {
             group_columns.extend(spec.split(',').filter(|s| !s.is_empty()).map(|s| s.to_string()));
         } else if let Some(spec) = token.strip_prefix("hide:") {
             hide_columns.extend(spec.split(',').filter(|s| !s.is_empty()).map(|s| s.to_string()));
+        } else if let Some(spec) = token.strip_prefix("color:") {
+            if color_column.is_none() && !spec.is_empty() {
+                color_column = Some(spec.to_lowercase());
+            }
+        } else if let Some(spec) = token.strip_prefix("fill:") {
+            if fill_column.is_none() && !spec.is_empty() {
+                fill_column = Some(spec.to_lowercase());
+            }
         } else if let Some(name) = token.strip_prefix("alias:") {
             if save_alias.is_none() && !name.is_empty() {
                 save_alias = Some(name.to_string());
@@ -1953,6 +1965,8 @@ fn parse_list_request(tokens: Vec<String>) -> ListRequest {
         sort_columns,
         group_columns,
         hide_columns,
+        color_column,
+        fill_column,
         save_alias,
     }
 }
@@ -2058,6 +2072,8 @@ fn handle_task_list(filter_args: Vec<String>, json: bool, relative: bool, full: 
             sort_columns: request.sort_columns,
             group_columns: request.group_columns,
             hide_columns: request.hide_columns,
+            color_column: request.color_column,
+            fill_column: request.fill_column,
             full_width: full,
         };
         let table = format_task_list_table(&conn, &tasks, &options)?;

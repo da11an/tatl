@@ -14,6 +14,152 @@ use std::io::IsTerminal;
 const ANSI_BOLD: &str = "\x1b[1m";
 const ANSI_RESET: &str = "\x1b[0m";
 
+// ANSI foreground colors (standard 16-color palette)
+const ANSI_FG_BLACK: &str = "\x1b[30m";
+const ANSI_FG_RED: &str = "\x1b[31m";
+const ANSI_FG_GREEN: &str = "\x1b[32m";
+const ANSI_FG_YELLOW: &str = "\x1b[33m";
+const ANSI_FG_BLUE: &str = "\x1b[34m";
+const ANSI_FG_MAGENTA: &str = "\x1b[35m";
+const ANSI_FG_CYAN: &str = "\x1b[36m";
+const ANSI_FG_WHITE: &str = "\x1b[37m";
+const ANSI_FG_BRIGHT_BLACK: &str = "\x1b[90m";
+const ANSI_FG_BRIGHT_RED: &str = "\x1b[91m";
+const ANSI_FG_BRIGHT_GREEN: &str = "\x1b[92m";
+const ANSI_FG_BRIGHT_YELLOW: &str = "\x1b[93m";
+const ANSI_FG_BRIGHT_BLUE: &str = "\x1b[94m";
+const ANSI_FG_BRIGHT_MAGENTA: &str = "\x1b[95m";
+const ANSI_FG_BRIGHT_CYAN: &str = "\x1b[96m";
+
+// ANSI background colors
+const ANSI_BG_RED: &str = "\x1b[41m";
+const ANSI_BG_GREEN: &str = "\x1b[42m";
+const ANSI_BG_YELLOW: &str = "\x1b[43m";
+const ANSI_BG_BLUE: &str = "\x1b[44m";
+const ANSI_BG_MAGENTA: &str = "\x1b[45m";
+const ANSI_BG_CYAN: &str = "\x1b[46m";
+const ANSI_BG_BRIGHT_BLACK: &str = "\x1b[100m";
+
+// Color palette for categorical data (hash-based assignment)
+const CATEGORICAL_FG_PALETTE: &[&str] = &[
+    ANSI_FG_BLUE,
+    ANSI_FG_GREEN,
+    ANSI_FG_CYAN,
+    ANSI_FG_MAGENTA,
+    ANSI_FG_YELLOW,
+    ANSI_FG_BRIGHT_BLUE,
+    ANSI_FG_BRIGHT_GREEN,
+    ANSI_FG_BRIGHT_CYAN,
+    ANSI_FG_BRIGHT_MAGENTA,
+    ANSI_FG_BRIGHT_YELLOW,
+];
+
+const CATEGORICAL_BG_PALETTE: &[&str] = &[
+    ANSI_BG_BLUE,
+    ANSI_BG_GREEN,
+    ANSI_BG_CYAN,
+    ANSI_BG_MAGENTA,
+    ANSI_BG_YELLOW,
+    ANSI_BG_BRIGHT_BLACK,
+];
+
+/// Semantic colors for known column values
+fn get_semantic_fg_color(column: &str, value: &str) -> Option<&'static str> {
+    match column {
+        "status" => match value {
+            "pending" => None, // Default color
+            "completed" => Some(ANSI_FG_GREEN),
+            "closed" => Some(ANSI_FG_BRIGHT_BLACK),
+            _ => None,
+        },
+        "kanban" => match value {
+            "proposed" => Some(ANSI_FG_BRIGHT_BLACK),
+            "stalled" => Some(ANSI_FG_YELLOW),
+            "queued" => Some(ANSI_FG_BLUE),
+            "external" => Some(ANSI_FG_MAGENTA),
+            "done" => Some(ANSI_FG_GREEN),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn get_semantic_bg_color(column: &str, value: &str) -> Option<&'static str> {
+    match column {
+        "status" => match value {
+            "pending" => None,
+            "completed" => Some(ANSI_BG_GREEN),
+            "closed" => Some(ANSI_BG_BRIGHT_BLACK),
+            _ => None,
+        },
+        "kanban" => match value {
+            "proposed" => Some(ANSI_BG_BRIGHT_BLACK),
+            "stalled" => Some(ANSI_BG_YELLOW),
+            "queued" => Some(ANSI_BG_BLUE),
+            "external" => Some(ANSI_BG_MAGENTA),
+            "done" => Some(ANSI_BG_GREEN),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Get foreground color for a value using hash-based palette
+fn get_hash_fg_color(value: &str) -> &'static str {
+    if value.is_empty() {
+        return ANSI_FG_BRIGHT_BLACK;
+    }
+    let hash = value.bytes().fold(0usize, |acc, b| acc.wrapping_add(b as usize).wrapping_mul(31));
+    CATEGORICAL_FG_PALETTE[hash % CATEGORICAL_FG_PALETTE.len()]
+}
+
+/// Get background color for a value using hash-based palette
+fn get_hash_bg_color(value: &str) -> &'static str {
+    if value.is_empty() {
+        return ANSI_BG_BRIGHT_BLACK;
+    }
+    let hash = value.bytes().fold(0usize, |acc, b| acc.wrapping_add(b as usize).wrapping_mul(31));
+    CATEGORICAL_BG_PALETTE[hash % CATEGORICAL_BG_PALETTE.len()]
+}
+
+/// Get gradient color based on normalized value (0.0 = green, 0.5 = yellow, 1.0 = red)
+fn get_gradient_fg_color(normalized: f64) -> &'static str {
+    if normalized <= 0.33 {
+        ANSI_FG_GREEN
+    } else if normalized <= 0.66 {
+        ANSI_FG_YELLOW
+    } else {
+        ANSI_FG_RED
+    }
+}
+
+fn get_gradient_bg_color(normalized: f64) -> &'static str {
+    if normalized <= 0.33 {
+        ANSI_BG_GREEN
+    } else if normalized <= 0.66 {
+        ANSI_BG_YELLOW
+    } else {
+        ANSI_BG_RED
+    }
+}
+
+/// Column types for automatic color mapping detection
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ColumnColorType {
+    Categorical,  // project, status, kanban, tags
+    Numeric,      // priority, alloc, clock
+    Date,         // due, scheduled
+}
+
+fn detect_column_color_type(column: &str) -> ColumnColorType {
+    match column.to_lowercase().as_str() {
+        "project" | "status" | "kanban" | "tags" => ColumnColorType::Categorical,
+        "priority" | "alloc" | "clock" | "allocation" => ColumnColorType::Numeric,
+        "due" | "scheduled" | "wait" => ColumnColorType::Date,
+        _ => ColumnColorType::Categorical, // Default to categorical
+    }
+}
+
 /// Check if stdout is a terminal (TTY)
 pub fn is_tty() -> bool {
     std::io::stdout().is_terminal()
@@ -206,6 +352,8 @@ pub struct TaskListOptions {
     pub sort_columns: Vec<String>,
     pub group_columns: Vec<String>,
     pub hide_columns: Vec<String>,
+    pub color_column: Option<String>,  // Column for text color
+    pub fill_column: Option<String>,   // Column for background color
     pub full_width: bool, // Show all columns regardless of terminal width
 }
 
@@ -249,6 +397,114 @@ fn status_sort_order(status: &str) -> i64 {
         "closed" => 2,
         _ => 99,
     }
+}
+
+/// Get the color codes for a row based on color_column and fill_column options
+/// Returns (fg_color, bg_color, reset_needed)
+fn get_row_colors(
+    row: &TaskRow,
+    color_column: &Option<String>,
+    fill_column: &Option<String>,
+    priority_range: Option<(f64, f64)>,  // (min, max) for gradient normalization
+    due_range: Option<(i64, i64)>,       // (min, max) for date heat map
+) -> (String, String, bool) {
+    let mut fg_color = String::new();
+    let mut bg_color = String::new();
+    
+    // Get foreground color from color_column
+    if let Some(col_name) = color_column {
+        if let Some(column) = parse_task_column(col_name) {
+            if let Some(value) = row.values.get(&column) {
+                let color_type = detect_column_color_type(col_name);
+                fg_color = match color_type {
+                    ColumnColorType::Categorical => {
+                        // Try semantic color first, fall back to hash-based
+                        get_semantic_fg_color(col_name, value)
+                            .unwrap_or_else(|| get_hash_fg_color(value))
+                            .to_string()
+                    }
+                    ColumnColorType::Numeric => {
+                        // For priority, higher is more urgent (red)
+                        if let (Some((min, max)), Ok(val)) = (priority_range, value.parse::<f64>()) {
+                            if max > min {
+                                let normalized = (val - min) / (max - min);
+                                get_gradient_fg_color(normalized).to_string()
+                            } else {
+                                String::new()
+                            }
+                        } else {
+                            String::new()
+                        }
+                    }
+                    ColumnColorType::Date => {
+                        // For due dates, past = red, far future = green
+                        if let (Some((min, max)), Some(sort_val)) = (due_range, row.sort_values.get(&column)) {
+                            if let Some(SortValue::Int(ts)) = sort_val {
+                                if max > min {
+                                    let normalized = (*ts - min) as f64 / (max - min) as f64;
+                                    // Invert: closer dates (smaller ts) should be red
+                                    get_gradient_fg_color(1.0 - normalized).to_string()
+                                } else {
+                                    String::new()
+                                }
+                            } else {
+                                String::new()
+                            }
+                        } else {
+                            String::new()
+                        }
+                    }
+                };
+            }
+        }
+    }
+    
+    // Get background color from fill_column
+    if let Some(col_name) = fill_column {
+        if let Some(column) = parse_task_column(col_name) {
+            if let Some(value) = row.values.get(&column) {
+                let color_type = detect_column_color_type(col_name);
+                bg_color = match color_type {
+                    ColumnColorType::Categorical => {
+                        get_semantic_bg_color(col_name, value)
+                            .unwrap_or_else(|| get_hash_bg_color(value))
+                            .to_string()
+                    }
+                    ColumnColorType::Numeric => {
+                        if let (Some((min, max)), Ok(val)) = (priority_range, value.parse::<f64>()) {
+                            if max > min {
+                                let normalized = (val - min) / (max - min);
+                                get_gradient_bg_color(normalized).to_string()
+                            } else {
+                                String::new()
+                            }
+                        } else {
+                            String::new()
+                        }
+                    }
+                    ColumnColorType::Date => {
+                        if let (Some((min, max)), Some(sort_val)) = (due_range, row.sort_values.get(&column)) {
+                            if let Some(SortValue::Int(ts)) = sort_val {
+                                if max > min {
+                                    let normalized = (*ts - min) as f64 / (max - min) as f64;
+                                    get_gradient_bg_color(1.0 - normalized).to_string()
+                                } else {
+                                    String::new()
+                                }
+                            } else {
+                                String::new()
+                            }
+                        } else {
+                            String::new()
+                        }
+                    }
+                };
+            }
+        }
+    }
+    
+    let reset_needed = !fg_color.is_empty() || !bg_color.is_empty();
+    (fg_color, bg_color, reset_needed)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -749,9 +1005,60 @@ pub fn format_task_list_table(
         });
     }
     
+    // Compute ranges for gradient/heatmap coloring (if needed)
+    let priority_range: Option<(f64, f64)> = if options.color_column.as_deref() == Some("priority") 
+        || options.fill_column.as_deref() == Some("priority") {
+        let priorities: Vec<f64> = rows.iter()
+            .filter_map(|r| r.values.get(&TaskListColumn::Priority).and_then(|v| v.parse().ok()))
+            .collect();
+        if priorities.len() >= 2 {
+            let min = priorities.iter().cloned().fold(f64::INFINITY, f64::min);
+            let max = priorities.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            Some((min, max))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
+    let due_range: Option<(i64, i64)> = if options.color_column.as_deref() == Some("due") 
+        || options.fill_column.as_deref() == Some("due") {
+        let dues: Vec<i64> = rows.iter()
+            .filter_map(|r| r.sort_values.get(&TaskListColumn::Due).and_then(|v| {
+                if let Some(SortValue::Int(ts)) = v { Some(*ts) } else { None }
+            }))
+            .collect();
+        if dues.len() >= 2 {
+            let min = *dues.iter().min().unwrap();
+            let max = *dues.iter().max().unwrap();
+            Some((min, max))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
+    // Check if colors are enabled (only in TTY mode)
+    let colors_enabled = tty_mode && (options.color_column.is_some() || options.fill_column.is_some());
+    
     // Build rows with optional grouping
     if options.group_columns.is_empty() {
         for row in &rows {
+            // Get row colors
+            let (fg_color, bg_color, reset_needed) = if colors_enabled {
+                get_row_colors(row, &options.color_column, &options.fill_column, priority_range, due_range)
+            } else {
+                (String::new(), String::new(), false)
+            };
+            
+            // Start row with colors
+            if reset_needed {
+                output.push_str(&fg_color);
+                output.push_str(&bg_color);
+            }
+            
             for (idx, column) in columns.iter().enumerate() {
                 let width = *column_widths.get(column).unwrap_or(&4);
                 let raw_value = row.values.get(column).cloned().unwrap_or_default();
@@ -765,17 +1072,20 @@ pub fn format_task_list_table(
                 } else {
                     raw_value
                 };
-                // Apply bold to ID column in TTY mode
-                // Note: We need to pad first, then apply bold, to ensure display width is correct
+                // Apply bold to ID column in TTY mode (bold works with colors)
                 let formatted = if *column == TaskListColumn::Id && tty_mode {
-                    // For ID column with bold, pad the value first, then wrap with ANSI codes
                     let padded = format!("{:<width$}", value, width = width);
                     bold_if_tty(&padded, true)
                 } else {
                     format!("{:<width$}", value, width = width)
                 };
                 if idx == columns.len() - 1 {
-                    output.push_str(&format!("{}\n", formatted));
+                    // End of row - reset colors after newline
+                    if reset_needed {
+                        output.push_str(&format!("{}{}\n", formatted, ANSI_RESET));
+                    } else {
+                        output.push_str(&format!("{}\n", formatted));
+                    }
                 } else {
                     output.push_str(&format!("{} ", formatted));
                 }
@@ -809,11 +1119,37 @@ pub fn format_task_list_table(
                 .collect::<Vec<_>>()
                 .join(":");
             
-            // Group header in square brackets (no divider line)
-
+            // Get color for group header (based on first group value, typically the color column)
+            let group_color = if colors_enabled && !group_values.is_empty() {
+                // Use the first group value for color (typically matches the color column)
+                let first_value = &group_values[0];
+                let col_name = options.color_column.as_deref()
+                    .or(options.fill_column.as_deref())
+                    .unwrap_or("");
+                
+                if options.color_column.is_some() {
+                    get_semantic_fg_color(col_name, first_value)
+                        .unwrap_or_else(|| get_hash_fg_color(first_value))
+                        .to_string()
+                } else if options.fill_column.is_some() {
+                    get_semantic_bg_color(col_name, first_value)
+                        .unwrap_or_else(|| get_hash_bg_color(first_value))
+                        .to_string()
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
             
-            output.push_str(&format!("[{}]\n", group_label));
+            // Group header in square brackets (with optional color)
+            if group_color.is_empty() {
+                output.push_str(&format!("[{}]\n", group_label));
+            } else {
+                output.push_str(&format!("{}[{}]{}\n", group_color, group_label, ANSI_RESET));
+            }
             
+            // Task rows are NOT colored when grouped (per user decision: minimalism/readability)
             for row in group_rows {
                 for (idx, column) in columns.iter().enumerate() {
                     let width = *column_widths.get(column).unwrap_or(&4);
@@ -828,9 +1164,7 @@ pub fn format_task_list_table(
                         raw_value
                     };
                     // Apply bold to ID column in TTY mode
-                    // Note: We need to pad first, then apply bold, to ensure display width is correct
                     let formatted = if *column == TaskListColumn::Id && tty_mode {
-                        // For ID column with bold, pad the value first, then wrap with ANSI codes
                         let padded = format!("{:<width$}", value, width = width);
                         bold_if_tty(&padded, true)
                     } else {

@@ -102,13 +102,28 @@ tatl add -y "New feature" project:newproject
 # Automatically creates project if it doesn't exist
 ```
 
-### `tatl list [filter] [--json] [--relative]`
+### `tatl list [filter] [options]`
 
-List tasks matching optional filter.
+List tasks matching optional filter with display customization.
 
 **Options:**
 - `--json` - Output in JSON format
 - `--relative` - Show due dates as relative time (e.g., "2 days ago", "in 3 days")
+- `--full` - Show all columns regardless of terminal width
+
+**Display Modifiers:**
+- `sort:<column>` - Sort by column (prefix with `-` for descending)
+- `group:<column>` - Group tasks by column value
+- `hide:<column>` - Hide specified column(s)
+- `color:<column>` - Apply text color based on column value
+- `fill:<column>` - Apply background color based on column value
+
+**Color Types:**
+- **Categorical** (project, status, kanban, tags): Semantic or hash-based colors
+- **Numeric** (priority, alloc, clock): Gradient from green → yellow → red
+- **Date** (due, scheduled): Heat map from green (far) → red (near/overdue)
+
+**Note:** Colors only appear in terminal (TTY) output. Piped output has no ANSI codes.
 
 **Examples:**
 ```bash
@@ -122,6 +137,19 @@ tatl list status:pending
 
 # Sort and group
 tatl list sort:project,priority group:kanban
+
+# Color output
+tatl list color:project          # Hash-based colors per project
+tatl list color:kanban           # Semantic colors for stages
+tatl list fill:status            # Background color by status
+tatl list color:priority         # Priority gradient
+
+# Combine options
+tatl list group:project color:project   # Colored group headers
+tatl list sort:-priority color:kanban   # Sorted with row colors
+
+# Hide columns
+tatl list hide:tags,status
 
 # JSON output
 tatl list --json
@@ -802,10 +830,10 @@ tatl dashboard --period=year
 
 📋 QUEUE (3 tasks)
 ───────────────────────────────────────────────────────────────────────────
- #  ID   Description                              Project    Priority
-▶ 0  12   Fix auth bug                             work       11.2
-  1  15   Review PR                                work        8.5
-  2   8   Update docs                              docs        5.1
+ Q   ID   Description                              Project    Priority
+ ⏻  12   Fix auth bug                             work       11.2
+ 1  15   Review PR                                work        8.5
+ 2   8   Update docs                              docs        5.1
 
 ⏰ TODAY'S SESSIONS (2h 15m)
 ───────────────────────────────────────────────────────────────────────────
