@@ -8,7 +8,7 @@ use crate::cli::output::is_tty;
 use crate::filter::{parse_filter, filter_tasks};
 use crate::utils::parse_date_expr;
 use anyhow::{Context, Result};
-use chrono::{Local, TimeZone, Timelike, Duration};
+use chrono::{Local, TimeZone, Timelike};
 use rusqlite::Connection;
 use serde_json;
 use std::io::{self, Write};
