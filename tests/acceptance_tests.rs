@@ -269,21 +269,21 @@ fn acceptance_done_completes_and_removes_from_stack() {
 fn acceptance_done_next_starts_next() {
     // Given stack `[10,11]`
     // And clock running on 10 since 09:00
-    // When `task finish --next` at 09:30
+    // When `task finish : on` at 09:30
     // Then session for 10 ends 09:30
     // And session for 11 starts 09:30
     // And stack is `[11]`
-    
+
     let ctx = AcceptanceTestContext::new();
     let given = GivenBuilder::new(&ctx);
-    
+
     let task10 = given.task_exists("Task 10");
     let task11 = given.task_exists("Task 11");
     given.stack_contains(&[task10, task11]);
     given.clock_running_on_task_since(task10, "09:00");
-    
+
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["finish", "--next"]);
+    when.execute_success(&["finish", ":", "on"]);
     
     let then = ThenBuilder::new(&ctx, None);
     then.task_status_is(task10, "completed")

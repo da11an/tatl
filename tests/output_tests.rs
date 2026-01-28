@@ -30,7 +30,7 @@ fn test_task_list_table_formatting() {
     get_task_cmd(&temp_dir).args(&["projects", "add", "work"]).assert().success();
     
     // Create tasks
-    get_task_cmd(&temp_dir).args(&["add", "Task 1", "project:work", "+urgent"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Task 1", "project=work", "+urgent"]).assert().success();
     get_task_cmd(&temp_dir).args(&["add", "Task 2"]).assert().success();
     
     // List tasks - should show table format with Kanban column (replaced Status)
@@ -63,7 +63,7 @@ fn test_task_list_allocation_column() {
     let (temp_dir, _guard) = setup_test_env();
     
     // Create task with allocation
-    get_task_cmd(&temp_dir).args(&["add", "Task with allocation", "allocation:2h30m"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Task with allocation", "allocation=2h30m"]).assert().success();
     
     // Create task without allocation
     get_task_cmd(&temp_dir).args(&["add", "Task without allocation"]).assert().success();
@@ -103,10 +103,10 @@ fn test_task_list_allocation_various_formats() {
     let (temp_dir, _guard) = setup_test_env();
     
     // Create tasks with different allocation formats
-    get_task_cmd(&temp_dir).args(&["add", "Task 1", "allocation:1h"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Task 2", "allocation:30m"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Task 3", "allocation:45s"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Task 4", "allocation:2h15m30s"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Task 1", "allocation=1h"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Task 2", "allocation=30m"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Task 3", "allocation=45s"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Task 4", "allocation=2h15m30s"]).assert().success();
     
     // List tasks - should show all allocations correctly formatted
     let output = get_task_cmd(&temp_dir).args(&["list"]).assert().success();
@@ -126,7 +126,7 @@ fn test_task_list_allocation_column_position() {
     let (temp_dir, _guard) = setup_test_env();
     
     // Create task with allocation
-    get_task_cmd(&temp_dir).args(&["add", "Task with allocation", "allocation:1h"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Task with allocation", "allocation=1h"]).assert().success();
     
     // List tasks and verify allocation column is after Due column
     let output = get_task_cmd(&temp_dir).args(&["list"]).assert().success();
@@ -150,7 +150,7 @@ fn test_task_list_priority_column() {
     let (temp_dir, _guard) = setup_test_env();
     
     // Create task with due date (affects priority)
-    get_task_cmd(&temp_dir).args(&["add", "Urgent task", "due:tomorrow"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Urgent task", "due=tomorrow"]).assert().success();
     
     // Create task without due date
     get_task_cmd(&temp_dir).args(&["add", "Normal task"]).assert().success();

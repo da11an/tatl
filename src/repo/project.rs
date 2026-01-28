@@ -14,7 +14,7 @@ use anyhow::{Context, Result};
 ///
 /// Projects can be nested using dot notation (e.g., `admin.email`, `sales.northamerica`).
 /// The hierarchy is implicit - no explicit parent-child relationships are stored.
-/// Filtering by `project:admin` matches `admin`, `admin.email`, `admin.other`, etc.
+/// Filtering by `project=admin` matches `admin`, `admin.email`, `admin.other`, etc.
 ///
 /// # Example
 ///

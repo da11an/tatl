@@ -185,14 +185,14 @@ fn test_finish_with_filter_no_sessions() {
     
     // Create tasks with project (not clocked in)
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "Work task 1", "project:work"]).assert().success();
+    cmd.args(&["add", "Work task 1", "project=work"]).assert().success();
     
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "Work task 2", "project:work"]).assert().success();
+    cmd.args(&["add", "Work task 2", "project=work"]).assert().success();
     
     // Finish tasks by filter without sessions
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["finish", "project:work", "--yes"])
+    cmd.args(&["finish", "project=work", "--yes"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Finished task"));
@@ -232,7 +232,7 @@ fn test_finish_with_next_flag() {
     
     // Finish Task 1 with --next flag
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["finish", "--next"])
+    cmd.args(&["finish", ":", "on"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Finished task 1"))

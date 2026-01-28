@@ -37,12 +37,12 @@ fn test_color_column_parsing() {
     
     // Create tasks with different projects
     get_task_cmd(&temp_dir)
-        .args(&["add", "-y", "Task 1", "project:work"])
+        .args(&["add", "-y", "Task 1", "project=work"])
         .assert()
         .success();
     
     get_task_cmd(&temp_dir)
-        .args(&["add", "-y", "Task 2", "project:home"])
+        .args(&["add", "-y", "Task 2", "project=home"])
         .assert()
         .success();
     
@@ -67,7 +67,7 @@ fn test_fill_column_parsing() {
         .success();
     
     get_task_cmd(&temp_dir)
-        .args(&["add", "--finish", "Completed task"])
+        .args(&["add", "Completed task", ":", "finish"])
         .assert()
         .success();
     
@@ -91,7 +91,7 @@ fn test_color_kanban() {
         .success();
     
     get_task_cmd(&temp_dir)
-        .args(&["add", "--enqueue", "Queued task"])
+        .args(&["add", "Queued task", ":", "enqueue"])
         .assert()
         .success();
     
@@ -110,17 +110,17 @@ fn test_color_with_group() {
     
     // Create tasks with different projects
     get_task_cmd(&temp_dir)
-        .args(&["add", "-y", "Work task 1", "project:work"])
+        .args(&["add", "-y", "Work task 1", "project=work"])
         .assert()
         .success();
     
     get_task_cmd(&temp_dir)
-        .args(&["add", "-y", "Work task 2", "project:work"])
+        .args(&["add", "-y", "Work task 2", "project=work"])
         .assert()
         .success();
     
     get_task_cmd(&temp_dir)
-        .args(&["add", "-y", "Home task", "project:home"])
+        .args(&["add", "-y", "Home task", "project=home"])
         .assert()
         .success();
     
@@ -139,12 +139,12 @@ fn test_color_priority_gradient() {
     
     // Create tasks with different priorities (via due dates)
     get_task_cmd(&temp_dir)
-        .args(&["add", "Urgent task", "due:today"])
+        .args(&["add", "Urgent task", "due=today"])
         .assert()
         .success();
     
     get_task_cmd(&temp_dir)
-        .args(&["add", "Less urgent", "due:+7d"])
+        .args(&["add", "Less urgent", "due=+7d"])
         .assert()
         .success();
     
@@ -163,18 +163,18 @@ fn test_color_combined_with_filter() {
     
     // Create tasks
     get_task_cmd(&temp_dir)
-        .args(&["add", "-y", "Work task", "project:work"])
+        .args(&["add", "-y", "Work task", "project=work"])
         .assert()
         .success();
     
     get_task_cmd(&temp_dir)
-        .args(&["add", "-y", "Home task", "project:home"])
+        .args(&["add", "-y", "Home task", "project=home"])
         .assert()
         .success();
     
     // Filter and color together
     get_task_cmd(&temp_dir)
-        .args(&["list", "project:work", "color:kanban"])
+        .args(&["list", "project=work", "color:kanban"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Work task"))
@@ -187,7 +187,7 @@ fn test_color_and_fill_together() {
     
     // Create tasks
     get_task_cmd(&temp_dir)
-        .args(&["add", "-y", "Task", "project:work"])
+        .args(&["add", "-y", "Task", "project=work"])
         .assert()
         .success();
     
@@ -205,12 +205,12 @@ fn test_color_with_sort() {
     
     // Create tasks
     get_task_cmd(&temp_dir)
-        .args(&["add", "-y", "A task", "project:work"])
+        .args(&["add", "-y", "A task", "project=work"])
         .assert()
         .success();
     
     get_task_cmd(&temp_dir)
-        .args(&["add", "-y", "B task", "project:home"])
+        .args(&["add", "-y", "B task", "project=home"])
         .assert()
         .success();
     
@@ -227,7 +227,7 @@ fn test_color_with_hide() {
     
     // Create tasks
     get_task_cmd(&temp_dir)
-        .args(&["add", "-y", "Task", "project:work"])
+        .args(&["add", "-y", "Task", "project=work"])
         .assert()
         .success();
     
@@ -245,17 +245,17 @@ fn test_color_matches_group_colors_headers_only() {
     
     // Create tasks with different projects
     get_task_cmd(&temp_dir)
-        .args(&["add", "-y", "Work task 1", "project:work"])
+        .args(&["add", "-y", "Work task 1", "project=work"])
         .assert()
         .success();
     
     get_task_cmd(&temp_dir)
-        .args(&["add", "-y", "Work task 2", "project:work"])
+        .args(&["add", "-y", "Work task 2", "project=work"])
         .assert()
         .success();
     
     get_task_cmd(&temp_dir)
-        .args(&["add", "-y", "Home task", "project:home"])
+        .args(&["add", "-y", "Home task", "project=home"])
         .assert()
         .success();
     
@@ -275,17 +275,17 @@ fn test_color_does_not_match_group_colors_rows() {
     
     // Create tasks with different priorities (via due dates)
     get_task_cmd(&temp_dir)
-        .args(&["add", "-y", "Urgent task", "project:work", "due:today"])
+        .args(&["add", "-y", "Urgent task", "project=work", "due=today"])
         .assert()
         .success();
     
     get_task_cmd(&temp_dir)
-        .args(&["add", "-y", "Less urgent", "project:work", "due:+7d"])
+        .args(&["add", "-y", "Less urgent", "project=work", "due=+7d"])
         .assert()
         .success();
     
     get_task_cmd(&temp_dir)
-        .args(&["add", "-y", "Another urgent", "project:home", "due:today"])
+        .args(&["add", "-y", "Another urgent", "project=home", "due=today"])
         .assert()
         .success();
     

@@ -312,7 +312,8 @@ fn parse_list_request(tokens: Vec<String>) -> ListRequest {
 }
 
 fn is_view_name_token(token: &str) -> bool {
-    !token.contains(':') && !token.starts_with('+') && !token.starts_with('-') && token.parse::<i64>().is_err()
+    !token.contains(':') && !token.contains('=') && !token.contains('>') && !token.contains('<')
+        && !token.starts_with('+') && !token.starts_with('-') && token.parse::<i64>().is_err()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1223,46 +1224,43 @@ pub fn handle_sessions_delete(session_id: i64, yes: bool) -> Result<()> {
 }
 
 /// Parse session add arguments (supports both labeled and positional formats)
-/// Labeled: task:<id> start:<time> end:<time> [note:<note>]
+/// Labeled: task=<id> start=<time> end=<time> [note=<note>]
 /// Positional: <id> <start> <end> [<note>]
 fn parse_session_add_args(args: Vec<String>) -> Result<(i64, i64, i64, Option<String>)> {
     if args.is_empty() {
-        return Err(anyhow::anyhow!("Missing required arguments. Use: task sessions add task:<id> start:<time> end:<time> [note:<note>] or task sessions add <id> <start> <end> [<note>]"));
+        return Err(anyhow::anyhow!("Missing required arguments. Use: task sessions add task=<id> start=<time> end=<time> [note=<note>] or task sessions add <id> <start> <end> [<note>]"));
     }
-    
-    // Check if first argument starts with "task:" (labeled format)
-    let is_labeled = args[0].starts_with("task:");
-    
+
+    // Check if first argument starts with "task=" (labeled format)
+    let is_labeled = args[0].starts_with("task=");
+
     if is_labeled {
-        // Labeled format: task:<id> start:<time> end:<time> [note:<note>]
+        // Labeled format: task=<id> start=<time> end=<time> [note=<note>]
         let mut task_id: Option<i64> = None;
         let mut start_ts: Option<i64> = None;
         let mut end_ts: Option<i64> = None;
         let mut note: Option<String> = None;
-        
+
         for arg in args {
-            if arg.starts_with("task:") {
-                let task_str = &arg[5..];
+            if let Some(task_str) = arg.strip_prefix("task=") {
                 task_id = Some(task_str.parse()
                     .map_err(|_| anyhow::anyhow!("Invalid task ID: {}", task_str))?);
-            } else if arg.starts_with("start:") {
-                let expr = &arg[6..];
+            } else if let Some(expr) = arg.strip_prefix("start=") {
                 start_ts = Some(parse_date_expr(expr)
                     .context(format!("Failed to parse start time: {}", expr))?);
-            } else if arg.starts_with("end:") {
-                let expr = &arg[4..];
+            } else if let Some(expr) = arg.strip_prefix("end=") {
                 end_ts = Some(parse_date_expr(expr)
                     .context(format!("Failed to parse end time: {}", expr))?);
-            } else if arg.starts_with("note:") {
-                note = Some(arg[5..].to_string());
+            } else if let Some(n) = arg.strip_prefix("note=") {
+                note = Some(n.to_string());
             } else {
-                return Err(anyhow::anyhow!("Invalid argument: {}. Expected task:<id>, start:<time>, end:<time>, or note:<note>", arg));
+                return Err(anyhow::anyhow!("Invalid argument: {}. Expected task=<id>, start=<time>, end=<time>, or note=<note>", arg));
             }
         }
-        
-        let task_id = task_id.ok_or_else(|| anyhow::anyhow!("Missing required argument: task:<id>"))?;
-        let start_ts = start_ts.ok_or_else(|| anyhow::anyhow!("Missing required argument: start:<time>"))?;
-        let end_ts = end_ts.ok_or_else(|| anyhow::anyhow!("Missing required argument: end:<time>"))?;
+
+        let task_id = task_id.ok_or_else(|| anyhow::anyhow!("Missing required argument: task=<id>"))?;
+        let start_ts = start_ts.ok_or_else(|| anyhow::anyhow!("Missing required argument: start=<time>"))?;
+        let end_ts = end_ts.ok_or_else(|| anyhow::anyhow!("Missing required argument: end=<time>"))?;
         
         Ok((task_id, start_ts, end_ts, note))
     } else {
@@ -1287,7 +1285,7 @@ fn parse_session_add_args(args: Vec<String>) -> Result<(i64, i64, i64, Option<St
     }
 }
 
-/// Handle `task sessions add task:<id> start:<time> end:<time> [note:<note>]`
+/// Handle `task sessions add task=<id> start=<time> end=<time> [note=<note>]`
 /// Or: `task sessions add <id> <start> <end> [<note>]`
 pub fn handle_sessions_add(args: Vec<String>) -> Result<()> {
     let conn = DbConnection::connect()
@@ -1535,8 +1533,8 @@ pub fn handle_sessions_report(args: Vec<String>) -> Result<()> {
         // If it looks like a filter token (contains : but isn't a time, or starts with + or -)
         if arg.starts_with('+') || arg.starts_with('-') && !arg.chars().skip(1).all(|c| c.is_ascii_digit() || c == 'd' || c == 'w' || c == 'm' || c == 'y') {
             filter_tokens.push(arg);
-        } else if arg.contains(':') && !is_time_like(&arg) {
-            // Looks like project:X or tag:X filter, not a time
+        } else if (arg.contains('=') || arg.contains('>') || arg.contains('<')) && !is_time_like(&arg) {
+            // Looks like project=X or similar filter, not a time
             filter_tokens.push(arg);
         } else if arg == "or" || arg == "not" {
             filter_tokens.push(arg);
@@ -1634,7 +1632,7 @@ pub fn handle_sessions_report(args: Vec<String>) -> Result<()> {
 
 /// Check if a string looks like a time expression (not a filter token)
 fn is_time_like(s: &str) -> bool {
-    // Times look like: "14:30", "09:00", but not "project:work"
+    // Times look like: "14:30", "09:00", but not "project=work"
     if let Some(pos) = s.find(':') {
         let before = &s[..pos];
         let after = &s[pos + 1..];

@@ -31,8 +31,8 @@ fn test_sessions_report_with_project_filter() {
     get_task_cmd(&temp_dir).args(&["projects", "add", "home"]).assert().success();
     
     // Create tasks
-    get_task_cmd(&temp_dir).args(&["add", "Work task", "project:work"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Home task", "project:home"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Work task", "project=work"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Home task", "project=home"]).assert().success();
     
     // Create sessions
     get_task_cmd(&temp_dir).args(&["onoff", "09:00..10:00", "1"]).assert().success();
@@ -40,7 +40,7 @@ fn test_sessions_report_with_project_filter() {
     
     // Run report with project filter
     let output = get_task_cmd(&temp_dir)
-        .args(&["sessions", "report", "-7d", "project:work"])
+        .args(&["sessions", "report", "-7d", "project=work"])
         .assert()
         .success();
     

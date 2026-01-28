@@ -22,10 +22,6 @@ pub struct ParsedTaskArgs {
 /// Field name abbreviation error
 #[derive(Debug)]
 pub enum FieldParseError {
-    AmbiguousAbbreviation {
-        field: String,
-        matches: Vec<String>,
-    },
     InvalidFieldName {
         field: String,
         suggestion: String,
@@ -45,10 +41,6 @@ pub enum FieldParseError {
 impl std::fmt::Display for FieldParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FieldParseError::AmbiguousAbbreviation { field, matches } => {
-                let match_list = matches.join(", ");
-                write!(f, "Ambiguous field name '{}'\n  Matches: {}\n  Use a longer prefix to disambiguate, or use the full field name.", field, match_list)
-            }
             FieldParseError::InvalidFieldName { field, suggestion } => {
                 write!(f, "Unrecognized field name '{}'\n  Did you mean '{}'?", field, suggestion)
             }
@@ -56,7 +48,7 @@ impl std::fmt::Display for FieldParseError {
                 write!(f, "Field '{}' cannot be modified directly.\n  {}", field, hint)
             }
             FieldParseError::UnknownFieldToken { token } => {
-                write!(f, "Unrecognized field token '{}'\n  If this is meant to be part of the description, remove the colon or quote the entire description.", token)
+                write!(f, "Unrecognized field token '{}'\n  If this is meant to be part of the description, remove the equals sign or quote the entire description.", token)
             }
             FieldParseError::InvalidTag { message } => {
                 write!(f, "{}", message)
@@ -65,7 +57,7 @@ impl std::fmt::Display for FieldParseError {
     }
 }
 
-/// Field names that can be abbreviated
+/// Valid field names (exact match only, no abbreviations)
 const FIELD_NAMES: &[&str] = &[
     "project",
     "due",
@@ -85,28 +77,10 @@ const READ_ONLY_FIELDS: &[&str] = &[
     "id",          // Immutable
 ];
 
-/// Expand field name abbreviation (like command abbreviations)
-/// Returns Ok(field_name) if unambiguous, Err(matches) if ambiguous
-fn expand_field_name_abbreviation(field: &str) -> Result<String, Vec<String>> {
-    let matches: Vec<&str> = FIELD_NAMES
-        .iter()
-        .filter(|name| name.to_lowercase().starts_with(&field.to_lowercase()))
-        .copied()
-        .collect();
-    
-    if matches.is_empty() {
-        Err(Vec::new())
-    } else if matches.len() == 1 {
-        Ok(matches[0].to_string())
-    } else {
-        Err(matches.iter().map(|s| s.to_string()).collect())
-    }
-}
-
 /// Find the most similar field name using fuzzy matching
 fn find_similar_field_name(field: &str) -> Option<String> {
     let mut best_match: Option<(&str, usize)> = None;
-    
+
     for name in FIELD_NAMES {
         let distance = levenshtein_distance(&field.to_lowercase(), &name.to_lowercase());
         if distance <= 3 {
@@ -119,7 +93,7 @@ fn find_similar_field_name(field: &str) -> Option<String> {
             }
         }
     }
-    
+
     best_match.map(|(name, _)| name.to_string())
 }
 
@@ -134,21 +108,21 @@ fn get_read_only_hint(field: &str) -> String {
     }
 }
 
-/// Parse a field token (field:value)
-/// Returns the field name (after abbreviation expansion) and value
-/// Handles empty values (field:) by converting to field:none
+/// Parse a field token (field=value)
+/// Returns the field name and value
+/// Handles empty values (field=) by converting to field=none
 fn parse_field_token(token: &str) -> Result<Option<(String, String)>, FieldParseError> {
-    if let Some(colon_pos) = token.find(':') {
-        let field = token[..colon_pos].to_string();
-        let value = token[colon_pos + 1..].to_string();
-        
-        // Handle empty value (field:) -> treat as field:none
+    if let Some(eq_pos) = token.find('=') {
+        let field = token[..eq_pos].to_string();
+        let value = token[eq_pos + 1..].to_string();
+
+        // Handle empty value (field=) -> treat as field=none
         let final_value = if value.is_empty() {
             "none".to_string()
         } else {
             value
         };
-        
+
         // Check for read-only fields first
         if READ_ONLY_FIELDS.iter().any(|f| f.eq_ignore_ascii_case(&field)) {
             return Err(FieldParseError::ReadOnlyField {
@@ -156,38 +130,22 @@ fn parse_field_token(token: &str) -> Result<Option<(String, String)>, FieldParse
                 hint: get_read_only_hint(&field),
             });
         }
-        
-        // Try exact match first
+
+        // Exact match only
         if FIELD_NAMES.contains(&field.as_str()) {
             return Ok(Some((field, final_value)));
         }
-        
-        // Try abbreviation expansion
-        match expand_field_name_abbreviation(&field) {
-            Ok(expanded_field) => {
-                Ok(Some((expanded_field, final_value)))
-            }
-            Err(matches) => {
-                if !matches.is_empty() {
-                    // Ambiguous abbreviation
-                    return Err(FieldParseError::AmbiguousAbbreviation {
-                        field,
-                        matches,
-                    });
-                }
-                
-                // No abbreviation match - try fuzzy matching
-                if let Some(suggestion) = find_similar_field_name(&field) {
-                    Err(FieldParseError::InvalidFieldName {
-                        field,
-                        suggestion,
-                    })
-                } else {
-                    // No similar field found - might be a UDA or invalid
-                    // Return None to let caller handle it
-                    Ok(None)
-                }
-            }
+
+        // No exact match - try fuzzy matching for typo suggestions
+        if let Some(suggestion) = find_similar_field_name(&field) {
+            Err(FieldParseError::InvalidFieldName {
+                field,
+                suggestion,
+            })
+        } else {
+            // No similar field found - might be a UDA or invalid
+            // Return None to let caller handle it
+            Ok(None)
         }
     } else {
         Ok(None)
@@ -197,23 +155,23 @@ fn parse_field_token(token: &str) -> Result<Option<(String, String)>, FieldParse
 /// Parse task add/modify arguments
 /// Description is tokens that don't match field patterns, tag patterns, or flags
 /// Field tokens, tag tokens, and flags can appear anywhere in the argument list
-/// Returns Result to handle field parse errors (ambiguous abbreviations, invalid field names)
+/// Returns Result to handle field parse errors
 pub fn parse_task_args(args: Vec<String>) -> Result<ParsedTaskArgs, FieldParseError> {
     let mut parsed = ParsedTaskArgs::default();
     let mut description_parts = Vec::new();
-    
+
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
-        
+
         // Check for flags (--flag)
         if arg.starts_with("--") {
             // Skip flags for now (will handle --template, --yes, etc. in command handler)
             i += 1;
             continue;
         }
-        
-        // Check for field tokens (field:value)
+
+        // Check for field tokens (field=value)
         let mut handled = false;
         match parse_field_token(arg) {
             Ok(Some((field, value))) => {
@@ -227,7 +185,7 @@ pub fn parse_task_args(args: Vec<String>) -> Result<ParsedTaskArgs, FieldParseEr
                     "template" => parsed.template = Some(value),
                     "respawn" => parsed.respawn = Some(value),
                     _ => {
-                        // Check if it's a UDA (uda.<key>:<value>)
+                        // Check if it's a UDA (uda.<key>=<value>)
                         if field.starts_with("uda.") {
                             let key = field.strip_prefix("uda.").unwrap().to_string();
                             if value == "none" {
@@ -245,11 +203,11 @@ pub fn parse_task_args(args: Vec<String>) -> Result<ParsedTaskArgs, FieldParseEr
             Ok(None) => {
                 // Not a recognized field token - might be description or UDA
                 // Check if it looks like a UDA
-                if arg.contains(':') && arg.starts_with("uda.") {
+                if arg.contains('=') && arg.starts_with("uda.") {
                     // UDA format - parse manually
-                    if let Some(colon_pos) = arg.find(':') {
-                        let field = &arg[..colon_pos];
-                        let value = &arg[colon_pos + 1..];
+                    if let Some(eq_pos) = arg.find('=') {
+                        let field = &arg[..eq_pos];
+                        let value = &arg[eq_pos + 1..];
                         let key = field.strip_prefix("uda.").unwrap().to_string();
                         if value == "none" {
                             // UDA clearing - handled separately
@@ -258,15 +216,14 @@ pub fn parse_task_args(args: Vec<String>) -> Result<ParsedTaskArgs, FieldParseEr
                         }
                         handled = true;
                     }
-                } else if arg.contains(':') && !arg.starts_with('+') && !arg.starts_with('-') {
-                    // Looks like a field token (contains colon) but wasn't recognized
-                    // This is likely a typo or unknown field - error instead of silently treating as description
-                    // Exception: time expressions like "09:00" or URLs - check if the part before : looks like a field name
-                    if let Some(colon_pos) = arg.find(':') {
-                        let potential_field = &arg[..colon_pos];
+                } else if arg.contains('=') && !arg.starts_with('+') && !arg.starts_with('-') {
+                    // Looks like a field token (contains =) but wasn't recognized
+                    // This is likely a typo or unknown field
+                    if let Some(eq_pos) = arg.find('=') {
+                        let potential_field = &arg[..eq_pos];
                         // If the potential field name is alphabetic and looks like a field, it's probably a typo
-                        if potential_field.chars().all(|c| c.is_ascii_alphabetic() || c == '_' || c == '.') 
-                           && potential_field.len() >= 2 
+                        if potential_field.chars().all(|c| c.is_ascii_alphabetic() || c == '_' || c == '.')
+                           && potential_field.len() >= 2
                            && !potential_field.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
                             return Err(FieldParseError::UnknownFieldToken {
                                 token: arg.clone(),
@@ -281,7 +238,7 @@ pub fn parse_task_args(args: Vec<String>) -> Result<ParsedTaskArgs, FieldParseEr
                 return Err(e);
             }
         }
-        
+
         // If not handled as field token, check for tags or treat as description
         if !handled {
             // Check for tag tokens (+tag or -tag)
@@ -311,10 +268,10 @@ pub fn parse_task_args(args: Vec<String>) -> Result<ParsedTaskArgs, FieldParseEr
                 description_parts.push(arg.clone());
             }
         }
-        
+
         i += 1;
     }
-    
+
     parsed.description = description_parts;
     Ok(parsed)
 }
@@ -362,12 +319,12 @@ mod tests {
 
     #[test]
     fn test_parse_with_project() {
-        let args = vec!["fix".to_string(), "bug".to_string(), "project:work".to_string()];
+        let args = vec!["fix".to_string(), "bug".to_string(), "project=work".to_string()];
         let parsed = parse_task_args(args).unwrap();
         assert_eq!(parsed.description, vec!["fix", "bug"]);
         assert_eq!(parsed.project, Some("work".to_string()));
     }
-    
+
     #[test]
     fn test_parse_with_tags() {
         let args = vec!["fix".to_string(), "bug".to_string(), "+urgent".to_string(), "+important".to_string()];
@@ -378,7 +335,7 @@ mod tests {
 
     #[test]
     fn test_parse_mixed_order() {
-        let args = vec!["project:work".to_string(), "fix".to_string(), "bug".to_string(), "+urgent".to_string()];
+        let args = vec!["project=work".to_string(), "fix".to_string(), "bug".to_string(), "+urgent".to_string()];
         let parsed = parse_task_args(args).unwrap();
         assert_eq!(parsed.description, vec!["fix", "bug"]);
         assert_eq!(parsed.project, Some("work".to_string()));
@@ -387,39 +344,23 @@ mod tests {
 
     #[test]
     fn test_parse_udas() {
-        let args = vec!["fix".to_string(), "bug".to_string(), "uda.priority:high".to_string(), "uda.estimate:2h".to_string()];
+        let args = vec!["fix".to_string(), "bug".to_string(), "uda.priority=high".to_string(), "uda.estimate=2h".to_string()];
         let parsed = parse_task_args(args).unwrap();
         assert_eq!(parsed.description, vec!["fix", "bug"]);
         assert_eq!(parsed.udas.get("priority"), Some(&"high".to_string()));
         assert_eq!(parsed.udas.get("estimate"), Some(&"2h".to_string()));
     }
-    
+
     #[test]
-    fn test_field_abbreviation() {
-        let args = vec!["fix".to_string(), "bug".to_string(), "proj:work".to_string()];
-        let parsed = parse_task_args(args).unwrap();
-        assert_eq!(parsed.project, Some("work".to_string()));
-    }
-    
-    #[test]
-    fn test_field_abbreviation_empty_value() {
-        let args = vec!["fix".to_string(), "bug".to_string(), "project:".to_string()];
+    fn test_field_empty_value() {
+        let args = vec!["fix".to_string(), "bug".to_string(), "project=".to_string()];
         let parsed = parse_task_args(args).unwrap();
         assert_eq!(parsed.project, Some("none".to_string()));
     }
-    
-    #[test]
-    fn test_ambiguous_abbreviation() {
-        // This test depends on what fields exist - if 's' is ambiguous, it should error
-        // For now, let's test with a case that should work
-        let args = vec!["fix".to_string(), "bug".to_string(), "sc:tomorrow".to_string()];
-        let parsed = parse_task_args(args).unwrap();
-        assert_eq!(parsed.scheduled, Some("tomorrow".to_string()));
-    }
-    
+
     #[test]
     fn test_invalid_field_name() {
-        let args = vec!["fix".to_string(), "bug".to_string(), "projects:work".to_string()];
+        let args = vec!["fix".to_string(), "bug".to_string(), "projects=work".to_string()];
         let result = parse_task_args(args);
         assert!(result.is_err());
         if let Err(FieldParseError::InvalidFieldName { field, suggestion }) = result {
@@ -428,5 +369,13 @@ mod tests {
         } else {
             panic!("Expected InvalidFieldName error");
         }
+    }
+
+    #[test]
+    fn test_time_expressions_not_confused_with_fields() {
+        // Time expressions like 09:00 contain : but no = so should not be parsed as fields
+        let args = vec!["meeting".to_string(), "at".to_string(), "09:00".to_string()];
+        let parsed = parse_task_args(args).unwrap();
+        assert_eq!(parsed.description, vec!["meeting", "at", "09:00"]);
     }
 }

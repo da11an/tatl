@@ -18,36 +18,29 @@ Complete reference for all Tatl commands with examples and usage patterns.
 
 ## Task Commands
 
-### `tatl add [--on] [--onoff <start>..<end>] [--enqueue] [--finish] [--close] [-y] <description> [attributes...]`
+### `tatl add [-y] <description> [attributes...] [ : <command> [args]...]`
 
 Add a new task with optional attributes.
 
 **Description:** The task description is the first argument or all non-attribute tokens.
 
 **Options:**
-- `--on` - Automatically start timing after creating task (pushes to queue[0] and starts timing)
-- `--on=<time>` - Same as `--on`, but start session at the specified time (e.g., `--on=14:00`)
-- `--onoff <start>..<end>` - Create task and add historical session for the specified interval
-- `--enqueue` - Automatically enqueue task to queue after creating (adds to end, does not start timing)
-- `--finish` - Mark task as completed immediately after creation (triggers respawn if applicable)
-- `--close` - Mark task as closed immediately after creation (triggers respawn if applicable)
 - `-y` - Auto-confirm prompts (create new projects, modify overlapping sessions)
 
 **Notes:**
-- If `--onoff` is specified, it takes precedence over `--on` and `--enqueue`.
-- `--finish` and `--close` can be combined with `--onoff` to record historical effort before completing/closing.
-- `--finish` and `--close` cannot be combined with `--on` or `--enqueue`.
+- Multiple pipe commands can be chained: `tatl add "Task" : onoff 09:00..12:00 : finish`
+- Pipe commands execute sequentially, passing the task ID from one to the next
 
 **Attributes:**
-- `project:<name>` - Assign to project
-- `due:<expr>` - Set due date
-- `scheduled:<expr>` - Set scheduled date
-- `wait:<expr>` - Set wait date
-- `allocation:<duration>` - Set time allocation
-- `template:<name>` - Use template
-- `respawn:<pattern>` - Set respawn rule (creates new instance on completion)
+- `project=<name>` - Assign to project
+- `due=<expr>` - Set due date
+- `scheduled=<expr>` - Set scheduled date
+- `wait=<expr>` - Set wait date
+- `allocation=<duration>` - Set time allocation
+- `template=<name>` - Use template
+- `respawn=<pattern>` - Set respawn rule (creates new instance on completion)
 - `+<tag>` - Add tag
-- `uda.<key>:<value>` - Set user-defined attribute
+- `uda.<key>=<value>` - Set user-defined attribute
 
 **Examples:**
 ```bash
@@ -55,43 +48,43 @@ Add a new task with optional attributes.
 tatl add Fix bug in authentication
 
 # Task with project and tags
-tatl add Review PR project:work +code-review +urgent
+tatl add Review PR project=work +code-review +urgent
 
 # Task with due date and allocation
-tatl add Write documentation project:docs due:tomorrow allocation:2h
+tatl add Write documentation project=docs due=tomorrow allocation=2h
 
 # Task with respawn rule (creates new instance when completed)
 tatl add "Daily standup" respawn:daily due:09:00
 
 # Task with UDA
-tatl add Customer call uda.client:acme uda.priority:high
+tatl add Customer call uda.client=acme uda.priority=high
 
-# Task with --on (automatically starts timing)
-tatl add --on Start working on feature
-tatl add --on "Fix urgent bug" project:work +urgent
+# Task with : on (automatically starts timing)
+tatl add "Start working on feature" : on
+tatl add "Fix urgent bug" project=work +urgent : on
 
-# Task with --on=<time> (start timing at earlier time)
-tatl add --on=14:00 "Meeting started at 2pm" project:meetings
-tatl add --on=09:30 "Forgot to start timer" project:work
+# Task with : on <time> (start timing at earlier time)
+tatl add "Meeting started at 2pm" project=meetings : on 14:00
+tatl add "Forgot to start timer" project=work : on 09:30
 
 # Task with --enqueue (adds to queue without starting timing)
-tatl add --enqueue "Review documentation" project:docs
-tatl add --enqueue "Write tests" project:work due:tomorrow allocation:2h
+tatl add "Review documentation" project=docs : enqueue
+tatl add "Write tests" project=work due=tomorrow allocation=2h : enqueue
 
-# Task with --onoff (create task and add historical session)
-tatl add "Emergency meeting" --onoff 14:00..15:00 project:meetings
-tatl add "Support request" --onoff 10:30..11:00 +support
+# Task with : onoff (create task and add historical session)
+tatl add "Emergency meeting" project=meetings : onoff 14:00..15:00
+tatl add "Support request" +support : onoff 10:30..11:00
 
-# Task with --finish (create already completed task)
-tatl add --finish "Already done task" project:work
-tatl add "Fixed bug yesterday" --onoff 14:00..15:00 --finish project:work
+# Task with : finish (create already completed task)
+tatl add "Already done task" project=work : finish
+tatl add "Fixed bug yesterday" project=work : onoff 14:00..15:00 : finish
 
-# Task with --close (create already closed task)
-tatl add --close "Cancelled request" project:work
-tatl add "Started but abandoned" --onoff 09:00..10:00 --close
+# Task with : close (create already closed task)
+tatl add "Cancelled request" project=work : close
+tatl add "Started but abandoned" : onoff 09:00..10:00 : close
 
 # Task with new project (interactive prompt)
-tatl add "New feature" project:newproject
+tatl add "New feature" project=newproject
 # Prompts: "This is a new project 'newproject'. Add new project? [y/n/c] (default: y):"
 # - y: Create project and continue (default)
 # - n: Skip project, create task without it
@@ -153,7 +146,7 @@ tatl list hide:tags,status
 
 # JSON output
 tatl list --json
-tatl list project:work +urgent --json
+tatl list project=work +urgent --json
 ```
 
 ### `tatl modify <id|filter> [attributes...] [--yes] [--interactive]`
@@ -170,7 +163,7 @@ Modify one or more tasks.
 tatl modify 10 +urgent due:+2d
 
 # Modify multiple tasks (with confirmation)
-tatl modify project:work description:Updated description
+tatl modify project=work description=Updated description
 
 # Modify with --yes flag
 tatl modify +urgent due:+1d --yes
@@ -240,7 +233,7 @@ Close one or more tasks (sets status to `closed`).
 tatl close 10
 
 # Close multiple tasks
-tatl close project:work --yes
+tatl close project=work --yes
 ```
 
 ### `tatl annotate [<id>] <note...> [--task <id>] [--delete <annotation_id>]`
@@ -288,7 +281,7 @@ tatl show 1-3
 tatl show 1,3,5
 
 # Show with filter
-tatl show project:work
+tatl show project=work
 ```
 
 ### `tatl delete <id|filter> [--yes] [--interactive]`
@@ -628,13 +621,13 @@ tatl sessions list
 tatl sessions list 10
 
 # Filter by project
-tatl sessions list project:work
+tatl sessions list project=work
 
 # Filter by tags
 tatl sessions list +urgent
 
 # Multiple filter arguments
-tatl sessions list project:work +urgent
+tatl sessions list project=work +urgent
 
 # Filter by session start date
 tatl sessions list start:today       # Sessions starting today
@@ -658,7 +651,7 @@ tatl sessions list end:today project:work +billable
 
 # JSON output
 tatl sessions list --json
-tatl sessions list project:work --json
+tatl sessions list project=work --json
 ```
 
 ### `tatl sessions show [--task <id|filter>]`

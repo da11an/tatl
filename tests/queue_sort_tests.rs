@@ -30,15 +30,15 @@ fn test_queue_sort_by_due_date() {
     
     // Create tasks with different due dates
     get_task_cmd(&temp_dir)
-        .args(&["add", "Task 1", "due:2026-01-25"])
+        .args(&["add", "Task 1", "due=2026-01-25"])
         .assert()
         .success();
     get_task_cmd(&temp_dir)
-        .args(&["add", "Task 2", "due:2026-01-20"])
+        .args(&["add", "Task 2", "due=2026-01-20"])
         .assert()
         .success();
     get_task_cmd(&temp_dir)
-        .args(&["add", "Task 3", "due:2026-01-30"])
+        .args(&["add", "Task 3", "due=2026-01-30"])
         .assert()
         .success();
     
@@ -70,15 +70,15 @@ fn test_queue_sort_by_priority_descending() {
     
     // Create tasks with priority UDAs
     get_task_cmd(&temp_dir)
-        .args(&["add", "Task 1", "uda.priority:3"])
+        .args(&["add", "Task 1", "uda.priority=3"])
         .assert()
         .success();
     get_task_cmd(&temp_dir)
-        .args(&["add", "Task 2", "uda.priority:1"])
+        .args(&["add", "Task 2", "uda.priority=1"])
         .assert()
         .success();
     get_task_cmd(&temp_dir)
-        .args(&["add", "Task 3", "uda.priority:5"])
+        .args(&["add", "Task 3", "uda.priority=5"])
         .assert()
         .success();
     

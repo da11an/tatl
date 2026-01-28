@@ -31,19 +31,19 @@ pub enum Commands {
         subcommand: ProjectCommands,
     },
     /// Add a new task
-    #[command(long_about = "Create a new task with optional attributes, timing, and queue placement.
+    #[command(long_about = "Create a new task with optional attributes.
 
 The task description is all text that doesn't match field patterns. Field syntax includes:
-  project:<name>     - Assign to project (creates if new with -y)
-  due:<expr>         - Set due date (see DATE EXPRESSIONS below)
-  scheduled:<expr>   - Set scheduled date
-  wait:<expr>        - Set wait date
-  allocation:<dur>   - Set time allocation (e.g., \"2h\", \"30m\", \"1d\")
-  template:<name>    - Use template
-  respawn:<pattern>  - Set respawn rule (see RESPAWN PATTERNS below)
+  project=<name>     - Assign to project (creates if new with -y)
+  due=<expr>         - Set due date (see DATE EXPRESSIONS below)
+  scheduled=<expr>   - Set scheduled date
+  wait=<expr>        - Set wait date
+  allocation=<dur>   - Set time allocation (e.g., \"2h\", \"30m\", \"1d\")
+  template=<name>    - Use template
+  respawn=<pattern>  - Set respawn rule (see RESPAWN PATTERNS below)
   +<tag>             - Add tag
   -<tag>             - Remove tag
-  uda.<key>:<value>  - Set user-defined attribute
+  uda.<key>=<value>  - Set user-defined attribute
 
 DATE EXPRESSIONS:
   Relative: tomorrow, +3d, -1w, +2m, +1y
@@ -52,46 +52,34 @@ DATE EXPRESSIONS:
 
 RESPAWN PATTERNS:
   Simple: daily, weekly, monthly, yearly
-  Advanced: weekdays:mon,wed,fri, monthdays:1,15, nth:1:day, every:2w
+  Interval: 2d, 3w, 2m, 1y
+  Weekdays: mon,wed,fri
+  Monthdays: 1,15
+  Nth weekday: 2nd-tue, 1st-mon, last-fri
 
-If --onoff is specified, it takes precedence over --on and --enqueue.
+PIPE OPERATOR ( : ):
+  Chain commands using the pipe operator (space-colon-space).
+  The pipe passes the created task ID to the next command.
 
-ACTION FLAGS:
-  --finish             - Create task already marked as completed (triggers respawn)
-  --close              - Create task already marked as closed (triggers respawn)
-
-  Note: --finish and --close conflict with --on and --enqueue. They can be combined with --onoff
-  to record historical effort before completing/closing.
+  tatl add \"Task\" project=work : on           # Create and start timing
+  tatl add \"Task\" : onoff 09:00..10:00         # Create with historical session
+  tatl add \"Task\" : enqueue                    # Create and enqueue
+  tatl add \"Task\" : finish                     # Create as completed
+  tatl add \"Task\" : onoff 09:00..10:00 : finish  # Historical session + complete
+  tatl add \"Task\" : close                      # Create as closed
+  tatl add \"Task\" : annotate \"note\"            # Create and annotate
 
 EXAMPLES:
-  tatl add \"Fix bug\" project:work +urgent
-  tatl add \"Review PR\" due:tomorrow allocation:1h
-  tatl add \"Daily standup\" respawn:daily due:09:00
-  tatl add --on \"Start working on feature\"
-  tatl add \"Forgot to track meeting\" --onoff 14:00..15:00 project:meetings
-  tatl add \"Already done task\" --finish
-  tatl add \"Meeting\" --onoff 14:00..15:00 --finish  # Historical session + complete
-  tatl add \"Cancelled request\" project:work --close")]
+  tatl add \"Fix bug\" project=work +urgent
+  tatl add \"Review PR\" due=tomorrow allocation=1h
+  tatl add \"Daily standup\" respawn=daily due=09:00
+  tatl add \"Start working\" : on
+  tatl add \"Meeting\" : onoff 14:00..15:00 : finish")]
     Add {
-        /// Start timing immediately after creation. If TIME is provided (e.g., --on=14:00), the session starts at that time instead of now. Pushes task to queue[0].
-        #[arg(long = "on", visible_alias = "clock-in", num_args = 0..=1, require_equals = true, default_missing_value = "")]
-        start_timing: Option<String>,
-        /// Add historical session for the task. Interval format: \"start..end\" (e.g., \"09:00..12:00\"). Takes precedence over --on and --enqueue.
-        #[arg(long = "onoff")]
-        onoff_interval: Option<String>,
-        /// Add task to end of queue without starting timing
-        #[arg(long = "enqueue")]
-        enqueue: bool,
-        /// Mark task as completed immediately after creation (triggers respawn). Cannot be combined with --on or --enqueue.
-        #[arg(long = "finish")]
-        finish: bool,
-        /// Mark task as closed immediately after creation (triggers respawn). Cannot be combined with --on, --enqueue, or --finish.
-        #[arg(long = "close")]
-        close: bool,
         /// Auto-confirm prompts (create new projects, modify overlapping sessions)
         #[arg(short = 'y', long)]
         yes: bool,
-        /// Task description and fields. The description is all text not matching field patterns. Examples: \"fix bug project:work +urgent\", \"Review PR due:tomorrow allocation:1h\"
+        /// Task description and fields. The description is all text not matching field patterns. Examples: \"fix bug project=work +urgent\", \"Review PR due=tomorrow allocation=1h\"
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -99,38 +87,41 @@ EXAMPLES:
     #[command(long_about = "List tasks matching optional filter criteria.
 
 FILTER SYNTAX:
-  Field filters:
-    id:<n>              - Match by task ID
-    status:<status>      - Match by status (pending, completed, closed, deleted)
-    project:<name>       - Match by project (supports prefix matching for nested projects)
-    due:<expr>           - Match by due date (see DATE EXPRESSIONS)
-    scheduled:<expr>     - Match by scheduled date
-    wait:<expr>          - Match by wait date
-    kanban:<status>      - Match by kanban status (proposed, stalled, queued, external, done)
-    desc:<pattern>       - Match description containing pattern (case-insensitive)
-    description:<pattern> - Alias for desc:
-  
+  Field filters (use = for equality, or >, <, >=, <=, != for comparisons):
+    id=<n>              - Match by task ID
+    status=<status>      - Match by status (pending, completed, closed, deleted)
+    project=<name>       - Match by project (supports prefix matching for nested projects)
+    due=<expr>           - Match by due date (see DATE EXPRESSIONS)
+    due>tomorrow         - Tasks due after tomorrow
+    due<=eod             - Tasks due by end of day
+    due!=none            - Tasks that have a due date
+    scheduled=<expr>     - Match by scheduled date
+    wait=<expr>          - Match by wait date
+    kanban=<status>      - Match by kanban status (proposed, stalled, queued, external, done)
+    desc=<pattern>       - Match description containing pattern (case-insensitive)
+    description=<pattern> - Alias for desc=
+
   Tag filters:
     +<tag>               - Tasks with tag
     -<tag>               - Tasks without tag
-  
+
   Derived filters:
     waiting              - Tasks with wait_ts in the future
-  
+
   Operators:
     (implicit AND)       - Adjacent terms are ANDed together
     or                   - OR operator (lowest precedence)
     not                  - NOT operator (highest precedence)
-  
+
   Examples:
-    project:work +urgent
+    project=work +urgent
     +urgent or +important
     not +waiting
-    project:work +urgent or project:home +important
-    desc:bug status:pending
-    due:tomorrow kanban:queued
+    project=work +urgent or project=home +important
+    desc=bug status=pending
+    due=tomorrow kanban=queued
 
-DATE EXPRESSIONS (for due:, scheduled:, wait:):
+DATE EXPRESSIONS (for due=, scheduled=, wait=):
   Relative: tomorrow, +3d, -1w, +2m, +1y
   Absolute: 2024-01-15, 2024-01-15 14:30
   Time-only: 09:00, 14:30
@@ -138,12 +129,14 @@ DATE EXPRESSIONS (for due:, scheduled:, wait:):
 
 EXAMPLES:
   tatl list
-  tatl list project:work +urgent
+  tatl list project=work +urgent
   tatl list +urgent or +important
-  tatl list desc:bug status:pending
-  tatl list due:tomorrow kanban:queued --relative")]
+  tatl list desc=bug status=pending
+  tatl list due=tomorrow kanban=queued --relative
+  tatl list due>tomorrow
+  tatl list due!=none")]
     List {
-        /// Filter arguments. Multiple filters are ANDed together. Use 'or' for OR, 'not' for NOT. Examples: \"project:work +urgent\", \"+urgent or +important\", \"desc:bug status:pending\"
+        /// Filter arguments. Multiple filters are ANDed together. Use 'or' for OR, 'not' for NOT. Examples: \"project=work +urgent\", \"+urgent or +important\", \"desc=bug status=pending\"
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         filter: Vec<String>,
         /// Output in JSON format
@@ -163,16 +156,16 @@ TARGET SYNTAX:
   Single ID:       10
   ID range:        1-5 (tasks 1, 2, 3, 4, 5)
   ID list:         1,3,5 (tasks 1, 3, and 5)
-  Filter:          project:work +urgent (same filter syntax as 'tatl list')
+  Filter:          project=work +urgent (same filter syntax as 'tatl list')
 
 The output includes task details, annotations, sessions, and related information.
 
 EXAMPLES:
   tatl show 10
   tatl show 1-5
-  tatl show project:work +urgent")]
+  tatl show project=work +urgent")]
     Show {
-        /// Task ID, ID range (e.g., \"1-5\"), ID list (e.g., \"1,3,5\"), or filter expression. Examples: \"10\", \"1-5\", \"1,3,5\", \"project:work +urgent\"
+        /// Task ID, ID range (e.g., \"1-5\"), ID list (e.g., \"1,3,5\"), or filter expression. Examples: \"10\", \"1-5\", \"1,3,5\", \"project=work +urgent\"
         target: String,
     },
     /// Modify tasks
@@ -180,26 +173,29 @@ EXAMPLES:
 
 MODIFICATION SYNTAX:
   Field modifications:
-    project:<name>       - Assign to project (use \"project:none\" to clear)
-    due:<expr>           - Set due date (use \"due:none\" to clear, see DATE EXPRESSIONS)
-    scheduled:<expr>      - Set scheduled date (use \"scheduled:none\" to clear)
-    wait:<expr>           - Set wait date (use \"wait:none\" to clear)
-    allocation:<dur>      - Set time allocation (e.g., \"2h\", \"30m\", use \"allocation:none\" to clear)
-    template:<name>       - Set template (use \"template:none\" to clear)
-    respawn:<pattern>     - Set respawn rule (use \"respawn:none\" to clear, see RESPAWN PATTERNS)
-    uda.<key>:<value>     - Set user-defined attribute (use \"uda.<key>:none\" to clear)
-  
+    project=<name>       - Assign to project (use \"project=none\" to clear)
+    due=<expr>           - Set due date (use \"due=none\" to clear, see DATE EXPRESSIONS)
+    scheduled=<expr>      - Set scheduled date (use \"scheduled=none\" to clear)
+    wait=<expr>           - Set wait date (use \"wait=none\" to clear)
+    allocation=<dur>      - Set time allocation (e.g., \"2h\", \"30m\", use \"allocation=none\" to clear)
+    template=<name>       - Set template (use \"template=none\" to clear)
+    respawn=<pattern>     - Set respawn rule (use \"respawn=none\" to clear, see RESPAWN PATTERNS)
+    uda.<key>=<value>     - Set user-defined attribute (use \"uda.<key>=none\" to clear)
+
   Tag modifications:
     +<tag>                - Add tag
     -<tag>                - Remove tag
-  
+
   Description:
     Any text not matching field patterns becomes the new description.
 
 RESPAWN PATTERNS:
   Simple: daily, weekly, monthly, yearly
-  Advanced: weekdays:mon,wed,fri, monthdays:1,15, nth:1:day, every:2w
-  
+  Interval: 2d, 3w, 2m, 1y
+  Weekdays: mon,wed,fri
+  Monthdays: 1,15
+  Nth weekday: 2nd-tue, 1st-mon, last-fri
+
   Respawn rules are validated on modification. A preview message shows what will happen when the task is completed.
 
 DATE EXPRESSIONS:
@@ -211,15 +207,14 @@ FILTER SYNTAX (for target selection):
   Same as 'tatl list' filter syntax. See 'tatl list --help' for details.
 
 EXAMPLES:
-  tatl modify 10 +urgent due:+2d
-  tatl modify project:work description:Updated description
-  tatl modify +urgent due:+1d --yes
-  tatl modify 5 respawn:daily due:09:00
-  tatl modify 1-5 project:work --yes")]
+  tatl modify 10 +urgent due=+2d
+  tatl modify +urgent due=+1d --yes
+  tatl modify 5 respawn=daily due=09:00
+  tatl modify 1-5 project=work --yes")]
     Modify {
-        /// Task ID, ID range (e.g., \"1-5\"), ID list (e.g., \"1,3,5\"), or filter expression. Examples: \"10\", \"1-5\", \"1,3,5\", \"project:work +urgent\"
+        /// Task ID, ID range (e.g., \"1-5\"), ID list (e.g., \"1,3,5\"), or filter expression. Examples: \"10\", \"1-5\", \"1,3,5\", \"project=work +urgent\"
         target: String,
-        /// Modification arguments. Field syntax: project:<name>, due:<expr>, +tag, -tag, etc. Any text not matching field patterns becomes the new description.
+        /// Modification arguments. Field syntax: project=<name>, due=<expr>, +tag, -tag, etc. Any text not matching field patterns becomes the new description.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
         /// Apply to all matching tasks without confirmation (also auto-creates new projects if needed)
@@ -228,9 +223,6 @@ EXAMPLES:
         /// Force one-by-one confirmation for each task
         #[arg(long)]
         interactive: bool,
-        /// Start timing after modification (pushes to queue[0] and starts timing)
-        #[arg(long = "on")]
-        start_timing: bool,
     },
     /// Start timing a task
     #[command(long_about = "Start timing a task. If task_id is provided, pushes that task to queue[0] and starts timing. If omitted, starts timing queue[0].
@@ -306,11 +298,11 @@ TARGET SYNTAX:
   Task ID:                 10
   ID range:                1-5
   ID list:                 1,3,5
-  Filter:                  project:work +urgent
+  Filter:                  project=work +urgent
 
 Use --delete <annotation_id> to remove an annotation.")]
     Annotate {
-        /// Task ID, ID range, ID list, or filter (optional when clocked in, defaults to queue[0]). Examples: \"10\", \"1-5\", \"1,3,5\", \"project:work +urgent\"
+        /// Task ID, ID range, ID list, or filter (optional when clocked in, defaults to queue[0]). Examples: \"10\", \"1-5\", \"1,3,5\", \"project=work +urgent\"
         target: Option<String>,
         /// Annotation note text
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -336,23 +328,26 @@ TARGET SYNTAX:
   Task ID:           10
   ID range:          1-5
   ID list:           1,3,5
-  Filter:            project:work +urgent
+  Filter:            project=work +urgent
 
 TIME EXPRESSIONS:
   Omit:              Ends session at now
   Time-only:         14:30 (ends session at that time today)
   Date + time:       2024-01-15 14:30
 
-If --next is specified, automatically starts timing the next task in queue after completion.")]
+PIPE OPERATOR:
+  Use 'finish : on' to finish the current task and start timing the next task in queue.
+
+EXAMPLES:
+  tatl finish
+  tatl finish 10
+  tatl finish : on")]
     Finish {
-        /// Task ID, ID range, ID list, or filter (optional, defaults to queue[0]). Examples: \"10\", \"1-5\", \"1,3,5\", \"project:work +urgent\"
+        /// Task ID, ID range, ID list, or filter (optional, defaults to queue[0]). Examples: \"10\", \"1-5\", \"1,3,5\", \"project=work +urgent\"
         target: Option<String>,
         /// End time expression (optional, defaults to now). Time-only (e.g., \"14:30\") ends session at that time today.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         time_args: Vec<String>,
-        /// Start next task in queue after completion
-        #[arg(long)]
-        next: bool,
         /// Complete all matching tasks without confirmation
         #[arg(short = 'y', long)]
         yes: bool,
@@ -368,9 +363,9 @@ TARGET SYNTAX:
   Task ID:           10
   ID range:          1-5
   ID list:           1,3,5
-  Filter:            project:work +urgent")]
+  Filter:            project=work +urgent")]
     Close {
-        /// Task ID, ID range, ID list, or filter (optional, defaults to queue[0]). Examples: \"10\", \"1-5\", \"1,3,5\", \"project:work +urgent\"
+        /// Task ID, ID range, ID list, or filter (optional, defaults to queue[0]). Examples: \"10\", \"1-5\", \"1,3,5\", \"project=work +urgent\"
         target: Option<String>,
         /// Close all matching tasks without confirmation
         #[arg(short = 'y', long)]
@@ -386,9 +381,9 @@ TARGET SYNTAX:
   Task ID:           10
   ID range:          1-5
   ID list:           1,3,5
-  Filter:            project:work status:completed")]
+  Filter:            project=work status=completed")]
     Reopen {
-        /// Task ID, ID range, ID list, or filter. Examples: \"10\", \"1-5\", \"1,3,5\", \"project:work status:completed\"
+        /// Task ID, ID range, ID list, or filter. Examples: \"10\", \"1-5\", \"1,3,5\", \"project=work status=completed\"
         target: String,
         /// Reopen all matching tasks without confirmation
         #[arg(short = 'y', long)]
@@ -404,9 +399,9 @@ TARGET SYNTAX:
   Task ID:           10
   ID range:          1-5
   ID list:           1,3,5
-  Filter:            project:work status:completed")]
+  Filter:            project=work status=completed")]
     Delete {
-        /// Task ID, ID range, ID list, or filter. Examples: \"10\", \"1-5\", \"1,3,5\", \"project:work status:completed\"
+        /// Task ID, ID range, ID list, or filter. Examples: \"10\", \"1-5\", \"1,3,5\", \"project=work status=completed\"
         target: String,
         /// Delete all matching tasks without confirmation
         #[arg(short = 'y', long)]
@@ -559,17 +554,17 @@ FILTER SYNTAX:
     2024-01-01..now  - Date interval (absolute start to now)
   
   Task filters:
-    project:<name>   - Sessions for tasks in project
+    project=<name>   - Sessions for tasks in project
     +<tag>           - Sessions for tasks with tag
-    task:<id>        - Sessions for specific task
+    task=<id>        - Sessions for specific task
   
   Examples:
     tatl sessions list -7d
     tatl sessions list -7d..now
-    tatl sessions list project:work
-    tatl sessions list -7d project:work")]
+    tatl sessions list project=work
+    tatl sessions list -7d project=work")]
     List {
-        /// Filter arguments. Date filters: -7d, -7d..now, <start>..<end>. Task filters: project:<name>, +tag, task:<id>. Examples: \"-7d\", \"-7d..now\", \"project:work\"
+        /// Filter arguments. Date filters: -7d, -7d..now, <start>..<end>. Task filters: project=<name>, +tag, task=<id>. Examples: \"-7d\", \"-7d..now\", \"project=work\"
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         filter: Vec<String>,
         /// Output in JSON format
@@ -621,21 +616,105 @@ If the modification creates overlapping sessions, you'll be prompted to resolve 
 
 REPORT SYNTAX:
   Date interval:     -7d, -7d..now, 2024-01-01..2024-01-31
-  Task filters:      project:<name>, +tag, task:<id>
+  Task filters:      project=<name>, +tag, task=<id>
   
   Examples:
     tatl sessions report
     tatl sessions report -7d
-    tatl sessions report -7d..now project:work
+    tatl sessions report -7d..now project=work
     tatl sessions report 2024-01-01..2024-01-31 +urgent")]
     Report {
-        /// Report arguments. Date interval: -7d, -7d..now, <start>..<end>. Task filters: project:<name>, +tag, task:<id>. Examples: \"-7d\", \"-7d..now\", \"-7d project:work\"
+        /// Report arguments. Date interval: -7d, -7d..now, <start>..<end>. Task filters: project=<name>, +tag, task=<id>. Examples: \"-7d\", \"-7d..now\", \"-7d project=work\"
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
 }
 
 
+
+/// Split command args on the pipe operator (standalone `:` token).
+/// Returns a vector of segments. If no pipe is found, returns a single segment with all args.
+fn split_on_pipe(args: &[String]) -> Vec<Vec<String>> {
+    let mut segments: Vec<Vec<String>> = Vec::new();
+    let mut current: Vec<String> = Vec::new();
+
+    for arg in args {
+        if arg == ":" {
+            if !current.is_empty() {
+                segments.push(current);
+                current = Vec::new();
+            }
+        } else {
+            current.push(arg.clone());
+        }
+    }
+
+    if !current.is_empty() {
+        segments.push(current);
+    }
+
+    if segments.is_empty() {
+        segments.push(Vec::new());
+    }
+
+    segments
+}
+
+/// Execute a piped command with the task ID from the previous command.
+fn execute_piped_command(task_id: i64, segment: &[String]) -> Result<i64> {
+    if segment.is_empty() {
+        anyhow::bail!("Empty pipe segment");
+    }
+
+    let cmd = segment[0].to_lowercase();
+    let rest = &segment[1..];
+
+    match cmd.as_str() {
+        "on" => {
+            handle_task_on(task_id.to_string(), rest.to_vec())?;
+            Ok(task_id)
+        }
+        "onoff" => {
+            // Run onoff for the specific task
+            let mut onoff_args = rest.to_vec();
+            onoff_args.push(task_id.to_string());
+            handle_onoff(onoff_args, false)?;
+            Ok(task_id)
+        }
+        "enqueue" => {
+            handle_task_enqueue(task_id.to_string())?;
+            Ok(task_id)
+        }
+        "finish" => {
+            handle_task_finish(Some(task_id.to_string()), None, false, false)?;
+            Ok(task_id)
+        }
+        "close" => {
+            handle_task_close(task_id.to_string(), false, false)?;
+            Ok(task_id)
+        }
+        "annotate" => {
+            let note_args = rest.to_vec();
+            handle_annotation_add(Some(task_id.to_string()), note_args)?;
+            Ok(task_id)
+        }
+        "send" => {
+            if rest.is_empty() {
+                anyhow::bail!("'send' requires a recipient. Usage: ... : send <recipient> [message]");
+            }
+            let recipient = rest[0].clone();
+            let request = rest[1..].to_vec();
+            handle_send(task_id.to_string(), recipient, request)?;
+            Ok(task_id)
+        }
+        _ => {
+            anyhow::bail!(
+                "Unknown pipe command: '{}'. Valid: on, onoff, enqueue, finish, close, annotate, send",
+                cmd
+            );
+        }
+    }
+}
 
 pub fn run() -> Result<()> {
     // Get raw args
@@ -708,8 +787,62 @@ pub fn run() -> Result<()> {
         }
     }
     
-    // Use clap parsing with expanded args
-    // Build args vector with program name for clap
+    // Check for pipe operator (standalone ":" token)
+    let pipe_segments = split_on_pipe(&args);
+
+    if pipe_segments.len() > 1 {
+        // Piped command flow: first segment → clap, subsequent segments → piped execution
+        let first_segment = &pipe_segments[0];
+
+        let clap_args = std::iter::once("tatl".to_string())
+            .chain(first_segment.iter().cloned())
+            .collect::<Vec<_>>();
+        let cli = match Cli::try_parse_from(clap_args) {
+            Ok(cli) => cli,
+            Err(e) => {
+                e.print()?;
+                return Ok(());
+            }
+        };
+
+        // Execute first command and capture task ID for piping
+        let task_id = match cli.command {
+            Commands::Add { args: add_args, yes } => {
+                handle_task_add(add_args, yes)?
+            }
+            Commands::Modify { target, args: mod_args, yes, interactive } => {
+                handle_task_modify(target.clone(), mod_args, yes, interactive)?;
+                // Extract task ID from target (only works with single task ID)
+                validate_task_id(&target)
+                    .map_err(|_| anyhow::anyhow!("Pipe operator with modify requires a single task ID as target"))?
+            }
+            Commands::Finish { target, time_args, yes, interactive } => {
+                let end_time = if time_args.is_empty() { None } else { Some(time_args.join(" ")) };
+                let finish_target = target.clone();
+                handle_task_finish(target, end_time, yes, interactive)?;
+
+                if let Some(t) = finish_target {
+                    validate_task_id(&t).unwrap_or(0)
+                } else {
+                    // Finished queue[0], return 0 to signal "use queue[0]" for next command
+                    0
+                }
+            }
+            _ => {
+                anyhow::bail!("Pipe operator is only supported with add, modify, or finish as the first command");
+            }
+        };
+
+        // Execute pipe segments in sequence
+        let mut current_task_id = task_id;
+        for segment in &pipe_segments[1..] {
+            current_task_id = execute_piped_command(current_task_id, segment)?;
+        }
+
+        return Ok(());
+    }
+
+    // Normal (non-piped) command flow
     let clap_args = std::iter::once("tatl".to_string())
         .chain(args.iter().cloned())
         .collect::<Vec<_>>();
@@ -720,20 +853,20 @@ pub fn run() -> Result<()> {
             return Ok(());
         }
     };
-    
+
     handle_command(cli)
 }
 
 fn handle_command(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Projects { subcommand } => handle_projects(subcommand),
-        Commands::Add { args, start_timing, onoff_interval, enqueue, finish, close, yes } => handle_task_add(args, start_timing, onoff_interval, enqueue, finish, close, yes),
+        Commands::Add { args, yes } => { handle_task_add(args, yes)?; Ok(()) }
         Commands::List { filter, json, relative, full } => {
             handle_task_list(filter, json, relative, full)
         },
         Commands::Show { target } => handle_task_summary(target),
-        Commands::Modify { target, args, yes, interactive, start_timing } => {
-            handle_task_modify_with_on(target, args, yes, interactive, start_timing)
+        Commands::Modify { target, args, yes, interactive } => {
+            handle_task_modify(target, args, yes, interactive)
         }
         Commands::On { task_id, time_args } => handle_on(task_id, time_args),
         Commands::Off { time_args } => handle_off(time_args),
@@ -781,10 +914,10 @@ fn handle_command(cli: Cli) -> Result<()> {
                 }
             }
         }
-        Commands::Finish { target, time_args, next, yes, interactive } => {
+        Commands::Finish { target, time_args, yes, interactive } => {
             // Convert time_args to optional end time
             let end_time = if time_args.is_empty() { None } else { Some(time_args.join(" ")) };
-            handle_task_finish(target, end_time, next, yes, interactive)
+            handle_task_finish(target, end_time, yes, interactive)
         }
         Commands::Close { target, yes, interactive } => {
             handle_task_close_optional(target, yes, interactive)
@@ -1570,60 +1703,7 @@ fn handle_externals(filter: Option<String>) -> Result<()> {
     Ok(())
 }
 
-fn handle_task_add(mut args: Vec<String>, mut start_timing: Option<String>, mut onoff_interval: Option<String>, mut enqueue: bool, mut finish: bool, mut close: bool, auto_yes: bool) -> Result<()> {
-    // Extract --on, --onoff, --enqueue, --finish, --close flags from args if they appear after the description
-    // (CLAP limitation: with trailing_var_arg, flags after args are treated as part of args)
-    let mut filtered_args = Vec::new();
-    let mut i = 0;
-    while i < args.len() {
-        if args[i] == "--on" || args[i] == "--clock-in" {
-            // Bare --on flag (no time specified, starts at now)
-            start_timing = Some(String::new());
-            // Don't include it in the args passed to parse_task_args
-        } else if args[i].starts_with("--on=") || args[i].starts_with("--clock-in=") {
-            // Handle --on=time format (start at specified time)
-            let eq_pos = args[i].find('=').unwrap();
-            start_timing = Some(args[i][eq_pos + 1..].to_string());
-        } else if args[i] == "--enqueue" {
-            enqueue = true;
-            // Don't include it in the args passed to parse_task_args
-        } else if args[i] == "--finish" {
-            finish = true;
-        } else if args[i] == "--close" {
-            close = true;
-        } else if args[i] == "--onoff" {
-            // Take the next arg as the interval
-            if i + 1 < args.len() {
-                onoff_interval = Some(args[i + 1].clone());
-                i += 1; // Skip the interval value
-            }
-        } else if args[i].starts_with("--onoff=") {
-            // Handle --onoff=value format
-            onoff_interval = Some(args[i][8..].to_string());
-        } else {
-            filtered_args.push(args[i].clone());
-        }
-        i += 1;
-    }
-    args = filtered_args;
-    
-    // Validate flag conflicts
-    if finish && close {
-        user_error("Cannot use both --finish and --close. They are mutually exclusive.");
-    }
-    if finish && start_timing.is_some() {
-        user_error("Cannot use --finish with --on. Cannot start and finish simultaneously.");
-    }
-    if close && start_timing.is_some() {
-        user_error("Cannot use --close with --on. Cannot start and close simultaneously.");
-    }
-    if finish && enqueue {
-        user_error("Cannot use --finish with --enqueue. Cannot enqueue a completed task.");
-    }
-    if close && enqueue {
-        user_error("Cannot use --close with --enqueue. Cannot enqueue a closed task.");
-    }
-    
+fn handle_task_add(args: Vec<String>, auto_yes: bool) -> Result<i64> {
     if args.is_empty() {
         user_error("Task description is required");
     }
@@ -1646,10 +1726,10 @@ fn handle_task_add(mut args: Vec<String>, mut start_timing: Option<String>, mut 
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
     
-    // Resolve project (handle clearing with project:none or project:)
+    // Resolve project (handle clearing with project=none or project=)
     let project_id = if let Some(project_name) = parsed.project {
         if project_name == "none" {
-            // project:none or project: (empty) means no project
+            // project=none or project= (empty) means no project
             None
         } else {
             let project = ProjectRepo::get_by_name(&conn, &project_name)?;
@@ -1686,7 +1766,7 @@ fn handle_task_add(mut args: Vec<String>, mut start_timing: Option<String>, mut 
                         None => {
                             // User cancelled
                             println!("Cancelled.");
-                            return Ok(());
+                            std::process::exit(0);
                         }
                     }
                 }
@@ -1780,141 +1860,8 @@ fn handle_task_add(mut args: Vec<String>, mut start_timing: Option<String>, mut 
     
     let task_id = task.id.unwrap();
     println!("Created task {}: {}", task_id, description);
-    
-    // If --onoff is set, add historical session (takes precedence over --on and --enqueue)
-    if let Some(interval) = onoff_interval {
-        // Parse interval
-        if !interval.contains("..") {
-            user_error("--onoff requires interval format (e.g., '09:00..12:00')");
-        }
-        
-        let sep_pos = interval.find("..").unwrap();
-        let start_expr = interval[..sep_pos].trim();
-        let end_expr = interval[sep_pos + 2..].trim();
-        
-        let start_ts = parse_date_expr(start_expr)
-            .context("Invalid start time in --onoff interval")?;
-        let end_ts = parse_date_expr(end_expr)
-            .context("Invalid end time in --onoff interval")?;
-        
-        if start_ts >= end_ts {
-            user_error(&format!(
-                "Start time must be before end time. Got: {} >= {}",
-                format_time(start_ts),
-                format_time(end_ts)
-            ));
-        }
-        
-        // Check for overlapping sessions
-        let overlapping = find_overlapping_sessions(&conn, start_ts, end_ts)?;
-        let duration = end_ts - start_ts;
-        
-        if !overlapping.is_empty() {
-            // Show what will be modified and ask for confirmation
-            println!("\nInserting session {} ({}) for new task {} will modify {} existing session(s):\n",
-                format_interval(start_ts, end_ts),
-                format_duration_human(duration),
-                task_id,
-                overlapping.len());
-            for session in &overlapping {
-                let s_task = TaskRepo::get_by_id(&conn, session.task_id)?;
-                let s_desc = s_task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
-                let s_duration = session.end_ts.unwrap_or(chrono::Utc::now().timestamp()) - session.start_ts;
-                let modification = describe_session_modification(session, start_ts, end_ts);
-                println!("  Session {} (task {}): {}", session.id.unwrap_or(0), session.task_id, s_desc);
-                println!("    {} - {} ({})",
-                    format_datetime(session.start_ts),
-                    session.end_ts.map(format_datetime).unwrap_or_else(|| "running".to_string()),
-                    format_duration_human(s_duration));
-                println!("    → {}\n", modification);
-            }
-            
-            if !auto_yes {
-                print!("Continue? [y/N] ");
-                std::io::Write::flush(&mut std::io::stdout())?;
-                let mut input = String::new();
-                std::io::stdin().read_line(&mut input)?;
-                if !input.trim().eq_ignore_ascii_case("y") {
-                    println!("Cancelled.");
-                    return Ok(());
-                }
-            }
-            
-            // Modify overlapping sessions and insert new one
-            let tx = conn.unchecked_transaction()?;
-            
-            for session in overlapping {
-                modify_session_for_removal(&tx, &session, start_ts, end_ts)?;
-            }
-            
-            // Create the new session
-            SessionRepo::create_closed(&tx, task_id, start_ts, end_ts)
-                .context("Failed to create session")?;
-            
-            tx.commit()?;
-            
-            println!("Added session for task {} ({} - {}, {})", task_id, format_time(start_ts), format_time(end_ts), format_duration_human(duration));
-        } else {
-            // No overlaps - just add the session
-            SessionRepo::create_closed(&conn, task_id, start_ts, end_ts)
-                .context("Failed to create session")?;
-            
-            println!("Added session for task {} ({} - {}, {})", task_id, format_time(start_ts), format_time(end_ts), format_duration_human(duration));
-        }
-    } else if let Some(start_time) = start_timing {
-        // If --on flag is set, start timing the newly created task (takes precedence over --enqueue)
-        // handle_task_on will push to stack and start timing atomically
-        let time_args = if start_time.is_empty() {
-            Vec::new()
-        } else {
-            vec![start_time]
-        };
-        handle_task_on(task_id.to_string(), time_args)
-            .context("Failed to start timing task")?;
-    } else if enqueue {
-        // Enqueue to queue (adds to end, does not start timing)
-        let stack = StackRepo::get_or_create_default(&conn)?;
-        StackRepo::enqueue(&conn, stack.id.unwrap(), task_id)
-            .context("Failed to enqueue task")?;
-        println!("Enqueued task {}", task_id);
-    }
-    
-    // Handle --finish or --close flags (after task creation and optional session)
-    if finish {
-        // Mark task as completed
-        use crate::models::TaskStatus;
-        let now = chrono::Utc::now().timestamp();
-        TaskRepo::set_status(&conn, task_id, TaskStatus::Completed)
-            .context("Failed to mark task as completed")?;
-        println!("Marked task {} as completed", task_id);
-        
-        // Trigger respawn if applicable
-        let task = TaskRepo::get_by_id(&conn, task_id)?
-            .ok_or_else(|| anyhow::anyhow!("Task not found"))?;
-        if task.respawn.is_some() {
-            if let Some(new_task_id) = crate::respawn::respawn_task(&conn, &task, now)? {
-                println!("Respawned: Created task {} from respawn rule", new_task_id);
-            }
-        }
-    } else if close {
-        // Mark task as closed
-        use crate::models::TaskStatus;
-        let now = chrono::Utc::now().timestamp();
-        TaskRepo::set_status(&conn, task_id, TaskStatus::Closed)
-            .context("Failed to mark task as closed")?;
-        println!("Marked task {} as closed", task_id);
-        
-        // Trigger respawn if applicable
-        let task = TaskRepo::get_by_id(&conn, task_id)?
-            .ok_or_else(|| anyhow::anyhow!("Task not found"))?;
-        if task.respawn.is_some() {
-            if let Some(new_task_id) = crate::respawn::respawn_task(&conn, &task, now)? {
-                println!("Respawned: Created task {} from respawn rule", new_task_id);
-            }
-        }
-    }
-    
-    Ok(())
+
+    Ok(task_id)
 }
 
 struct ListRequest {
@@ -1976,7 +1923,8 @@ fn is_view_name_token(token: &str) -> bool {
 }
 
 fn looks_like_filter(token: &str) -> bool {
-    token.contains(':') || token.starts_with('+') || token.starts_with('-') || token == "waiting"
+    token.contains('=') || token.contains('>') || token.contains('<')
+        || token.starts_with('+') || token.starts_with('-') || token == "waiting"
 }
 
 fn handle_task_list(filter_args: Vec<String>, json: bool, relative: bool, full: bool) -> Result<()> {
@@ -2088,24 +2036,6 @@ fn handle_task_list(filter_args: Vec<String>, json: bool, relative: bool, full: 
 }
 
 /// Handle task modify with optional --on flag
-fn handle_task_modify_with_on(id_or_filter: String, args: Vec<String>, yes: bool, interactive: bool, start_timing: bool) -> Result<()> {
-    // First, do the modification
-    handle_task_modify(id_or_filter.clone(), args, yes, interactive)?;
-    
-    // If --on flag is set, start timing the task
-    if start_timing {
-        // Only works for single task modification
-        if let Ok(task_id) = validate_task_id(&id_or_filter) {
-            handle_task_on(task_id.to_string(), Vec::new())
-                .context("Failed to start timing task")?;
-        } else {
-            eprintln!("Warning: --on flag only works with single task ID, not filters");
-        }
-    }
-    
-    Ok(())
-}
-
 fn handle_task_modify(id_or_filter: String, args: Vec<String>, yes: bool, interactive: bool) -> Result<()> {
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
@@ -2223,7 +2153,7 @@ fn modify_single_task(conn: &Connection, task_id: i64, args: &[String], auto_cre
         Some(join_description(&parsed.description))
     };
     
-    // Resolve project (handle clearing with project:none)
+    // Resolve project (handle clearing with project=none)
     let project_id = if let Some(project_name) = &parsed.project {
         if project_name == "none" {
             Some(None) // Clear project
@@ -3495,7 +3425,6 @@ fn handle_annotation_delete(task_id_str: String, annotation_id_str: String) -> R
 fn handle_task_finish(
     id_or_filter_opt: Option<String>,
     at_opt: Option<String>,
-    next: bool,
     yes: bool,
     interactive: bool,
 ) -> Result<()> {
@@ -3612,7 +3541,7 @@ fn handle_task_finish(
                 }
                 "i" | "interactive" => {
                     // Interactive mode - confirm one by one
-                    return handle_finish_interactive(&conn, &task_ids, end_ts, next);
+                    return handle_finish_interactive(&conn, &task_ids, end_ts);
                 }
                 _ => {
                     println!("Invalid input. Cancelled.");
@@ -3621,12 +3550,11 @@ fn handle_task_finish(
             }
         } else if interactive {
             // Force interactive mode
-            return handle_finish_interactive(&conn, &task_ids, end_ts, next);
+            return handle_finish_interactive(&conn, &task_ids, end_ts);
         }
     }
     
     // Complete all tasks
-    let mut completed_stack_top = false;
     for task_id in &task_ids {
         // Verify task exists
         if TaskRepo::get_by_id(&conn, *task_id)?.is_none() {
@@ -3640,7 +3568,6 @@ fn handle_task_finish(
                 // Close the session
                 SessionRepo::close_open(&conn, end_ts)
                     .context("Failed to close session")?;
-                completed_stack_top = true;
             }
         }
         // Note: We allow completing tasks even if no session is running
@@ -3680,31 +3607,14 @@ fn handle_task_finish(
         println!("Finished task {}", task_id);
     }
     
-    // If --next flag and we completed stack[0], start session for new stack[0]
-    if next && completed_stack_top {
-        let stack = StackRepo::get_or_create_default(&conn)?;
-        let stack_id = stack.id.unwrap();
-        let items = StackRepo::get_items(&conn, stack_id)?;
-        if !items.is_empty() {
-            let next_task_id = items[0].task_id;
-            SessionRepo::create(&conn, next_task_id, end_ts)
-                .context("Failed to start session for next task")?;
-            // Get task description for better message
-            let task = TaskRepo::get_by_id(&conn, next_task_id)?;
-            let desc = task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
-            println!("Started timing task {}: {}", next_task_id, desc);
-        }
-    }
-    
     Ok(())
 }
 
-fn handle_finish_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64, next: bool) -> Result<()> {
+fn handle_finish_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64) -> Result<()> {
     use std::io::{self, Write};
     
     let open_session = SessionRepo::get_open(conn)?;
-    let mut completed_stack_top = false;
-    
+
     for task_id in task_ids {
         // Get task description for display
         let task = TaskRepo::get_by_id(conn, *task_id)?;
@@ -3732,7 +3642,6 @@ fn handle_finish_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64, n
             if session.task_id == *task_id {
                 SessionRepo::close_open(conn, end_ts)
                     .context("Failed to close session")?;
-                completed_stack_top = true;
             }
         }
         
@@ -3766,20 +3675,7 @@ fn handle_finish_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64, n
         
         println!("Finished task {}", task_id);
     }
-    
-    // If --next flag and we completed stack[0], start session for new stack[0]
-    if next && completed_stack_top {
-        let stack = StackRepo::get_or_create_default(conn)?;
-        let stack_id = stack.id.unwrap();
-        let items = StackRepo::get_items(conn, stack_id)?;
-        if !items.is_empty() {
-            let next_task_id = items[0].task_id;
-            SessionRepo::create(conn, next_task_id, end_ts)
-                .context("Failed to start session for next task")?;
-            println!("Started timing task {}", next_task_id);
-        }
-    }
-    
+
     Ok(())
 }
 

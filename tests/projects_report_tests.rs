@@ -31,9 +31,9 @@ fn test_projects_report_shows_task_counts() {
     get_task_cmd(&temp_dir).args(&["projects", "add", "home"]).assert().success();
     
     // Create tasks in different projects
-    get_task_cmd(&temp_dir).args(&["add", "Work task 1", "project:work"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Work task 2", "project:work"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Home task", "project:home"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Work task 1", "project=work"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Work task 2", "project=work"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Home task", "project=home"]).assert().success();
     
     // Run projects report
     let output = get_task_cmd(&temp_dir)
@@ -56,12 +56,12 @@ fn test_projects_report_shows_kanban_statuses() {
     get_task_cmd(&temp_dir).args(&["projects", "add", "work"]).assert().success();
     
     // Create tasks in different states
-    get_task_cmd(&temp_dir).args(&["add", "Pending task", "project:work"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Queued task", "project:work"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Pending task", "project=work"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Queued task", "project=work"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
     
     // Complete a task
-    get_task_cmd(&temp_dir).args(&["add", "Done task", "project:work"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Done task", "project=work"]).assert().success();
     get_task_cmd(&temp_dir).args(&["finish", "3", "-y"]).assert().success();
     
     // Run report

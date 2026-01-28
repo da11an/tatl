@@ -76,7 +76,7 @@ fn test_add_on_with_past_time() {
 
     // Add a task with --on=00:01 (past time)
     let mut when = WhenBuilder::new(&ctx);
-    when.execute(&["add", "--on=00:01", "Test task", "-y"]);
+    when.execute(&["add", "Test task", "-y", ":", "on", "00:01"]);
 
     let result = when.result().unwrap();
     let stdout = String::from_utf8_lossy(&result.stdout);
@@ -157,7 +157,7 @@ fn test_show_respawn_label_with_respawn() {
 
     // Create a task with respawn via CLI
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["add", "Test task", "respawn:daily", "-y"]);
+    when.execute_success(&["add", "Test task", "respawn=daily", "-y"]);
 
     // Show the task
     let mut when2 = WhenBuilder::new(&ctx);

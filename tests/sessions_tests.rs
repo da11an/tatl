@@ -55,8 +55,8 @@ fn test_sessions_list_filter_by_project() {
     get_task_cmd(&temp_dir).args(&["projects", "add", "personal"]).assert().success();
     
     // Create tasks with different projects
-    get_task_cmd(&temp_dir).args(&["add", "Work task", "project:work"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Personal task", "project:personal"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Work task", "project=work"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Personal task", "project=personal"]).assert().success();
     
     // Create sessions for both tasks
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
@@ -68,7 +68,7 @@ fn test_sessions_list_filter_by_project() {
     get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // Filter by project
-    get_task_cmd(&temp_dir).args(&["sessions", "list", "project:work"]).assert().success()
+    get_task_cmd(&temp_dir).args(&["sessions", "list", "project=work"]).assert().success()
         .stdout(predicates::str::contains("Work task"))
         .stdout(predicates::str::contains("Personal task").not());
     
@@ -131,7 +131,7 @@ fn test_sessions_list_filter_empty_results() {
     
     // Create a task with a project
     get_task_cmd(&temp_dir).args(&["projects", "add", "work"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Work task", "project:work"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Work task", "project=work"]).assert().success();
     
     // Create a session
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
@@ -139,7 +139,7 @@ fn test_sessions_list_filter_empty_results() {
     get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // Filter by non-existent project
-    get_task_cmd(&temp_dir).args(&["sessions", "list", "project:nonexistent"]).assert().success()
+    get_task_cmd(&temp_dir).args(&["sessions", "list", "project=nonexistent"]).assert().success()
         .stdout(predicates::str::contains("No sessions found"));
     
     drop(temp_dir);
@@ -153,8 +153,8 @@ fn test_sessions_list_filter_multiple_arguments() {
     get_task_cmd(&temp_dir).args(&["projects", "add", "work"]).assert().success();
     
     // Create tasks with different attributes
-    get_task_cmd(&temp_dir).args(&["add", "Urgent work task", "project:work", "+urgent"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Normal work task", "project:work", "+normal"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Urgent work task", "project=work", "+urgent"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Normal work task", "project=work", "+normal"]).assert().success();
     
     // Create sessions
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
@@ -166,7 +166,7 @@ fn test_sessions_list_filter_multiple_arguments() {
     get_task_cmd(&temp_dir).args(&["off"]).assert().success();
     
     // Filter by project and tag
-    get_task_cmd(&temp_dir).args(&["sessions", "list", "project:work", "+urgent"]).assert().success()
+    get_task_cmd(&temp_dir).args(&["sessions", "list", "project=work", "+urgent"]).assert().success()
         .stdout(predicates::str::contains("Urgent work task"))
         .stdout(predicates::str::contains("Normal work task").not());
     
@@ -282,7 +282,7 @@ fn test_sessions_modify_start_time() {
     
     // Modify start time
     get_task_cmd(&temp_dir)
-        .args(&["sessions", "modify", &session_id.to_string(), "--yes", "start:09:00"])
+        .args(&["sessions", "modify", &session_id.to_string(), "--yes", "start=09:00"])
         .assert()
         .success()
         .stdout(predicates::str::contains("Modified session"));
@@ -308,7 +308,7 @@ fn test_sessions_modify_end_time() {
     
     // Modify end time
     get_task_cmd(&temp_dir)
-        .args(&["sessions", "modify", &session_id.to_string(), "--yes", "end:17:00"])
+        .args(&["sessions", "modify", &session_id.to_string(), "--yes", "end=17:00"])
         .assert()
         .success()
         .stdout(predicates::str::contains("Modified session"));
@@ -334,7 +334,7 @@ fn test_sessions_modify_both_times() {
     
     // Modify both start and end times
     get_task_cmd(&temp_dir)
-        .args(&["sessions", "modify", &session_id.to_string(), "--yes", "start:09:00", "end:17:00"])
+        .args(&["sessions", "modify", &session_id.to_string(), "--yes", "start=09:00", "end=17:00"])
         .assert()
         .success()
         .stdout(predicates::str::contains("Modified session"));
@@ -360,7 +360,7 @@ fn test_sessions_modify_end_none() {
     
     // Make session open (clear end time)
     get_task_cmd(&temp_dir)
-        .args(&["sessions", "modify", &session_id.to_string(), "--yes", "end:none"])
+        .args(&["sessions", "modify", &session_id.to_string(), "--yes", "end=none"])
         .assert()
         .success()
         .stdout(predicates::str::contains("Modified session"));
@@ -634,9 +634,9 @@ fn test_sessions_report_nested_projects() {
     let (temp_dir, _guard) = setup_test_env();
     
     // Create tasks with nested projects
-    get_task_cmd(&temp_dir).args(&["add", "Frontend work", "project:client.web.frontend"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Backend work", "project:client.web.backend"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Mobile work", "project:client.mobile"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Frontend work", "project=client.web.frontend"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Backend work", "project=client.web.backend"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Mobile work", "project=client.mobile"]).assert().success();
     
     // Add sessions
     get_task_cmd(&temp_dir).args(&["sessions", "add", "1", "2026-01-14T10:00", "2026-01-14T12:00"]).assert().success();  // 2h frontend

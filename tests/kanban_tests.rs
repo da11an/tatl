@@ -159,7 +159,7 @@ fn test_kanban_filter_proposed() {
     get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
     
     // Filter by kanban:proposed should only show first task
-    let output = get_task_cmd(&temp_dir).args(&["list", "kanban:proposed"]).assert().success();
+    let output = get_task_cmd(&temp_dir).args(&["list", "kanban=proposed"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     
     assert!(stdout.contains("Proposed task"), "Should show proposed task");
@@ -178,7 +178,7 @@ fn test_kanban_filter_next() {
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     
     // Filter by kanban:next should only show first task
-    let output = get_task_cmd(&temp_dir).args(&["list", "kanban:next"]).assert().success();
+    let output = get_task_cmd(&temp_dir).args(&["list", "kanban=next"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     
     assert!(stdout.contains("Next task"), "Should show next task");
@@ -198,7 +198,7 @@ fn test_kanban_filter_live() {
     get_task_cmd(&temp_dir).args(&["on"]).assert().success();
     
     // Filter by kanban:live should only show first task
-    let output = get_task_cmd(&temp_dir).args(&["list", "kanban:live"]).assert().success();
+    let output = get_task_cmd(&temp_dir).args(&["list", "kanban=live"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     
     assert!(stdout.contains("Live task"), "Should show live task");
@@ -222,7 +222,7 @@ fn test_kanban_filter_done() {
     get_task_cmd(&temp_dir).args(&["finish", "1", "--yes"]).assert().success();
     
     // Filter by kanban:done should only show first task
-    let output = get_task_cmd(&temp_dir).args(&["list", "kanban:done"]).assert().success();
+    let output = get_task_cmd(&temp_dir).args(&["list", "kanban=done"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     
     assert!(stdout.contains("Done task"), "Should show done task");
@@ -240,11 +240,11 @@ fn test_kanban_filter_case_insensitive() {
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     
     // Filter should be case-insensitive
-    get_task_cmd(&temp_dir).args(&["list", "kanban:NEXT"]).assert().success()
+    get_task_cmd(&temp_dir).args(&["list", "kanban=NEXT"]).assert().success()
         .stdout(predicates::str::contains("Test task"));
-    get_task_cmd(&temp_dir).args(&["list", "kanban:Next"]).assert().success()
+    get_task_cmd(&temp_dir).args(&["list", "kanban=Next"]).assert().success()
         .stdout(predicates::str::contains("Test task"));
-    get_task_cmd(&temp_dir).args(&["list", "kanban:next"]).assert().success()
+    get_task_cmd(&temp_dir).args(&["list", "kanban=next"]).assert().success()
         .stdout(predicates::str::contains("Test task"));
     
     drop(temp_dir);

@@ -36,7 +36,7 @@ fn test_modify_rejects_invalid_respawn_rule() {
     
     // Try to modify with invalid respawn rule
     get_task_cmd(&temp_dir)
-        .args(&["modify", "1", "respawn:every:fridayy"])
+        .args(&["modify", "1", "respawn=every:fridayy"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("Invalid respawn rule"));
@@ -48,13 +48,13 @@ fn test_modify_clears_respawn_with_empty_value() {
     
     // Create a task with respawn
     get_task_cmd(&temp_dir)
-        .args(&["add", "Test task", "respawn:daily"])
+        .args(&["add", "Test task", "respawn=daily"])
         .assert()
         .success();
     
     // Empty respawn: value should clear it (same as respawn:none)
     get_task_cmd(&temp_dir)
-        .args(&["modify", "1", "respawn:"])
+        .args(&["modify", "1", "respawn="])
         .assert()
         .success();
     
@@ -76,7 +76,7 @@ fn test_modify_rejects_invalid_weekday() {
     
     // Try to modify with invalid weekday
     get_task_cmd(&temp_dir)
-        .args(&["modify", "1", "respawn:weekdays:invalid"])
+        .args(&["modify", "1", "respawn=weekdays:invalid"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("Invalid weekday"));
@@ -94,14 +94,14 @@ fn test_modify_rejects_invalid_interval() {
     
     // Try to modify with invalid interval (zero days)
     get_task_cmd(&temp_dir)
-        .args(&["modify", "1", "respawn:every:0d"])
+        .args(&["modify", "1", "respawn=every:0d"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("Invalid respawn rule"));
     
     // Try with negative
     get_task_cmd(&temp_dir)
-        .args(&["modify", "1", "respawn:every:-1d"])
+        .args(&["modify", "1", "respawn=every:-1d"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("Invalid respawn rule"));
@@ -119,7 +119,7 @@ fn test_modify_accepts_valid_respawn_rule() {
     
     // Modify with valid respawn rule
     get_task_cmd(&temp_dir)
-        .args(&["modify", "1", "respawn:daily"])
+        .args(&["modify", "1", "respawn=daily"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Modified task 1"))
@@ -143,7 +143,7 @@ fn test_modify_shows_preview_for_daily() {
     
     // Modify with daily respawn
     get_task_cmd(&temp_dir)
-        .args(&["modify", "1", "respawn:daily"])
+        .args(&["modify", "1", "respawn=daily"])
         .assert()
         .success()
         .stdout(predicate::str::contains("↻"))
@@ -162,7 +162,7 @@ fn test_modify_shows_preview_for_weekly() {
     
     // Modify with weekly respawn
     get_task_cmd(&temp_dir)
-        .args(&["modify", "1", "respawn:weekly"])
+        .args(&["modify", "1", "respawn=weekly"])
         .assert()
         .success()
         .stdout(predicate::str::contains("↻"))
@@ -181,7 +181,7 @@ fn test_modify_shows_preview_for_weekdays() {
     
     // Modify with weekdays respawn
     get_task_cmd(&temp_dir)
-        .args(&["modify", "1", "respawn:weekdays:mon,wed,fri"])
+        .args(&["modify", "1", "respawn=weekdays:mon,wed,fri"])
         .assert()
         .success()
         .stdout(predicate::str::contains("↻"))
@@ -200,7 +200,7 @@ fn test_modify_shows_preview_for_every_interval() {
     
     // Modify with every:2d respawn
     get_task_cmd(&temp_dir)
-        .args(&["modify", "1", "respawn:every:2d"])
+        .args(&["modify", "1", "respawn=every:2d"])
         .assert()
         .success()
         .stdout(predicate::str::contains("↻"))
@@ -219,7 +219,7 @@ fn test_modify_shows_preview_for_monthdays() {
     
     // Modify with monthdays respawn
     get_task_cmd(&temp_dir)
-        .args(&["modify", "1", "respawn:monthdays:1,15"])
+        .args(&["modify", "1", "respawn=monthdays:1,15"])
         .assert()
         .success()
         .stdout(predicate::str::contains("↻"))
@@ -238,7 +238,7 @@ fn test_modify_shows_preview_for_nth_weekday() {
     
     // Modify with nth weekday respawn
     get_task_cmd(&temp_dir)
-        .args(&["modify", "1", "respawn:nth:2:tue"])
+        .args(&["modify", "1", "respawn=nth:2:tue"])
         .assert()
         .success()
         .stdout(predicate::str::contains("↻"))
@@ -251,13 +251,13 @@ fn test_modify_clears_respawn_with_none() {
     
     // Create a task with respawn
     get_task_cmd(&temp_dir)
-        .args(&["add", "Task with respawn", "respawn:daily"])
+        .args(&["add", "Task with respawn", "respawn=daily"])
         .assert()
         .success();
     
     // Clear respawn rule
     get_task_cmd(&temp_dir)
-        .args(&["modify", "1", "respawn:none"])
+        .args(&["modify", "1", "respawn=none"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Modified task 1"));
@@ -280,7 +280,7 @@ fn test_modify_respawn_validation_prevents_invalid_storage() {
     
     // Try to set invalid respawn rule
     get_task_cmd(&temp_dir)
-        .args(&["modify", "1", "respawn:invalid:pattern"])
+        .args(&["modify", "1", "respawn=invalid:pattern"])
         .assert()
         .failure();
     
@@ -302,7 +302,7 @@ fn test_modify_respawn_with_multiple_fields() {
     
     // Modify with respawn and other fields
     get_task_cmd(&temp_dir)
-        .args(&["modify", "1", "respawn:weekly", "project:work", "+urgent"])
+        .args(&["modify", "1", "respawn=weekly", "project=work", "+urgent"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Modified task 1"))

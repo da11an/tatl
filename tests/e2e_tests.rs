@@ -70,7 +70,7 @@ fn e2e_complete_workflow_with_project_and_tags() {
     // Step 2: Add task with project and tags
     let task_id = given.task_exists("Review pull request");
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["modify", &task_id.to_string(), "project:work", "+urgent", "+code-review"]);
+    when.execute_success(&["modify", &task_id.to_string(), "project=work", "+urgent", "+code-review"]);
     
     // Verify task has project and tags
     let then = ThenBuilder::new(&ctx, None);
@@ -123,7 +123,7 @@ fn e2e_complete_workflow_with_finish_next() {
     then.running_session_exists_for_task(task1);
     
     // Step 4: Finish task 1 with --next (should start task 2)
-    when.execute_success(&["finish", "--next"]);
+    when.execute_success(&["finish", ":", "on"]);
     
     // Verify task 1 is completed
     then.task_status_is(task1, "completed");
@@ -135,7 +135,7 @@ fn e2e_complete_workflow_with_finish_next() {
     then.stack_order_is(&[task2, task3]);
     
     // Step 5: Finish task 2 with --next (should start task 3)
-    when.execute_success(&["finish", "--next"]);
+    when.execute_success(&["finish", ":", "on"]);
     
     then.task_status_is(task2, "completed")
         .running_session_exists_for_task(task3)
@@ -188,7 +188,7 @@ fn e2e_complex_filter_scenarios() {
     ).unwrap();
     
     // Test 1: Filter by project
-    let filter_expr = parse_filter(vec!["project:work".to_string()]).unwrap();
+    let filter_expr = parse_filter(vec!["project=work".to_string()]).unwrap();
     let matching = filter_tasks(ctx.db(), &filter_expr).unwrap();
     let matching_ids: Vec<i64> = matching.iter().map(|(t, _)| t.id.unwrap()).collect();
     assert!(matching_ids.contains(&task1));
@@ -204,7 +204,7 @@ fn e2e_complex_filter_scenarios() {
     assert!(matching_ids.contains(&task3)); // Has urgent
     
     // Test 3: Filter by project AND tag
-    let filter_expr = parse_filter(vec!["project:work".to_string(), "+urgent".to_string()]).unwrap();
+    let filter_expr = parse_filter(vec!["project=work".to_string(), "+urgent".to_string()]).unwrap();
     let matching = filter_tasks(ctx.db(), &filter_expr).unwrap();
     let matching_ids: Vec<i64> = matching.iter().map(|(t, _)| t.id.unwrap()).collect();
     assert!(matching_ids.contains(&task1)); // work + urgent
@@ -212,7 +212,7 @@ fn e2e_complex_filter_scenarios() {
     assert!(!matching_ids.contains(&task3)); // urgent but not work
     
     // Test 4: Filter by NOT
-    let filter_expr = parse_filter(vec!["not".to_string(), "project:work".to_string()]).unwrap();
+    let filter_expr = parse_filter(vec!["not".to_string(), "project=work".to_string()]).unwrap();
     let matching = filter_tasks(ctx.db(), &filter_expr).unwrap();
     let matching_ids: Vec<i64> = matching.iter().map(|(t, _)| t.id.unwrap()).collect();
     assert!(!matching_ids.contains(&task1));
@@ -220,7 +220,7 @@ fn e2e_complex_filter_scenarios() {
     assert!(matching_ids.contains(&task3));
     
     // Test 5: Filter by due date
-    let filter_expr = parse_filter(vec!["due:tomorrow".to_string()]).unwrap();
+    let filter_expr = parse_filter(vec!["due=tomorrow".to_string()]).unwrap();
     let matching = filter_tasks(ctx.db(), &filter_expr).unwrap();
     let matching_ids: Vec<i64> = matching.iter().map(|(t, _)| t.id.unwrap()).collect();
     assert!(matching_ids.contains(&task1));
@@ -250,7 +250,7 @@ fn e2e_complex_filter_with_nested_projects() {
     let task5 = given.task_exists_with_project("NA sales task", "sales.northamerica");
     
     // Test: Filter by prefix "admin" should match admin, admin.email, admin.email.inbox
-    let filter_expr = parse_filter(vec!["project:admin".to_string()]).unwrap();
+    let filter_expr = parse_filter(vec!["project=admin".to_string()]).unwrap();
     let matching = filter_tasks(ctx.db(), &filter_expr).unwrap();
     let matching_ids: Vec<i64> = matching.iter().map(|(t, _)| t.id.unwrap()).collect();
     assert!(matching_ids.contains(&task1));
@@ -260,7 +260,7 @@ fn e2e_complex_filter_with_nested_projects() {
     assert!(!matching_ids.contains(&task5));
     
     // Test: Filter by prefix "admin.email" should match admin.email and admin.email.inbox
-    let filter_expr = parse_filter(vec!["project:admin.email".to_string()]).unwrap();
+    let filter_expr = parse_filter(vec!["project=admin.email".to_string()]).unwrap();
     let matching = filter_tasks(ctx.db(), &filter_expr).unwrap();
     let matching_ids: Vec<i64> = matching.iter().map(|(t, _)| t.id.unwrap()).collect();
     assert!(!matching_ids.contains(&task1));

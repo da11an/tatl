@@ -91,7 +91,7 @@ fn test_finish_with_next_flag() {
     
     // Finish Task 1 with --next flag
     let mut cmd = get_task_cmd();
-    cmd.args(&["finish", "--next"])
+    cmd.args(&["finish", ":", "on"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Finished task 1"))

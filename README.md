@@ -71,8 +71,8 @@ See `INSTALL.md` for detailed installation options.
 
 ```bash
 # Add tasks
-tatl add "Fix the auth bug" project:work +urgent
-tatl add "Review PR" project:work due:tomorrow
+tatl add "Fix the auth bug" project=work +urgent
+tatl add "Review PR" project=work due=tomorrow
 
 # View your tasks
 tatl list
@@ -89,6 +89,11 @@ tatl finish         # Complete queue[0], stop timing
 
 # Log time you forgot to track
 tatl onoff 09:00..12:00 2    # Add 3-hour session to task 2
+
+# Create and start timing in one command
+tatl add "Quick task" : on          # Create and start timing
+tatl add "Meeting" : on 14:00       # Create and start timing at 14:00
+tatl add "Past work" : onoff 09:00..12:00  # Create with historical session
 ```
 
 ## Core Concepts
@@ -134,9 +139,9 @@ Traditional recurrence creates multiple task instances upfront. TATL uses **resp
 
 ```bash
 # Create a respawning task
-tatl add "Daily standup" respawn:daily due:09:00
-tatl add "Weekly review" respawn:weekly due:friday
-tatl add "Timesheet" respawn:monthdays:14,30 due:17:00
+tatl add "Daily standup" respawn=daily due=09:00
+tatl add "Weekly review" respawn=weekly due=friday
+tatl add "Timesheet" respawn=14,30 due=17:00
 
 # When you finish it...
 tatl finish
@@ -145,13 +150,13 @@ tatl finish
 # ↻ Respawned as task 2, due: 2026-01-23 09:00
 
 # Respawn patterns:
-# respawn:daily              - Every day
-# respawn:weekly             - Every week
-# respawn:monthly            - Every month
-# respawn:every:3d           - Every 3 days
-# respawn:weekdays:mon,wed,fri  - Specific weekdays
-# respawn:monthdays:1,15     - Specific days of month
-# respawn:nth:2:tue          - 2nd Tuesday of month
+# respawn=daily              - Every day
+# respawn=weekly             - Every week
+# respawn=monthly            - Every month
+# respawn=3d                 - Every 3 days
+# respawn=mon,wed,fri        - Specific weekdays
+# respawn=1,15                - Specific days of month
+# respawn=2nd-tue             - 2nd Tuesday of month
 ```
 
 ### Kanban Status
@@ -178,12 +183,12 @@ tatl list kanban:external    # Show tasks with external parties
 
 ```bash
 # Create
-tatl add "Description" project:name +tag due:tomorrow
-tatl add "Quick task" --on          # Create and start timing
-tatl add "Meeting" --on=14:00       # Create and start timing at 14:00
-tatl add "Past work" --onoff 09:00..12:00  # Create with historical session
-tatl add "Already done" --finish    # Create already completed
-tatl add "Cancelled" --close        # Create already closed
+tatl add "Description" project=name +tag due=tomorrow
+tatl add "Quick task" : on          # Create and start timing
+tatl add "Meeting" : on 14:00       # Create and start timing at 14:00
+tatl add "Past work" : onoff 09:00..12:00  # Create with historical session
+tatl add "Already done" : finish    # Create already completed
+tatl add "Cancelled" : close        # Create already closed
 tatl add "Past meeting" --onoff 14:00..15:00 --finish  # Historical session + complete
 
 # Read

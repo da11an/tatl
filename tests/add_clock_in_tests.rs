@@ -31,9 +31,9 @@ fn get_task_cmd(temp_dir: &TempDir) -> Command {
 fn test_add_with_on_flag() {
     let (temp_dir, _guard) = setup_test_env();
     
-    // Add task with --on flag (flag must come before args)
+    // Add task and pipe to on
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "--on", "Test task with --on"])
+    cmd.args(&["add", "Test task", ":", "on"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created task"))
@@ -51,9 +51,9 @@ fn test_add_with_on_flag() {
 fn test_add_without_on_flag() {
     let (temp_dir, _guard) = setup_test_env();
     
-    // Add task without --on flag
+    // Add task without pipe to on
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "Test task without --on"])
+    cmd.args(&["add", "Test task without on"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created task"))
@@ -78,9 +78,9 @@ fn test_add_on_pushes_to_top() {
     let mut cmd = get_task_cmd(&temp_dir);
     cmd.args(&["enqueue", "1"]).assert().success();
     
-    // Add second task with --on (should push to top)
+    // Add second task with pipe to on (should push to top)
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "--on", "Second task"])
+    cmd.args(&["add", "Second task", ":", "on"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Started timing task 2"));
@@ -107,9 +107,9 @@ fn test_add_on_closes_existing_session() {
     let mut cmd = get_task_cmd(&temp_dir);
     cmd.args(&["on", "1"]).assert().success();
     
-    // Add second task with --on (should close first task's session)
+    // Add second task with pipe to on (should close first task's session)
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "--on", "Second task"])
+    cmd.args(&["add", "Second task", ":", "on"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Started timing task 2"));
@@ -141,9 +141,9 @@ fn test_add_on_when_timer_running() {
         .success()
         .stdout(predicate::str::contains("Started timing task 1"));
     
-    // Add new task with --on flag (timer is running)
+    // Add new task with pipe to on (timer is running)
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "--on", "Task 2"])
+    cmd.args(&["add", "Task 2", ":", "on"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created task 2"))
@@ -177,9 +177,9 @@ fn test_add_on_when_timer_not_running() {
         .failure()
         .stderr(predicate::str::contains("No session is currently running"));
     
-    // Add task with --on flag (timer is NOT running)
+    // Add task with pipe to on (timer is NOT running)
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "--on", "New task"])
+    cmd.args(&["add", "New task", ":", "on"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created task"))
@@ -197,9 +197,9 @@ fn test_add_on_when_timer_not_running() {
 fn test_add_with_on_equals_time() {
     let (temp_dir, _guard) = setup_test_env();
     
-    // Add task with --on=14:00 (backdated start)
+    // Add task and pipe to on with backdated start
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "--on=14:00", "Meeting started at 2pm"])
+    cmd.args(&["add", "Meeting started at 2pm", ":", "on", "14:00"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created task"))
@@ -225,9 +225,9 @@ fn test_add_with_on_equals_time() {
 fn test_add_with_on_equals_time_creates_open_session() {
     let (temp_dir, _guard) = setup_test_env();
     
-    // Add task with --on=09:00
+    // Add task and pipe to on with start time
     get_task_cmd(&temp_dir)
-        .args(&["add", "--on=09:00", "Early morning task"])
+        .args(&["add", "Early morning task", ":", "on", "09:00"])
         .assert()
         .success();
     

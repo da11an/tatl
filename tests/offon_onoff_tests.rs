@@ -219,7 +219,7 @@ fn test_add_with_onoff_creates_task_and_session() {
     
     // Add task with historical session
     let output = get_task_cmd(&temp_dir)
-        .args(&["add", "Meeting", "--onoff", "09:00..10:00"])
+        .args(&["add", "Meeting", ":", "onoff", "09:00..10:00"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -234,7 +234,7 @@ fn test_add_with_onoff_requires_interval() {
     
     // Try to add task with invalid onoff (single time)
     let output = get_task_cmd(&temp_dir)
-        .args(&["add", "Meeting", "--onoff", "09:00"])
+        .args(&["add", "Meeting", ":", "onoff", "09:00"])
         .output()
         .unwrap();
     assert!(!output.status.success());

@@ -1707,7 +1707,7 @@ pub fn format_dashboard(
             let project_str = if project_name.is_empty() {
                 "".to_string()
             } else {
-                format!(" project:{}", project_name)
+                format!(" project={}", project_name)
             };
             
             let tags_str = if tags.is_empty() {
@@ -1717,13 +1717,13 @@ pub fn format_dashboard(
             };
             
             let due_str = if let Some(due_ts) = task.due_ts {
-                format!(" due:{}", format_date(due_ts))
+                format!(" due={}", format_date(due_ts))
             } else {
                 "".to_string()
             };
             
             let alloc_str = if let Some(alloc) = task.alloc_secs {
-                format!(" alloc:{}", format_duration(alloc))
+                format!(" alloc={}", format_duration(alloc))
             } else {
                 "".to_string()
             };
@@ -1760,7 +1760,7 @@ pub fn format_dashboard(
             let project_str = if project_name.is_empty() {
                 "".to_string()
             } else {
-                format!(" project:{}", project_name)
+                format!(" project={}", project_name)
             };
             
             let tags_str = if tags.is_empty() {
@@ -1770,13 +1770,13 @@ pub fn format_dashboard(
             };
             
             let due_str = if let Some(due_ts) = task.due_ts {
-                format!(" due:{}", format_date(due_ts))
+                format!(" due={}", format_date(due_ts))
             } else {
                 "".to_string()
             };
             
             let alloc_str = if let Some(alloc) = task.alloc_secs {
-                format!(" alloc:{}", format_duration(alloc))
+                format!(" alloc={}", format_duration(alloc))
             } else {
                 "".to_string()
             };

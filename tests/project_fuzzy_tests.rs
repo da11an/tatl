@@ -33,7 +33,7 @@ fn test_project_not_found_no_matches() {
     
     // Try to add task with non-existent project
     new_cmd(&temp_dir)
-        .args(&["add", "Test task", "project:nonexistent"])
+        .args(&["add", "Test task", "project=nonexistent"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created project 'nonexistent'"))
@@ -53,7 +53,7 @@ fn test_project_not_found_with_match() {
     
     // Try to add task with typo in project name
     new_cmd(&temp_dir)
-        .args(&["add", "Test task", "project:Work"])
+        .args(&["add", "Test task", "project=Work"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created project 'Work'"))
@@ -81,7 +81,7 @@ fn test_project_not_found_multiple_matches() {
     
     // Try to add task with typo
     new_cmd(&temp_dir)
-        .args(&["add", "Test task", "project:Newproject"])
+        .args(&["add", "Test task", "project=Newproject"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created project 'Newproject'"))
@@ -100,13 +100,13 @@ fn test_project_not_found_in_modify() {
         .assert()
         .success();
     new_cmd(&temp_dir)
-        .args(&["add", "Test task", "project:work"])
+        .args(&["add", "Test task", "project=work"])
         .assert()
         .success();
     
     // Try to modify with typo in project name
     new_cmd(&temp_dir)
-        .args(&["1", "modify", "project:Work"])
+        .args(&["1", "modify", "project=Work"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created project 'Work'"))
@@ -126,7 +126,7 @@ fn test_project_not_found_case_insensitive() {
     
     // Try with different case variations
     new_cmd(&temp_dir)
-        .args(&["add", "Test task", "project:WORK"])
+        .args(&["add", "Test task", "project=WORK"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created project 'WORK'"))
@@ -134,7 +134,7 @@ fn test_project_not_found_case_insensitive() {
         .stderr(predicate::str::contains("Add new project?"));
     
     new_cmd(&temp_dir)
-        .args(&["add", "Test task", "project:WoRk"])
+        .args(&["add", "Test task", "project=WoRk"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created project 'WoRk'"))
@@ -160,7 +160,7 @@ fn test_project_not_found_substring_match() {
     // Note: substring matching may not always trigger if distance is too high
     // This test verifies the error message format
     new_cmd(&temp_dir)
-        .args(&["add", "Test task", "project:work"])
+        .args(&["add", "Test task", "project=work"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created project 'work'"))

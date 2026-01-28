@@ -11,18 +11,18 @@
 //! # Filter Terms
 //!
 //! - `id` - Match by task ID
-//! - `status:<status>` - Match by status (pending, completed, closed, deleted)
-//! - `project:<name>` - Match by project (supports prefix matching for nested projects)
+//! - `status=<status>` - Match by status (pending, completed, closed, deleted)
+//! - `project=<name>` - Match by project (supports prefix matching for nested projects)
 //! - `+tag` / `-tag` - Match by tag presence/absence
-//! - `due:<expr>` - Match by due date
-//! - `scheduled:<expr>` - Match by scheduled date
-//! - `wait:<expr>` - Match by wait date
+//! - `due=<expr>` - Match by due date (supports =, >, <, >=, <=, !=)
+//! - `scheduled=<expr>` - Match by scheduled date
+//! - `wait=<expr>` - Match by wait date
 //! - `waiting` - Derived: matches tasks with wait_ts in the future
-//! - `kanban:<status>` - Derived: matches tasks by kanban status (proposed, stalled, queued, done)
+//! - `kanban=<status>` - Derived: matches tasks by kanban status (proposed, stalled, queued, done)
 
 use crate::models::{Task, TaskStatus};
 use crate::repo::{TaskRepo, SessionRepo, StackRepo, ExternalRepo};
-use crate::filter::parser::FilterTerm;
+use crate::filter::parser::{FilterTerm, ComparisonOp};
 use rusqlite::Connection;
 use anyhow::Result;
 
@@ -64,6 +64,109 @@ impl FilterExpr {
     }
 }
 
+/// Helper to evaluate a date field with a comparison operator
+fn match_date_field(
+    task_ts: Option<i64>,
+    op: &ComparisonOp,
+    expr: &str,
+) -> Result<bool> {
+    match op {
+        ComparisonOp::Eq => {
+            match expr {
+                "any" => Ok(task_ts.is_some()),
+                "none" => Ok(task_ts.is_none()),
+                _ => {
+                    match crate::utils::parse_date_expr(expr) {
+                        Ok(filter_ts) => {
+                            if let Some(ts) = task_ts {
+                                let filter_date = chrono::DateTime::from_timestamp(filter_ts, 0)
+                                    .map(|dt| dt.date_naive());
+                                let task_date = chrono::DateTime::from_timestamp(ts, 0)
+                                    .map(|dt| dt.date_naive());
+                                Ok(filter_date == task_date)
+                            } else {
+                                Ok(false)
+                            }
+                        }
+                        Err(_) => Ok(false),
+                    }
+                }
+            }
+        }
+        ComparisonOp::Neq => {
+            match expr {
+                "none" => Ok(task_ts.is_some()),
+                "any" => Ok(task_ts.is_none()),
+                _ => {
+                    match crate::utils::parse_date_expr(expr) {
+                        Ok(filter_ts) => {
+                            if let Some(ts) = task_ts {
+                                let filter_date = chrono::DateTime::from_timestamp(filter_ts, 0)
+                                    .map(|dt| dt.date_naive());
+                                let task_date = chrono::DateTime::from_timestamp(ts, 0)
+                                    .map(|dt| dt.date_naive());
+                                Ok(filter_date != task_date)
+                            } else {
+                                // Task has no date, so it's != any date
+                                Ok(true)
+                            }
+                        }
+                        Err(_) => Ok(false),
+                    }
+                }
+            }
+        }
+        ComparisonOp::Gt => {
+            match crate::utils::parse_date_expr(expr) {
+                Ok(filter_ts) => {
+                    if let Some(ts) = task_ts {
+                        Ok(ts > filter_ts)
+                    } else {
+                        Ok(false)
+                    }
+                }
+                Err(_) => Ok(false),
+            }
+        }
+        ComparisonOp::Lt => {
+            match crate::utils::parse_date_expr(expr) {
+                Ok(filter_ts) => {
+                    if let Some(ts) = task_ts {
+                        Ok(ts < filter_ts)
+                    } else {
+                        Ok(false)
+                    }
+                }
+                Err(_) => Ok(false),
+            }
+        }
+        ComparisonOp::Gte => {
+            match crate::utils::parse_date_expr(expr) {
+                Ok(filter_ts) => {
+                    if let Some(ts) = task_ts {
+                        Ok(ts >= filter_ts)
+                    } else {
+                        Ok(false)
+                    }
+                }
+                Err(_) => Ok(false),
+            }
+        }
+        ComparisonOp::Lte => {
+            match crate::utils::parse_date_expr(expr) {
+                Ok(filter_ts) => {
+                    if let Some(ts) = task_ts {
+                        Ok(ts <= filter_ts)
+                    } else {
+                        Ok(false)
+                    }
+                }
+                Err(_) => Ok(false),
+            }
+        }
+    }
+}
+
 impl FilterTerm {
     fn matches(&self, task: &Task, conn: &Connection) -> Result<bool> {
         match self {
@@ -71,28 +174,28 @@ impl FilterTerm {
                 Ok(task.id == Some(*id))
             }
             FilterTerm::Status(statuses) => {
-                // Multi-value status filter: status:pending,closed matches if task status is any of the values
+                // Multi-value status filter: status=pending,closed matches if task status is any of the values
                 let task_status = task.status.as_str();
                 Ok(statuses.iter().any(|s| task_status == s.as_str()))
             }
             FilterTerm::Project(project_names) => {
-                // Multi-value project filter: project:pro1,pro2 matches if task's project matches ANY of the values (OR logic)
+                // Multi-value project filter: project=pro1,pro2 matches if task's project matches ANY of the values (OR logic)
                 // Special cases:
-                // - project: or project:none matches tasks WITHOUT a project
+                // - project= or project=none matches tasks WITHOUT a project
                 // Nested project prefix matching:
-                // - project:admin matches admin, admin.email, admin.other, etc.
-                // - project:admin.email matches only admin.email and nested projects like admin.email.inbox
-                
+                // - project=admin matches admin, admin.email, admin.other, etc.
+                // - project=admin.email matches only admin.email and nested projects like admin.email.inbox
+
                 // Check if any of the filter values is empty or "none" (meaning: match tasks without project)
                 let wants_no_project = project_names.iter().any(|n| n.is_empty() || n.eq_ignore_ascii_case("none"));
-                
+
                 if let Some(project_id) = task.project_id {
                     // Task HAS a project
                     if wants_no_project && project_names.len() == 1 {
                         // Only filtering for no-project, but task has one
                         return Ok(false);
                     }
-                    
+
                     // Get project name from database by ID
                     let mut stmt = conn.prepare("SELECT name FROM projects WHERE id = ?1")?;
                     let project_name_opt: Option<String> = stmt.query_row([project_id], |row| row.get(0)).ok();
@@ -126,91 +229,20 @@ impl FilterTerm {
                 let has_tag = tags.contains(tag);
                 Ok(if *is_positive { has_tag } else { !has_tag })
             }
-            FilterTerm::Due(expr) => {
-                match expr.as_str() {
-                    "any" => Ok(task.due_ts.is_some()),
-                    "none" => Ok(task.due_ts.is_none()),
-                    _ => {
-                        // Parse date expression and compare
-                        match crate::utils::parse_date_expr(expr) {
-                            Ok(filter_ts) => {
-                                // Match if task's due_ts is on the same day as filter_ts
-                                if let Some(due_ts) = task.due_ts {
-                                    // Compare dates (ignore time)
-                                    let filter_date = chrono::DateTime::from_timestamp(filter_ts, 0)
-                                        .map(|dt| dt.date_naive());
-                                    let due_date = chrono::DateTime::from_timestamp(due_ts, 0)
-                                        .map(|dt| dt.date_naive());
-                                    Ok(filter_date == due_date)
-                                } else {
-                                    Ok(false)
-                                }
-                            }
-                            Err(_) => {
-                                // If date parsing fails, don't match
-                                Ok(false)
-                            }
-                        }
-                    }
-                }
+            FilterTerm::Due(op, expr) => {
+                match_date_field(task.due_ts, op, expr)
             }
-            FilterTerm::Scheduled(expr) => {
-                match expr.as_str() {
-                    "any" => Ok(task.scheduled_ts.is_some()),
-                    "none" => Ok(task.scheduled_ts.is_none()),
-                    _ => {
-                        // Parse date expression and compare
-                        match crate::utils::parse_date_expr(expr) {
-                            Ok(filter_ts) => {
-                                // Match if task's scheduled_ts is on the same day as filter_ts
-                                if let Some(scheduled_ts) = task.scheduled_ts {
-                                    let filter_date = chrono::DateTime::from_timestamp(filter_ts, 0)
-                                        .map(|dt| dt.date_naive());
-                                    let scheduled_date = chrono::DateTime::from_timestamp(scheduled_ts, 0)
-                                        .map(|dt| dt.date_naive());
-                                    Ok(filter_date == scheduled_date)
-                                } else {
-                                    Ok(false)
-                                }
-                            }
-                            Err(_) => {
-                                Ok(false)
-                            }
-                        }
-                    }
-                }
+            FilterTerm::Scheduled(op, expr) => {
+                match_date_field(task.scheduled_ts, op, expr)
             }
-            FilterTerm::Wait(expr) => {
-                match expr.as_str() {
-                    "any" => Ok(task.wait_ts.is_some()),
-                    "none" => Ok(task.wait_ts.is_none()),
-                    _ => {
-                        // Parse date expression and compare
-                        match crate::utils::parse_date_expr(expr) {
-                            Ok(filter_ts) => {
-                                // Match if task's wait_ts is on the same day as filter_ts
-                                if let Some(wait_ts) = task.wait_ts {
-                                    let filter_date = chrono::DateTime::from_timestamp(filter_ts, 0)
-                                        .map(|dt| dt.date_naive());
-                                    let wait_date = chrono::DateTime::from_timestamp(wait_ts, 0)
-                                        .map(|dt| dt.date_naive());
-                                    Ok(filter_date == wait_date)
-                                } else {
-                                    Ok(false)
-                                }
-                            }
-                            Err(_) => {
-                                Ok(false)
-                            }
-                        }
-                    }
-                }
+            FilterTerm::Wait(op, expr) => {
+                match_date_field(task.wait_ts, op, expr)
             }
             FilterTerm::Waiting => {
                 Ok(task.is_waiting())
             }
             FilterTerm::Kanban(statuses) => {
-                // Multi-value kanban filter: kanban:queued,stalled matches if task kanban is any of the values
+                // Multi-value kanban filter: kanban=queued,stalled matches if task kanban is any of the values
                 let task_kanban = calculate_task_kanban(task, conn)?;
                 let task_kanban_lower = task_kanban.to_lowercase();
                 Ok(statuses.iter().any(|s| task_kanban_lower == s.to_lowercase()))
@@ -239,24 +271,24 @@ fn calculate_task_kanban(task: &Task, conn: &Connection) -> Result<String> {
     if task.status == TaskStatus::Completed || task.status == TaskStatus::Closed {
         return Ok("done".to_string());
     }
-    
+
     let task_id = task.id.unwrap_or(0);
-    
+
     // Check for externals
     let has_externals = ExternalRepo::has_active_externals(conn, task_id)?;
     if has_externals {
         return Ok("external".to_string());
     }
-    
+
     // Get stack position
     let stack = StackRepo::get_or_create_default(conn)?;
     let items = StackRepo::get_items(conn, stack.id.unwrap())?;
     let stack_position = items.iter().position(|item| item.task_id == task_id);
-    
+
     // Check if task has sessions
     let all_sessions = SessionRepo::list_all(conn)?;
     let has_sessions = all_sessions.iter().any(|s| s.task_id == task_id);
-    
+
     match stack_position {
         Some(_pos) => {
             // In stack (any position) = queued
@@ -277,13 +309,13 @@ fn calculate_task_kanban(task: &Task, conn: &Connection) -> Result<String> {
 pub fn filter_tasks(conn: &Connection, filter: &FilterExpr) -> Result<Vec<(Task, Vec<String>)>> {
     let all_tasks = TaskRepo::list_all(conn)?;
     let mut matching = Vec::new();
-    
+
     for (task, tags) in all_tasks {
         if filter.matches(&task, conn)? {
             matching.push((task, tags));
         }
     }
-    
+
     Ok(matching)
 }
 
@@ -297,11 +329,11 @@ mod tests {
     #[test]
     fn test_filter_id() {
         let conn = DbConnection::connect_in_memory().unwrap();
-        
+
         // Create tasks
         let task1 = TaskRepo::create(&conn, "Task 1", None).unwrap();
         TaskRepo::create(&conn, "Task 2", None).unwrap();
-        
+
         // Filter by ID
         let filter = parse_filter(vec!["1".to_string()]).unwrap();
         let results = filter_tasks(&conn, &filter).unwrap();
@@ -312,13 +344,13 @@ mod tests {
     #[test]
     fn test_filter_status() {
         let conn = DbConnection::connect_in_memory().unwrap();
-        
+
         // Create tasks (all pending by default)
         TaskRepo::create(&conn, "Task 1", None).unwrap();
         TaskRepo::create(&conn, "Task 2", None).unwrap();
-        
+
         // Filter by status
-        let filter = parse_filter(vec!["status:pending".to_string()]).unwrap();
+        let filter = parse_filter(vec!["status=pending".to_string()]).unwrap();
         let results = filter_tasks(&conn, &filter).unwrap();
         assert_eq!(results.len(), 2);
     }
@@ -326,18 +358,18 @@ mod tests {
     #[test]
     fn test_filter_project() {
         let conn = DbConnection::connect_in_memory().unwrap();
-        
+
         // Create projects
         let work = ProjectRepo::create(&conn, "work").unwrap();
         let home = ProjectRepo::create(&conn, "home").unwrap();
-        
+
         // Create tasks
         TaskRepo::create(&conn, "Task 1", work.id).unwrap();
         TaskRepo::create(&conn, "Task 2", home.id).unwrap();
         TaskRepo::create(&conn, "Task 3", None).unwrap();
-        
+
         // Filter by project
-        let filter = parse_filter(vec!["project:work".to_string()]).unwrap();
+        let filter = parse_filter(vec!["project=work".to_string()]).unwrap();
         let results = filter_tasks(&conn, &filter).unwrap();
         assert_eq!(results.len(), 1);
     }
@@ -345,28 +377,28 @@ mod tests {
     #[test]
     fn test_filter_nested_project() {
         let conn = DbConnection::connect_in_memory().unwrap();
-        
+
         // Create nested projects
         ProjectRepo::create(&conn, "admin").unwrap();
         ProjectRepo::create(&conn, "admin.email").unwrap();
         ProjectRepo::create(&conn, "admin.other").unwrap();
-        
+
         let admin = ProjectRepo::get_by_name(&conn, "admin").unwrap().unwrap();
         let admin_email = ProjectRepo::get_by_name(&conn, "admin.email").unwrap().unwrap();
         let admin_other = ProjectRepo::get_by_name(&conn, "admin.other").unwrap().unwrap();
-        
+
         // Create tasks
         TaskRepo::create(&conn, "Task 1", admin.id).unwrap();
         TaskRepo::create(&conn, "Task 2", admin_email.id).unwrap();
         TaskRepo::create(&conn, "Task 3", admin_other.id).unwrap();
-        
+
         // Filter by parent project (should match all)
-        let filter = parse_filter(vec!["project:admin".to_string()]).unwrap();
+        let filter = parse_filter(vec!["project=admin".to_string()]).unwrap();
         let results = filter_tasks(&conn, &filter).unwrap();
         assert_eq!(results.len(), 3);
-        
+
         // Filter by specific nested project
-        let filter = parse_filter(vec!["project:admin.email".to_string()]).unwrap();
+        let filter = parse_filter(vec!["project=admin.email".to_string()]).unwrap();
         let results = filter_tasks(&conn, &filter).unwrap();
         assert_eq!(results.len(), 1);
     }
@@ -374,17 +406,17 @@ mod tests {
     #[test]
     fn test_filter_tags() {
         let conn = DbConnection::connect_in_memory().unwrap();
-        
+
         // Create tasks with tags
         let task1 = TaskRepo::create_full(&conn, "Task 1", None, None, None, None, None, None, None, &std::collections::HashMap::new(), &["urgent".to_string()]).unwrap();
         TaskRepo::create_full(&conn, "Task 2", None, None, None, None, None, None, None, &std::collections::HashMap::new(), &["important".to_string()]).unwrap();
-        
+
         // Filter by positive tag
         let filter = parse_filter(vec!["+urgent".to_string()]).unwrap();
         let results = filter_tasks(&conn, &filter).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0.id, task1.id);
-        
+
         // Filter by negative tag
         let filter = parse_filter(vec!["-urgent".to_string()]).unwrap();
         let results = filter_tasks(&conn, &filter).unwrap();
@@ -394,36 +426,52 @@ mod tests {
     #[test]
     fn test_filter_due_any_none() {
         let conn = DbConnection::connect_in_memory().unwrap();
-        
+
         // Create tasks with and without due dates
         let now = chrono::Utc::now().timestamp();
         let task1 = TaskRepo::create_full(&conn, "Task 1", None, Some(now), None, None, None, None, None, &std::collections::HashMap::new(), &[]).unwrap();
         TaskRepo::create_full(&conn, "Task 2", None, None, None, None, None, None, None, &std::collections::HashMap::new(), &[]).unwrap();
-        
-        // Filter by due:any
-        let filter = parse_filter(vec!["due:any".to_string()]).unwrap();
+
+        // Filter by due=any
+        let filter = parse_filter(vec!["due=any".to_string()]).unwrap();
         let results = filter_tasks(&conn, &filter).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0.id, task1.id);
-        
-        // Filter by due:none
-        let filter = parse_filter(vec!["due:none".to_string()]).unwrap();
+
+        // Filter by due=none
+        let filter = parse_filter(vec!["due=none".to_string()]).unwrap();
         let results = filter_tasks(&conn, &filter).unwrap();
         assert_eq!(results.len(), 1);
     }
 
     #[test]
+    fn test_filter_due_neq_none() {
+        let conn = DbConnection::connect_in_memory().unwrap();
+
+        // Create tasks with and without due dates
+        let now = chrono::Utc::now().timestamp();
+        let task1 = TaskRepo::create_full(&conn, "Task 1", None, Some(now), None, None, None, None, None, &std::collections::HashMap::new(), &[]).unwrap();
+        TaskRepo::create_full(&conn, "Task 2", None, None, None, None, None, None, None, &std::collections::HashMap::new(), &[]).unwrap();
+
+        // Filter by due!=none (should match tasks WITH a due date)
+        let filter = parse_filter(vec!["due!=none".to_string()]).unwrap();
+        let results = filter_tasks(&conn, &filter).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0.id, task1.id);
+    }
+
+    #[test]
     fn test_filter_waiting() {
         let conn = DbConnection::connect_in_memory().unwrap();
-        
+
         // Create tasks
         let future = chrono::Utc::now().timestamp() + 3600; // 1 hour in future
         let past = chrono::Utc::now().timestamp() - 3600; // 1 hour in past
-        
+
         TaskRepo::create_full(&conn, "Waiting task", None, None, None, Some(future), None, None, None, &std::collections::HashMap::new(), &[]).unwrap();
         TaskRepo::create_full(&conn, "Not waiting", None, None, None, Some(past), None, None, None, &std::collections::HashMap::new(), &[]).unwrap();
         TaskRepo::create_full(&conn, "No wait", None, None, None, None, None, None, None, &std::collections::HashMap::new(), &[]).unwrap();
-        
+
         // Filter by waiting
         let filter = parse_filter(vec!["waiting".to_string()]).unwrap();
         let results = filter_tasks(&conn, &filter).unwrap();
@@ -433,14 +481,14 @@ mod tests {
     #[test]
     fn test_filter_combined() {
         let conn = DbConnection::connect_in_memory().unwrap();
-        
+
         // Create project and tasks
         let work = ProjectRepo::create(&conn, "work").unwrap();
         let task1 = TaskRepo::create_full(&conn, "Task 1", work.id, None, None, None, None, None, None, &std::collections::HashMap::new(), &["urgent".to_string()]).unwrap();
         TaskRepo::create_full(&conn, "Task 2", work.id, None, None, None, None, None, None, &std::collections::HashMap::new(), &[]).unwrap();
-        
+
         // Combined filter: project AND tag
-        let filter = parse_filter(vec!["project:work".to_string(), "+urgent".to_string()]).unwrap();
+        let filter = parse_filter(vec!["project=work".to_string(), "+urgent".to_string()]).unwrap();
         let results = filter_tasks(&conn, &filter).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0.id, task1.id);

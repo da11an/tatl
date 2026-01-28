@@ -81,7 +81,7 @@ fn test_task_add_with_template() {
     
     // Create a task with template (template will be auto-created from task attributes)
     // Note: We don't need a project for this test
-    get_task_cmd().args(&["add", "Daily standup", "template:standup", "allocation:30m"]).assert().success();
+    get_task_cmd().args(&["add", "Daily standup", "template=standup", "allocation=30m"]).assert().success();
     
     // Verify template was created
     let conn = DbConnection::connect().unwrap();
@@ -100,7 +100,7 @@ fn test_respawn_with_template() {
     let (temp_dir, _guard) = setup_test_env();
     
     // Create a task with respawn rule
-    get_task_cmd().args(&["add", "Daily standup", "respawn:daily", "allocation:30m", "+meeting"]).assert().success();
+    get_task_cmd().args(&["add", "Daily standup", "respawn=daily", "allocation=30m", "+meeting"]).assert().success();
     
     // Get the task ID
     let conn = DbConnection::connect().unwrap();

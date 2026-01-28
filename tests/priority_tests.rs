@@ -33,13 +33,13 @@ fn test_priority_overdue_task_has_higher_priority() {
     
     // Create overdue task
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "Overdue task", "due:2020-01-01"])
+    cmd.args(&["add", "Overdue task", "due=2020-01-01"])
         .assert()
         .success();
     
     // Create task due in future
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "Future task", "due:+30d"])
+    cmd.args(&["add", "Future task", "due=+30d"])
         .assert()
         .success();
     
@@ -63,13 +63,13 @@ fn test_priority_due_soon_has_higher_priority() {
     
     // Create task due tomorrow
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "Due soon", "due:tomorrow"])
+    cmd.args(&["add", "Due soon", "due=tomorrow"])
         .assert()
         .success();
     
     // Create task due in a month
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "Due later", "due:+30d"])
+    cmd.args(&["add", "Due later", "due=+30d"])
         .assert()
         .success();
     
@@ -93,7 +93,7 @@ fn test_priority_allocation_affects_priority() {
     
     // Create task with allocation (don't add to clock stack)
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "Task with allocation", "allocation:2h"])
+    cmd.args(&["add", "Task with allocation", "allocation=2h"])
         .assert()
         .success();
     
@@ -168,7 +168,7 @@ fn test_priority_json_output() {
     
     // Create a task
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "Test task", "due:tomorrow"])
+    cmd.args(&["add", "Test task", "due=tomorrow"])
         .assert()
         .success();
     

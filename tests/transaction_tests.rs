@@ -28,7 +28,7 @@ fn test_finish_next_atomic() {
     
     // Complete task1 with --next
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["finish", "--next"]);
+    when.execute_success(&["finish", ":", "on"]);
     
     // Verify atomicity: all changes applied together
     let then = ThenBuilder::new(&ctx, None);
@@ -159,7 +159,7 @@ fn test_no_partial_state_on_modify_failure() {
     
     // Try to modify with invalid project - should fail
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_failure(&["modify", &task1.to_string(), "project:work@home"]);
+    when.execute_failure(&["modify", &task1.to_string(), "project=work@home"]);
     
     // Verify task is unchanged
     let final_task = TaskRepo::get_by_id(ctx.db(), task1).unwrap().unwrap();

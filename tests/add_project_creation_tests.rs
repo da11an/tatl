@@ -34,7 +34,7 @@ fn test_add_with_new_project_prompt_yes() {
     
     // Add task with new project, respond 'y' to prompt
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "Test task", "project:newproject"])
+    cmd.args(&["add", "Test task", "project=newproject"])
         .write_stdin("y\n")
         .assert()
         .success()
@@ -62,7 +62,7 @@ fn test_add_with_new_project_prompt_no() {
     
     // Add task with new project, respond 'n' to prompt
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "Test task", "project:newproject"])
+    cmd.args(&["add", "Test task", "project=newproject"])
         .write_stdin("n\n")
         .assert()
         .success()
@@ -92,7 +92,7 @@ fn test_add_with_new_project_prompt_cancel() {
     
     // Add task with new project, respond 'c' to prompt
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "Test task", "project:newproject"])
+    cmd.args(&["add", "Test task", "project=newproject"])
         .write_stdin("c\n")
         .assert()
         .success()
@@ -120,7 +120,7 @@ fn test_add_with_new_project_prompt_default_yes() {
     
     // Add task with new project, respond with empty line (default: yes, create project)
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "Test task", "project:newproject"])
+    cmd.args(&["add", "Test task", "project=newproject"])
         .write_stdin("\n")
         .assert()
         .success()
@@ -151,7 +151,7 @@ fn test_add_with_auto_create_project_flag() {
     
     // Add task with --auto-create-project flag
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "--auto-create-project", "Test task", "project:autoproject"])
+    cmd.args(&["add", "--auto-create-project", "Test task", "project=autoproject"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created project 'autoproject'"))
@@ -184,7 +184,7 @@ fn test_add_with_existing_project_no_prompt() {
     
     // Add task with existing project - should not prompt
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "Test task", "project:existingproject"])
+    cmd.args(&["add", "Test task", "project=existingproject"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created task"))
@@ -204,7 +204,7 @@ fn test_add_with_new_project_invalid_response() {
     
     // Add task with new project, respond with invalid input
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "Test task", "project:newproject"])
+    cmd.args(&["add", "Test task", "project=newproject"])
         .write_stdin("invalid\n")
         .assert()
         .success()
@@ -224,9 +224,9 @@ fn test_add_with_new_project_invalid_response() {
 fn test_add_with_auto_yes_and_on() {
     let (temp_dir, _guard) = setup_test_env();
     
-    // Add task with both -y and --on flags
+    // Add task with -y and pipe to on
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "-y", "--on", "Test task", "project:autoproject"])
+    cmd.args(&["add", "-y", "Test task", "project=autoproject", ":", "on"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created project 'autoproject'"))

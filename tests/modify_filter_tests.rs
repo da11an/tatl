@@ -63,7 +63,7 @@ fn test_modify_with_filter_single_match() {
     
     // Modify with filter that matches one task
     get_task_cmd()
-        .args(&["modify", "+urgent", "--yes", "description:Updated task"])
+        .args(&["modify", "+urgent", "--yes", "Updated task"])
         .assert()
         .success();
     
@@ -107,12 +107,12 @@ fn test_modify_with_filter_and_project() {
     get_task_cmd().args(&["projects", "add", "work"]).assert().success();
     
     // Create tasks
-    get_task_cmd().args(&["add", "Task 1", "project:work"]).assert().success();
-    get_task_cmd().args(&["add", "Task 2", "project:work"]).assert().success();
+    get_task_cmd().args(&["add", "Task 1", "project=work"]).assert().success();
+    get_task_cmd().args(&["add", "Task 2", "project=work"]).assert().success();
     
     // Modify with project filter
     get_task_cmd()
-        .args(&["modify", "project:work", "--yes", "+important"])
+        .args(&["modify", "project=work", "--yes", "+important"])
         .assert()
         .success();
     

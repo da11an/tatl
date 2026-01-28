@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! filter := term | filter "or" term | "not" term
-//! term := id | status:<status> | project:<name> | +tag | -tag | due:<expr> | ...
+//! term := id | status=<status> | project=<name> | +tag | -tag | due=<expr> | due>expr | ...
 //! ```
 //!
 //! # Precedence
@@ -19,7 +19,7 @@
 //!
 //! ```text
 //! // Implicit AND
-//! project:work +urgent
+//! project=work +urgent
 //!
 //! // Explicit OR
 //! +urgent or +important
@@ -28,15 +28,29 @@
 //! not +waiting
 //!
 //! // Complex
-//! project:work +urgent or project:home +important
+//! project=work +urgent or project=home +important
+//!
+//! // Comparison operators
+//! due>tomorrow due<=eod
 //! ```
 
 use crate::filter::evaluator::FilterExpr;
 
+/// Comparison operators for filter expressions
+#[derive(Debug, Clone, PartialEq)]
+pub enum ComparisonOp {
+    Eq,    // =
+    Neq,   // != or <>
+    Gt,    // >
+    Lt,    // <
+    Gte,   // >=
+    Lte,   // <=
+}
+
 /// Parse filter tokens into a FilterExpr
 ///
 /// # Arguments
-/// * `tokens` - Vector of filter tokens (e.g., `vec!["project:work".to_string(), "+urgent".to_string()]`)
+/// * `tokens` - Vector of filter tokens (e.g., `vec!["project=work".to_string(), "+urgent".to_string()]`)
 ///
 /// # Returns
 /// `FilterExpr` representing the parsed filter, or an error string if parsing fails
@@ -46,43 +60,43 @@ use crate::filter::evaluator::FilterExpr;
 /// ```
 /// use tatl::filter::parse_filter;
 ///
-/// let filter = parse_filter(vec!["project:work".to_string(), "+urgent".to_string()]).unwrap();
+/// let filter = parse_filter(vec!["project=work".to_string(), "+urgent".to_string()]).unwrap();
 /// ```
 pub fn parse_filter(tokens: Vec<String>) -> Result<FilterExpr, String> {
     if tokens.is_empty() {
         return Ok(FilterExpr::All); // No filter = match all
     }
-    
+
     // First pass: parse tokens into filter terms and operators
     let mut parsed: Vec<FilterToken> = Vec::new();
     let mut i = 0;
-    
+
     while i < tokens.len() {
         let token = &tokens[i];
-        
+
         // Check for operators
         if token == "or" {
             parsed.push(FilterToken::Or);
             i += 1;
             continue;
         }
-        
+
         if token == "not" {
             parsed.push(FilterToken::Not);
             i += 1;
             continue;
         }
-        
+
         // Parse as filter term
         match parse_filter_term(token) {
             Ok(Some(term)) => parsed.push(FilterToken::Term(term)),
             Ok(None) => return Err(format!("Invalid filter token: {}", token)),
             Err(err) => return Err(err),
         }
-        
+
         i += 1;
     }
-    
+
     // Second pass: build expression tree respecting precedence
     // Precedence: not > and > or
     build_expression(parsed)
@@ -101,14 +115,56 @@ pub enum FilterTerm {
     Status(Vec<String>), // Status filter (pending, completed, closed) - supports comma-separated values
     Project(Vec<String>), // Project filter - supports comma-separated values (OR logic)
     Tag(String, bool), // (tag, is_positive)
-    Due(String),
-    Scheduled(String),
-    Wait(String),
+    Due(ComparisonOp, String),
+    Scheduled(ComparisonOp, String),
+    Wait(ComparisonOp, String),
     Waiting,
     Kanban(Vec<String>), // Kanban status filter (proposed, stalled, queued, external, done) - supports comma-separated values
     Desc(String), // Description substring search (case-insensitive)
     External(String), // External recipient filter
 }
+
+/// Split a token into (key, operator, value) using operator detection.
+/// Returns None if no operator is found.
+fn split_on_operator(token: &str) -> Option<(String, ComparisonOp, String)> {
+    // Find the first operator character position
+    let op_start = token.find(|c: char| c == '=' || c == '>' || c == '<' || c == '!')?;
+
+    let key = token[..op_start].to_string();
+    if key.is_empty() {
+        return None;
+    }
+
+    let rest = &token[op_start..];
+
+    // Detect the operator from the remaining string
+    let (op, op_len) = if rest.starts_with(">=") {
+        (ComparisonOp::Gte, 2)
+    } else if rest.starts_with("<=") {
+        (ComparisonOp::Lte, 2)
+    } else if rest.starts_with("!=") {
+        (ComparisonOp::Neq, 2)
+    } else if rest.starts_with("<>") {
+        (ComparisonOp::Neq, 2)
+    } else if rest.starts_with('=') {
+        (ComparisonOp::Eq, 1)
+    } else if rest.starts_with('>') {
+        (ComparisonOp::Gt, 1)
+    } else if rest.starts_with('<') {
+        (ComparisonOp::Lt, 1)
+    } else {
+        return None;
+    };
+
+    let value = rest[op_len..].to_string();
+    Some((key, op, value))
+}
+
+/// Known filter keys (exact match only)
+const FILTER_KEYS: &[&str] = &[
+    "id", "status", "project", "due", "scheduled", "wait",
+    "kanban", "desc", "description", "external",
+];
 
 /// Parse a single filter term token
 fn parse_filter_term(token: &str) -> Result<Option<FilterTerm>, String> {
@@ -116,44 +172,17 @@ fn parse_filter_term(token: &str) -> Result<Option<FilterTerm>, String> {
     if let Ok(id) = token.parse::<i64>() {
         return Ok(Some(FilterTerm::Id(id)));
     }
-    
-    // id:<n>
-    if let Some(id_str) = token.strip_prefix("id:") {
-        if let Ok(id) = id_str.parse::<i64>() {
-            return Ok(Some(FilterTerm::Id(id)));
+
+    // Try to split on operator (=, >, <, >=, <=, !=, <>)
+    if let Some((key, op, value)) = split_on_operator(token) {
+        let key_lower = key.to_lowercase();
+
+        // Check for exact match in known keys
+        if !FILTER_KEYS.contains(&key_lower.as_str()) {
+            return Err(format!("Unknown filter field '{}'. Known fields: {}", key, FILTER_KEYS.join(", ")));
         }
-    }
-    
-    // Key:value with token abbreviation support
-    if let Some((key, value)) = token.split_once(':') {
-        let resolved_key = resolve_filter_key(key)?;
-        return match resolved_key.as_str() {
-            "status" => {
-                // Support comma-separated values: status:pending,closed
-                let values: Vec<String> = value.split(',')
-                    .map(|v| v.trim().to_lowercase())
-                    .collect();
-                Ok(Some(FilterTerm::Status(values)))
-            },
-            "project" => {
-                // Support comma-separated values: project:pro1,pro2
-                let values: Vec<String> = value.split(',')
-                    .map(|v| v.trim().to_string())
-                    .collect();
-                Ok(Some(FilterTerm::Project(values)))
-            },
-            "due" => Ok(Some(FilterTerm::Due(value.to_string()))),
-            "scheduled" => Ok(Some(FilterTerm::Scheduled(value.to_string()))),
-            "wait" => Ok(Some(FilterTerm::Wait(value.to_string()))),
-            "kanban" => {
-                // Support comma-separated values: kanban:queued,stalled
-                let values: Vec<String> = value.split(',')
-                    .map(|v| v.trim().to_lowercase())
-                    .collect();
-                Ok(Some(FilterTerm::Kanban(values)))
-            },
-            "desc" | "description" => Ok(Some(FilterTerm::Desc(value.to_string()))),
-            "external" => Ok(Some(FilterTerm::External(value.to_string()))),
+
+        return match key_lower.as_str() {
             "id" => {
                 if let Ok(id) = value.parse::<i64>() {
                     Ok(Some(FilterTerm::Id(id)))
@@ -161,10 +190,61 @@ fn parse_filter_term(token: &str) -> Result<Option<FilterTerm>, String> {
                     Ok(None)
                 }
             }
+            "status" => {
+                if op != ComparisonOp::Eq {
+                    return Err(format!("Status filter only supports '=' operator, got '{}'", format_op(&op)));
+                }
+                let values: Vec<String> = value.split(',')
+                    .map(|v| v.trim().to_lowercase())
+                    .collect();
+                Ok(Some(FilterTerm::Status(values)))
+            },
+            "project" => {
+                if op != ComparisonOp::Eq && op != ComparisonOp::Neq {
+                    return Err(format!("Project filter only supports '=' and '!=' operators, got '{}'", format_op(&op)));
+                }
+                let values: Vec<String> = value.split(',')
+                    .map(|v| v.trim().to_string())
+                    .collect();
+                if op == ComparisonOp::Neq {
+                    // For != we still store as Project but wrap in Not at a higher level
+                    // Actually, we need to handle this differently - negate is handled by evaluator
+                    // For now, store with the Eq op and the caller handles Not wrapping
+                    // Better approach: just return it and let the evaluator handle != via the existing Not mechanism
+                    // Actually the simplest approach: return a Project term and let parse_filter wrap it in Not
+                    // But that changes the API. Instead, let's just error for now and users can use "not project=X"
+                    return Err("Use 'not project=value' instead of 'project!=value' for negation.".to_string());
+                }
+                Ok(Some(FilterTerm::Project(values)))
+            },
+            "due" => Ok(Some(FilterTerm::Due(op, value))),
+            "scheduled" => Ok(Some(FilterTerm::Scheduled(op, value))),
+            "wait" => Ok(Some(FilterTerm::Wait(op, value))),
+            "kanban" => {
+                if op != ComparisonOp::Eq {
+                    return Err(format!("Kanban filter only supports '=' operator, got '{}'", format_op(&op)));
+                }
+                let values: Vec<String> = value.split(',')
+                    .map(|v| v.trim().to_lowercase())
+                    .collect();
+                Ok(Some(FilterTerm::Kanban(values)))
+            },
+            "desc" | "description" => {
+                if op != ComparisonOp::Eq {
+                    return Err(format!("Description filter only supports '=' operator, got '{}'", format_op(&op)));
+                }
+                Ok(Some(FilterTerm::Desc(value)))
+            },
+            "external" => {
+                if op != ComparisonOp::Eq {
+                    return Err(format!("External filter only supports '=' operator, got '{}'", format_op(&op)));
+                }
+                Ok(Some(FilterTerm::External(value)))
+            },
             _ => Ok(None),
         };
     }
-    
+
     // +tag or -tag
     if let Some(tag) = token.strip_prefix('+') {
         return Ok(Some(FilterTerm::Tag(tag.to_string(), true)));
@@ -172,39 +252,24 @@ fn parse_filter_term(token: &str) -> Result<Option<FilterTerm>, String> {
     if let Some(tag) = token.strip_prefix('-') {
         return Ok(Some(FilterTerm::Tag(tag.to_string(), false)));
     }
-    
+
     // waiting (derived filter)
     if token == "waiting" {
         return Ok(Some(FilterTerm::Waiting));
     }
-    
+
     Ok(None)
 }
 
-fn resolve_filter_key(key: &str) -> Result<String, String> {
-    let key_lower = key.to_lowercase();
-    let known = ["id", "status", "project", "due", "scheduled", "wait", "kanban", "desc", "description"];
-    
-    // Check for exact match first
-    if known.iter().any(|&k| k == key_lower) {
-        return Ok(key_lower);
-    }
-    
-    // Then check for prefix matches
-    let matches: Vec<&str> = known.iter().copied()
-        .filter(|candidate| candidate.starts_with(&key_lower))
-        .collect();
-    
-    if matches.len() == 1 {
-        Ok(matches[0].to_string())
-    } else if matches.is_empty() {
-        Ok(key_lower)
-    } else {
-        Err(format!(
-            "Ambiguous filter token '{}'. Did you mean one of: {}?",
-            key,
-            matches.join(", ")
-        ))
+/// Format a ComparisonOp for display
+fn format_op(op: &ComparisonOp) -> &'static str {
+    match op {
+        ComparisonOp::Eq => "=",
+        ComparisonOp::Neq => "!=",
+        ComparisonOp::Gt => ">",
+        ComparisonOp::Lt => "<",
+        ComparisonOp::Gte => ">=",
+        ComparisonOp::Lte => "<=",
     }
 }
 
@@ -214,7 +279,7 @@ fn build_expression(tokens: Vec<FilterToken>) -> Result<FilterExpr, String> {
     if tokens.is_empty() {
         return Ok(FilterExpr::All);
     }
-    
+
     // First, apply NOT operators (highest precedence)
     let mut after_not = Vec::new();
     let mut i = 0;
@@ -235,12 +300,12 @@ fn build_expression(tokens: Vec<FilterToken>) -> Result<FilterExpr, String> {
             i += 1;
         }
     }
-    
+
     // Now handle OR operators (lowest precedence)
     // Split by OR to get AND groups
     let mut or_groups: Vec<Vec<FilterToken>> = Vec::new();
     let mut current_group = Vec::new();
-    
+
     for token in after_not {
         if let FilterToken::Or = token {
             if !current_group.is_empty() {
@@ -254,14 +319,14 @@ fn build_expression(tokens: Vec<FilterToken>) -> Result<FilterExpr, String> {
     if !current_group.is_empty() {
         or_groups.push(current_group);
     }
-    
+
     // Convert each group (AND group) to expression
     let mut or_exprs = Vec::new();
     for group in or_groups {
         let and_expr = build_and_expression(group)?;
         or_exprs.push(and_expr);
     }
-    
+
     // Combine OR expressions
     if or_exprs.len() == 1 {
         Ok(or_exprs.remove(0))
@@ -275,9 +340,9 @@ fn build_and_expression(tokens: Vec<FilterToken>) -> Result<FilterExpr, String> 
     if tokens.is_empty() {
         return Ok(FilterExpr::All);
     }
-    
+
     let mut and_terms = Vec::new();
-    
+
     for token in tokens {
         match token {
             FilterToken::Term(term) => {
@@ -297,7 +362,7 @@ fn build_and_expression(tokens: Vec<FilterToken>) -> Result<FilterExpr, String> 
             }
         }
     }
-    
+
     if and_terms.len() == 1 {
         Ok(and_terms.remove(0))
     } else {
@@ -321,7 +386,7 @@ mod tests {
 
     #[test]
     fn test_parse_project_and_tag() {
-        let expr = parse_filter(vec!["project:work".to_string(), "+urgent".to_string()]).unwrap();
+        let expr = parse_filter(vec!["project=work".to_string(), "+urgent".to_string()]).unwrap();
         match expr {
             FilterExpr::And(terms) => {
                 assert_eq!(terms.len(), 2);
@@ -351,10 +416,10 @@ mod tests {
     #[test]
     fn test_parse_complex() {
         let expr = parse_filter(vec![
-            "project:work".to_string(),
+            "project=work".to_string(),
             "+urgent".to_string(),
             "or".to_string(),
-            "project:home".to_string(),
+            "project=home".to_string(),
             "+important".to_string(),
         ]).unwrap();
         match expr {
@@ -364,8 +429,8 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_token_abbreviation() {
-        let expr = parse_filter(vec!["st:pending".to_string()]).unwrap();
+    fn test_filter_status() {
+        let expr = parse_filter(vec!["status=pending".to_string()]).unwrap();
         match expr {
             FilterExpr::Term(FilterTerm::Status(statuses)) => {
                 assert_eq!(statuses, vec!["pending".to_string()]);
@@ -375,10 +440,59 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_token_ambiguous_prefix() {
-        let result = parse_filter(vec!["s:pending".to_string()]);
+    fn test_filter_unknown_field_error() {
+        let result = parse_filter(vec!["bogus=value".to_string()]);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.contains("Ambiguous filter token"));
+        assert!(err.contains("Unknown filter field"));
+    }
+
+    #[test]
+    fn test_filter_comparison_operators() {
+        // due>tomorrow
+        let expr = parse_filter(vec!["due>tomorrow".to_string()]).unwrap();
+        match expr {
+            FilterExpr::Term(FilterTerm::Due(op, val)) => {
+                assert_eq!(op, ComparisonOp::Gt);
+                assert_eq!(val, "tomorrow");
+            }
+            _ => panic!("Expected Due term with Gt operator"),
+        }
+
+        // due<=eod
+        let expr = parse_filter(vec!["due<=eod".to_string()]).unwrap();
+        match expr {
+            FilterExpr::Term(FilterTerm::Due(op, val)) => {
+                assert_eq!(op, ComparisonOp::Lte);
+                assert_eq!(val, "eod");
+            }
+            _ => panic!("Expected Due term with Lte operator"),
+        }
+
+        // due!=none
+        let expr = parse_filter(vec!["due!=none".to_string()]).unwrap();
+        match expr {
+            FilterExpr::Term(FilterTerm::Due(op, val)) => {
+                assert_eq!(op, ComparisonOp::Neq);
+                assert_eq!(val, "none");
+            }
+            _ => panic!("Expected Due term with Neq operator"),
+        }
+
+        // due>=tomorrow
+        let expr = parse_filter(vec!["due>=tomorrow".to_string()]).unwrap();
+        match expr {
+            FilterExpr::Term(FilterTerm::Due(op, val)) => {
+                assert_eq!(op, ComparisonOp::Gte);
+                assert_eq!(val, "tomorrow");
+            }
+            _ => panic!("Expected Due term with Gte operator"),
+        }
+    }
+
+    #[test]
+    fn test_status_rejects_comparison() {
+        let result = parse_filter(vec!["status>pending".to_string()]);
+        assert!(result.is_err());
     }
 }

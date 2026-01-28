@@ -31,7 +31,7 @@ fn test_respawn_carries_project() {
     
     // Create task with respawn rule and project
     get_task_cmd()
-        .args(&["add", "Daily standup", "project:work", "respawn:daily"])
+        .args(&["add", "Daily standup", "project=work", "respawn=daily"])
         .assert()
         .success();
     
@@ -68,7 +68,7 @@ fn test_respawn_carries_allocation() {
     
     // Create task with respawn rule and allocation
     get_task_cmd()
-        .args(&["add", "Daily task", "respawn:daily", "allocation:30m"])
+        .args(&["add", "Daily task", "respawn=daily", "allocation=30m"])
         .assert()
         .success();
     
@@ -104,7 +104,7 @@ fn test_respawn_carries_tags() {
     
     // Create task with respawn rule and tags
     get_task_cmd()
-        .args(&["add", "Meeting", "respawn:daily", "+important", "+recurring"])
+        .args(&["add", "Meeting", "respawn=daily", "+important", "+recurring"])
         .assert()
         .success();
     
@@ -144,7 +144,7 @@ fn test_respawn_resets_status() {
     
     // Create task with respawn rule
     get_task_cmd()
-        .args(&["add", "Daily check", "respawn:daily"])
+        .args(&["add", "Daily check", "respawn=daily"])
         .assert()
         .success();
     
@@ -184,7 +184,7 @@ fn test_respawn_preserves_respawn_rule() {
     
     // Create task with respawn rule
     get_task_cmd()
-        .args(&["add", "Weekly review", "respawn:weekly"])
+        .args(&["add", "Weekly review", "respawn=weekly"])
         .assert()
         .success();
     

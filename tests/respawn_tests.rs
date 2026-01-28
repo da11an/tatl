@@ -69,7 +69,7 @@ fn test_respawn_on_finish() {
     let (_temp_dir, _guard) = setup_test_env();
     
     // Create a task with respawn rule
-    get_task_cmd().args(&["add", "Daily standup", "respawn:daily"]).assert().success();
+    get_task_cmd().args(&["add", "Daily standup", "respawn=daily"]).assert().success();
     
     // Get task ID
     let conn = DbConnection::connect().unwrap();
@@ -97,7 +97,7 @@ fn test_respawn_on_close() {
     let (_temp_dir, _guard) = setup_test_env();
     
     // Create a task with respawn rule
-    get_task_cmd().args(&["add", "Weekly review", "respawn:weekly"]).assert().success();
+    get_task_cmd().args(&["add", "Weekly review", "respawn=weekly"]).assert().success();
     
     // Get task ID
     let conn = DbConnection::connect().unwrap();
@@ -150,7 +150,7 @@ fn test_respawn_carries_attributes() {
     let (_temp_dir, _guard) = setup_test_env();
     
     // Create a task with respawn rule and attributes
-    get_task_cmd().args(&["add", "Meeting", "respawn:daily", "allocation:1h", "+important", "project:work"]).assert().success();
+    get_task_cmd().args(&["add", "Meeting", "respawn=daily", "allocation=1h", "+important", "project=work"]).assert().success();
     
     // Get task ID
     let conn = DbConnection::connect().unwrap();

@@ -115,7 +115,7 @@ fn test_status_with_overdue_tasks() {
     
     // Create a task with past due date
     let mut cmd = get_task_cmd(&temp_dir);
-    cmd.args(&["add", "Overdue task", "due:2020-01-01"])
+    cmd.args(&["add", "Overdue task", "due=2020-01-01"])
         .assert()
         .success();
     

@@ -29,8 +29,8 @@ fn test_task_list_sort_columns_first() {
     get_task_cmd(&temp_dir).args(&["projects", "add", "alpha"]).assert().success();
     get_task_cmd(&temp_dir).args(&["projects", "add", "beta"]).assert().success();
     
-    get_task_cmd(&temp_dir).args(&["add", "Alpha task", "project:alpha"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Beta task", "project:beta"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Alpha task", "project=alpha"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Beta task", "project=beta"]).assert().success();
     
     let output = get_task_cmd(&temp_dir).args(&["list", "sort:project"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
@@ -54,8 +54,8 @@ fn test_task_list_group_by_project() {
     get_task_cmd(&temp_dir).args(&["projects", "add", "alpha"]).assert().success();
     get_task_cmd(&temp_dir).args(&["projects", "add", "beta"]).assert().success();
     
-    get_task_cmd(&temp_dir).args(&["add", "Alpha task", "project:alpha"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Beta task", "project:beta"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Alpha task", "project=alpha"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Beta task", "project=beta"]).assert().success();
     
     let output = get_task_cmd(&temp_dir).args(&["list", "group:project"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
@@ -73,11 +73,11 @@ fn test_task_list_view_alias() {
     get_task_cmd(&temp_dir).args(&["projects", "add", "alpha"]).assert().success();
     get_task_cmd(&temp_dir).args(&["projects", "add", "beta"]).assert().success();
     
-    get_task_cmd(&temp_dir).args(&["add", "Alpha task", "project:alpha"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Beta task", "project:beta"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Alpha task", "project=alpha"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["add", "Beta task", "project=beta"]).assert().success();
     
     get_task_cmd(&temp_dir)
-        .args(&["list", "project:alpha", "sort:project", "alias:myview"])
+        .args(&["list", "project=alpha", "sort:project", "alias:myview"])
         .assert()
         .success()
         .stdout(predicates::str::contains("Saved view 'myview'"));

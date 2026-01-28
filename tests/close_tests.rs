@@ -34,7 +34,7 @@ fn test_task_close_sets_closed_status() {
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     assert!(stdout.contains("closed") || stdout.contains("Status: closed"));
     
-    let output = get_task_cmd(&temp_dir).args(&["list", "status:closed"]).assert().success();
+    let output = get_task_cmd(&temp_dir).args(&["list", "status=closed"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     assert!(stdout.contains("Close me"));
     
