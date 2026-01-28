@@ -83,7 +83,7 @@ Enhance the Q column with color based on kanban stage or other values.
 ```
 Q
 ────
-⏻     (active - running session)
+▶     (active - running session)
 1     (queued position 1)
 2     (queued position 2)
 ?     (proposed)
@@ -97,7 +97,7 @@ x     (closed)
 ```
 Q     (colored)
 ────
-⏻     (green - active)
+▶     (green - active)
 1     (blue - queued)
 2     (blue - queued)
 ?     (gray - proposed)
@@ -357,7 +357,7 @@ Should color preferences be saved?
 Add automatic coloring to the Q column based on kanban stage.
 
 ```
-⏻  green (active)
+▶  green (active)
 1  blue (queued)
 ?  gray (proposed)
 !  yellow (stalled)
@@ -409,7 +409,7 @@ color.kanban.stalled = yellow
 ```
 Q    ID   Description              Project    Status
 ──── ──── ──────────────────────── ────────── ─────────
-⏻    10   Fix authentication bug   work       pending
+▶    10   Fix authentication bug   work       pending
 1    11   Review PR                work       pending
 2    12   Write documentation      docs       pending
 ?    13   Research new library     research   pending
@@ -420,7 +420,7 @@ Q    ID   Description              Project    Status
 ```
 Q    ID   Description              Project    Status
 ──── ──── ──────────────────────── ────────── ─────────
-⏻    10   Fix authentication bug   work       pending     (⏻ in green)
+▶    10   Fix authentication bug   work       pending     (▶ in green)
 1    11   Review PR                work       pending     (1 in blue)
 2    12   Write documentation      docs       pending     (2 in blue)
 ?    13   Research new library     research   pending     (? in gray)
@@ -434,7 +434,7 @@ tatl list color:project
 ```
 Q    ID   Description              Project    Status
 ──── ──── ──────────────────────── ────────── ─────────
-⏻    10   Fix authentication bug   work       pending     (entire row in blue)
+▶    10   Fix authentication bug   work       pending     (entire row in blue)
 1    11   Review PR                work       pending     (entire row in blue)
 2    12   Write documentation      docs       pending     (entire row in green)
 ?    13   Research new library     research   pending     (entire row in yellow)

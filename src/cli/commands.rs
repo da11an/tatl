@@ -1228,7 +1228,7 @@ fn handle_report(period: String) -> Result<()> {
                 };
                 let priority = crate::cli::priority::calculate_priority(&task, &conn)
                     .unwrap_or(0.0);
-                let indicator = if active_task_id == Some(item.task_id) { "⏻" } else { " " };
+                let indicator = if active_task_id == Some(item.task_id) { "▶" } else { " " };
                 let desc: String = task.description.chars().take(40).collect();
                 println!("{}{:>2}  {:<4} {:<40} {:<10} {:.1}",
                     indicator, pos, item.task_id, desc, project, priority);

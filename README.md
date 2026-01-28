@@ -167,7 +167,7 @@ Tasks have derived Kanban statuses based on their state:
 |--------|---------|
 | `proposed` | Not in queue, no work done yet |
 | `stalled` | Has sessions but not currently in queue |
-| `queued` | In queue (Q column shows position: 1, 2, 3... or ⏻ if active) |
+| `queued` | In queue (Q column shows position: 1, 2, 3... or ▶ if active) |
 | `external` | Sent to external party for review/approval |
 | `done` | Completed or closed |
 

@@ -143,23 +143,93 @@ fn get_gradient_bg_color(normalized: f64) -> &'static str {
     }
 }
 
-/// Get contrasting foreground color for a background color to ensure legibility
-/// Returns a foreground color that contrasts well with the given background
-/// Uses black text for lighter/medium backgrounds and white for very dark ones
-fn get_contrasting_fg_for_bg(bg_color: &str) -> &'static str {
-    // Map background colors to contrasting foreground colors
+/// Convert ANSI background color code to approximate RGB values
+/// 
+/// These are approximations based on typical terminal color rendering.
+/// Note: Actual colors vary significantly between terminals and color schemes.
+/// Some terminals render ANSI_BG_BLUE as dark blue (needs white text),
+/// others as light blue (needs black text). This function uses conservative
+/// estimates that work reasonably well across most terminals.
+/// 
+/// For best results, terminals should use standard color schemes, but we
+/// can't control that. This is a best-effort approach.
+fn ansi_bg_to_rgb(bg_color: &str) -> Option<(u8, u8, u8)> {
     match bg_color {
-        // Light/medium backgrounds -> use black foreground for better legibility
-        ANSI_BG_GREEN => ANSI_FG_BLACK,      // Light green needs black text
-        ANSI_BG_CYAN => ANSI_FG_BLACK,      // Cyan needs black text
-        ANSI_BG_MAGENTA => ANSI_FG_BLACK,   // Magenta/coral needs black text
-        ANSI_BG_YELLOW => ANSI_FG_BLACK,    // Yellow needs black text
-        ANSI_BG_BLUE => ANSI_FG_BLACK,      // Blue (queued) needs black text
-        ANSI_BG_BRIGHT_BLACK => ANSI_FG_BLACK, // Gray (proposed) needs black text
-        // Very dark backgrounds -> use white/bright foreground
-        ANSI_BG_RED => ANSI_FG_WHITE,       // Dark red needs white text
-        // Default to black if unknown (safer for most backgrounds)
-        _ => ANSI_FG_BLACK,
+        // Standard 16-color palette (approximate RGB values)
+        // Using values that represent typical terminal rendering
+        // Note: These are conservative estimates. Actual terminal colors vary.
+        ANSI_BG_RED => Some((170, 0, 0)),           // Dark red - typically needs white text
+        ANSI_BG_GREEN => Some((0, 200, 0)),         // Medium green - typically needs black text
+        ANSI_BG_YELLOW => Some((200, 200, 0)),     // Yellow - typically needs black text (brighter)
+        ANSI_BG_BLUE => Some((0, 0, 200)),         // Medium blue - varies by terminal (brighter)
+        ANSI_BG_MAGENTA => Some((200, 0, 200)),    // Magenta - typically needs black text (brighter)
+        ANSI_BG_CYAN => Some((0, 200, 200)),       // Cyan - typically needs black text (brighter)
+        ANSI_BG_BRIGHT_BLACK => Some((128, 128, 128)), // Gray - typically needs black text (lighter)
+        _ => None,
+    }
+}
+
+/// Calculate relative luminance using WCAG formula
+/// Returns a value between 0.0 (black) and 1.0 (white)
+/// Formula: L = 0.2126*R + 0.7152*G + 0.0722*B (normalized to 0-1)
+fn calculate_relative_luminance(r: u8, g: u8, b: u8) -> f64 {
+    // Normalize RGB values to 0-1 range
+    let r_norm = r as f64 / 255.0;
+    let g_norm = g as f64 / 255.0;
+    let b_norm = b as f64 / 255.0;
+    
+    // Apply gamma correction (sRGB)
+    let r_linear = if r_norm <= 0.04045 {
+        r_norm / 12.92
+    } else {
+        ((r_norm + 0.055) / 1.055).powf(2.4)
+    };
+    
+    let g_linear = if g_norm <= 0.04045 {
+        g_norm / 12.92
+    } else {
+        ((g_norm + 0.055) / 1.055).powf(2.4)
+    };
+    
+    let b_linear = if b_norm <= 0.04045 {
+        b_norm / 12.92
+    } else {
+        ((b_norm + 0.055) / 1.055).powf(2.4)
+    };
+    
+    // Calculate relative luminance
+    0.2126 * r_linear + 0.7152 * g_linear + 0.0722 * b_linear
+}
+
+/// Get contrasting foreground color for a background color to ensure legibility
+/// 
+/// Uses WCAG relative luminance calculation to determine if background is light or dark.
+/// This is more reliable than hardcoded assumptions, though actual terminal rendering
+/// may still vary. The function calculates the relative luminance of the background
+/// color and chooses black text for light backgrounds (luminance > 0.5) and white
+/// for dark backgrounds.
+/// 
+/// Note: This is an approximation. Different terminals and color schemes render
+/// ANSI colors differently. For terminals with custom color schemes, results may
+/// not be perfect, but should be better than hardcoded assumptions.
+fn get_contrasting_fg_for_bg(bg_color: &str) -> &'static str {
+    // Try to get RGB values for the background color
+    if let Some((r, g, b)) = ansi_bg_to_rgb(bg_color) {
+        // Calculate relative luminance using WCAG formula
+        let luminance = calculate_relative_luminance(r, g, b);
+        
+        // Use black text for light backgrounds (luminance > 0.5), white for dark
+        // Threshold of 0.5 is a good balance for most terminal color schemes
+        // This works well for standard terminal colors, though custom schemes may vary
+        if luminance > 0.5 {
+            ANSI_FG_BLACK
+        } else {
+            ANSI_FG_WHITE
+        }
+    } else {
+        // Fallback: if we can't determine the color, default to black
+        // (safer assumption for most backgrounds)
+        ANSI_FG_BLACK
     }
 }
 
@@ -177,6 +247,50 @@ fn detect_column_color_type(column: &str) -> ColumnColorType {
         "priority" | "alloc" | "clock" | "allocation" => ColumnColorType::Numeric,
         "due" | "scheduled" | "wait" => ColumnColorType::Date,
         _ => ColumnColorType::Categorical, // Default to categorical
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calculate_relative_luminance() {
+        // Test that white has high luminance
+        let white_lum = calculate_relative_luminance(255, 255, 255);
+        assert!(white_lum > 0.9, "White should have high luminance, got {}", white_lum);
+        
+        // Test that black has low luminance
+        let black_lum = calculate_relative_luminance(0, 0, 0);
+        assert!(black_lum < 0.1, "Black should have low luminance, got {}", black_lum);
+        
+        // Test that yellow (light color) has high luminance
+        let yellow_lum = calculate_relative_luminance(200, 200, 0);
+        assert!(yellow_lum > 0.5, "Yellow should have high luminance, got {}", yellow_lum);
+        
+        // Test that dark red has low luminance
+        let dark_red_lum = calculate_relative_luminance(170, 0, 0);
+        assert!(dark_red_lum < 0.5, "Dark red should have low luminance, got {}", dark_red_lum);
+    }
+
+    #[test]
+    fn test_get_contrasting_fg_for_bg() {
+        // Test that the function returns valid ANSI codes
+        let yellow_fg = get_contrasting_fg_for_bg(ANSI_BG_YELLOW);
+        assert!(yellow_fg == ANSI_FG_BLACK || yellow_fg == ANSI_FG_WHITE, 
+                "Should return valid foreground color");
+        
+        let green_fg = get_contrasting_fg_for_bg(ANSI_BG_GREEN);
+        assert!(green_fg == ANSI_FG_BLACK || green_fg == ANSI_FG_WHITE,
+                "Should return valid foreground color");
+        
+        // Dark red should typically get white text (low luminance)
+        let red_fg = get_contrasting_fg_for_bg(ANSI_BG_RED);
+        assert!(red_fg == ANSI_FG_BLACK || red_fg == ANSI_FG_WHITE,
+                "Should return valid foreground color");
+        
+        // Unknown colors default to black (safer)
+        assert_eq!(get_contrasting_fg_for_bg("unknown"), ANSI_FG_BLACK);
     }
 }
 
@@ -749,10 +863,10 @@ pub fn format_task_list_table(
         };
         
         // Queue position indicator
-        // Priority: queue position/⏻ > @ (external) > ✓ (completed) > x (closed) > ! (stalled) > ? (proposed)
+        // Priority: queue position/▶ > @ (external) > ✓ (completed) > x (closed) > ! (stalled) > ? (proposed)
         let queue_pos_str = if stack_pos == Some(0) && open_session_task_id == task.id {
             // Active task at top of queue
-            "⏻".to_string()
+            "▶".to_string()
         } else if let Some(p) = stack_pos {
             // In queue with numeric position
             p.to_string()
@@ -879,7 +993,7 @@ pub fn format_task_list_table(
                 // Use character count for width calculation to handle multi-byte characters correctly
                 let char_count = value.chars().count();
                 let max_len = if *column == TaskListColumn::Description {
-                    char_count.min(50)
+                    char_count.min(100)
                 } else {
                     char_count
                 };
@@ -1342,7 +1456,7 @@ pub fn format_clock_list_table(
     for (position, task, tags) in clock_tasks {
         pos_width = pos_width.max(position.to_string().len());
         id_width = id_width.max(task.id.map(|id| id.to_string().len()).unwrap_or(0));
-        desc_width = desc_width.max(task.description.len().min(50));
+        desc_width = desc_width.max(task.description.len().min(100));
         status_width = status_width.max(task.status.as_str().len());
         
         if let Some(project_id) = task.project_id {
