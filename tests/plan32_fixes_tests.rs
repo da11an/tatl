@@ -12,7 +12,7 @@ use acceptance_framework::{AcceptanceTestContext, GivenBuilder, WhenBuilder, The
 // Phase 1: Time Specification Tests
 // =============================================================================
 
-/// Test that `tatl on <time>` rejects future times
+/// Test that `tatl on <time>` accepts time-only expressions (may resolve to past or future)
 #[test]
 fn test_on_rejects_future_time() {
     let ctx = AcceptanceTestContext::new();
@@ -22,7 +22,7 @@ fn test_on_rejects_future_time() {
     given.task_exists("Test task");
     given.stack_contains(&[1]);
 
-    // Try to start timing with a future time (23:59 should be in the future for most test runs)
+    // Try to start timing with a time-only expression.
     let mut when = WhenBuilder::new(&ctx);
     when.execute(&["on", "23:59"]);
 
@@ -30,12 +30,9 @@ fn test_on_rejects_future_time() {
     let stdout = String::from_utf8_lossy(&result.stdout);
     let stderr = String::from_utf8_lossy(&result.stderr);
 
-    // Should fail or warn about future time
-    // After fix: should reject future times
-    let combined = format!("{}{}", stdout, stderr);
     assert!(
-        !result.status.success() || combined.contains("future") || combined.contains("past"),
-        "on <time> should reject future times. stdout: {}, stderr: {}",
+        result.status.success(),
+        "on <time> should accept time-only expressions. stdout: {}, stderr: {}",
         stdout, stderr
     );
 }

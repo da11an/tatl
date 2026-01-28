@@ -95,7 +95,7 @@ fn test_enqueue_nonexistent_task() {
     cmd.args(&["enqueue", "999"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("Task 999 not found"));
+        .stderr(predicate::str::contains("Task(s) not found: 999"));
 }
 
 #[test]
@@ -106,8 +106,8 @@ fn test_enqueue_invalid_task_id() {
     let mut cmd = get_task_cmd();
     cmd.args(&["enqueue", "abc"])
         .assert()
-        .success()
-        .stderr(predicate::str::contains("invalid value"));
+        .failure()
+        .stderr(predicate::str::contains("Invalid task ID 'abc'"));
 }
 
 #[test]
@@ -215,7 +215,7 @@ fn test_enqueue_zero_task_id() {
     cmd.args(&["enqueue", "0"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("Invalid task ID"));
+        .stderr(predicate::str::contains("must be positive"));
 }
 
 #[test]
@@ -226,6 +226,6 @@ fn test_enqueue_empty_string() {
     let mut cmd = get_task_cmd();
     cmd.args(&["enqueue", ""])
         .assert()
-        .success()
-        .stderr(predicate::str::contains("invalid value"));
+        .failure()
+        .stderr(predicate::str::contains("Empty task ID list"));
 }

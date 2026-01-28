@@ -239,7 +239,7 @@ fn test_add_with_onoff_requires_interval() {
         .unwrap();
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("interval format"));
+    assert!(stderr.contains("Interval required") || stderr.contains("<start>..<end>"));
 }
 
 // ============================================

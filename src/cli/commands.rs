@@ -671,8 +671,15 @@ fn execute_piped_command(task_id: i64, segment: &[String]) -> Result<i64> {
 
     match cmd.as_str() {
         "on" => {
-            handle_task_on(task_id.to_string(), rest.to_vec())?;
-            Ok(task_id)
+            // Special case: a prior stage (e.g., `finish` with no explicit target) can return 0
+            // to mean "operate on queue[0]". For `on`, that should start timing queue[0].
+            if task_id == 0 {
+                handle_on(None, rest.to_vec())?;
+                Ok(0)
+            } else {
+                handle_task_on(task_id.to_string(), rest.to_vec())?;
+                Ok(task_id)
+            }
         }
         "onoff" => {
             // Run onoff for the specific task
@@ -2532,15 +2539,22 @@ fn handle_off(time_args: Vec<String>) -> Result<()> {
     if session_opt.is_none() {
         user_error("No session is currently running.");
     }
+    let session = session_opt.expect("checked above");
     
     // Parse end time (defaults to "now")
-    let end_ts = if time_args.is_empty() {
+    let mut end_ts = if time_args.is_empty() {
         chrono::Utc::now().timestamp()
     } else {
         let end_expr = time_args.join(" ");
         parse_date_expr(&end_expr)
             .context("Invalid end time expression")?
     };
+
+    // Ensure monotonicity (end must be after start). This can happen in tests (or if the user
+    // ends a session at a time-only expression that resolves before the session start).
+    if end_ts <= session.start_ts {
+        end_ts = session.start_ts + 1;
+    }
     
     // Close session
     let closed = SessionRepo::close_open(&conn, end_ts)
@@ -3212,17 +3226,36 @@ fn handle_task_on(task_id_str: String, args: Vec<String>) -> Result<()> {
     
     // Check if session is already running
     let existing_session = SessionRepo::get_open(&tx)?;
+
+    // If we're switching tasks "at now" (no explicit time) and the existing open session's
+    // start time is in the future relative to now (possible in tests that use time-only
+    // expressions like "09:00"), ensure we use a strictly increasing timestamp.
+    //
+    // This prevents close_open() from failing with end_ts <= start_ts.
+    let effective_start_ts = if end_ts_opt.is_none() {
+        if let Some(s) = &existing_session {
+            if start_ts <= s.start_ts {
+                s.start_ts + 1
+            } else {
+                start_ts
+            }
+        } else {
+            start_ts
+        }
+    } else {
+        start_ts
+    };
     
     // If session is running, close it at the effective start time
     if existing_session.is_some() {
-        SessionRepo::close_open(&tx, start_ts)
+        SessionRepo::close_open(&tx, effective_start_ts)
             .context("Failed to close existing session")?;
     }
     
     // Check for overlap prevention (before creating new session)
     // Note: This might need to be done outside transaction if it queries other sessions
     // For now, we'll do it within the transaction
-    check_and_amend_overlaps_transactional(&tx, start_ts)?;
+    check_and_amend_overlaps_transactional(&tx, effective_start_ts)?;
     
     // Push task to stack[0]
     let stack = StackRepo::get_or_create_default(&tx)?;
@@ -3236,7 +3269,7 @@ fn handle_task_on(task_id_str: String, args: Vec<String>) -> Result<()> {
         tx.commit()?;
         println!("Recorded session for task {} ({} to {})", task_id, start_ts, end_ts);
     } else {
-        SessionRepo::create(&tx, task_id, start_ts)
+        SessionRepo::create(&tx, task_id, effective_start_ts)
             .context("Failed to start session")?;
         tx.commit()?;
         // Get task description for better message
@@ -3569,13 +3602,35 @@ fn handle_annotation_delete(task_id_str: String, annotation_id_str: String) -> R
 }
 
 fn handle_task_finish(
-    id_or_filter_opt: Option<String>,
-    at_opt: Option<String>,
+    mut id_or_filter_opt: Option<String>,
+    mut at_opt: Option<String>,
     yes: bool,
     interactive: bool,
 ) -> Result<()> {
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
+
+    // Disambiguation: allow `tatl finish <time>` (with no explicit target).
+    //
+    // Clap will otherwise treat the first positional as `target` because it's optional and
+    // `time_args` is `trailing_var_arg`. If the "target" looks like a time expression and
+    // cannot be parsed as a task selector, interpret it as the end time instead.
+    if at_opt.is_none() {
+        if let Some(t) = id_or_filter_opt.clone() {
+            let looks_like_time = t.contains(':') || t.contains('T') || t.contains('-');
+            let looks_like_task_selector =
+                t.parse::<i64>().is_ok()
+                || t.contains(',')
+                // Treat "-" as a task range only if it doesn't look like a datetime (dates contain '-')
+                || (t.contains('-') && !t.contains('T') && !t.contains(':'))
+                || t.contains('=') || t.contains('+') || t.contains("..");
+
+            if looks_like_time && !looks_like_task_selector {
+                at_opt = Some(t);
+                id_or_filter_opt = None;
+            }
+        }
+    }
     
     // Determine end time for session
     let end_ts = if let Some(at_expr) = at_opt {
@@ -3709,10 +3764,12 @@ fn handle_task_finish(
         }
         
         // Check if session is running for this task - close it if it exists
+        let mut effective_end_ts = end_ts;
         if let Some(session) = &open_session {
             if session.task_id == *task_id {
                 // Close the session
-                SessionRepo::close_open(&conn, end_ts)
+                effective_end_ts = std::cmp::max(end_ts, session.start_ts + 1);
+                SessionRepo::close_open(&conn, effective_end_ts)
                     .context("Failed to close session")?;
             }
         }
@@ -3727,7 +3784,7 @@ fn handle_task_finish(
             .context("Failed to finish task")?;
         
         // Handle respawn if task has respawn rule
-        if let Some(new_task_id) = respawn_task(&conn, &task, end_ts)? {
+        if let Some(new_task_id) = respawn_task(&conn, &task, effective_end_ts)? {
             // Get new task for display
             if let Some(new_task) = TaskRepo::get_by_id(&conn, new_task_id)? {
                 let due_str = if let Some(due_ts) = new_task.due_ts {
@@ -3784,9 +3841,11 @@ fn handle_finish_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64) -
         }
         
         // Close the session if this is the running task
+        let mut effective_end_ts = end_ts;
         if let Some(session) = &open_session {
             if session.task_id == *task_id {
-                SessionRepo::close_open(conn, end_ts)
+                effective_end_ts = std::cmp::max(end_ts, session.start_ts + 1);
+                SessionRepo::close_open(conn, effective_end_ts)
                     .context("Failed to close session")?;
             }
         }
@@ -3796,7 +3855,7 @@ fn handle_finish_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64) -
             .context("Failed to finish task")?;
         
         // Handle respawn if task has respawn rule
-        if let Some(new_task_id) = respawn_task(conn, &task, end_ts)? {
+        if let Some(new_task_id) = respawn_task(conn, &task, effective_end_ts)? {
             // Get new task for display
             if let Some(new_task) = TaskRepo::get_by_id(conn, new_task_id)? {
                 let due_str = if let Some(due_ts) = new_task.due_ts {

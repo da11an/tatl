@@ -34,11 +34,11 @@ fn test_project_not_found_no_matches() {
     // Try to add task with non-existent project
     new_cmd(&temp_dir)
         .args(&["add", "Test task", "project=nonexistent"])
+        .write_stdin("y\n")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Created project 'nonexistent'"))
-        .stdout(predicate::str::contains("Created task 1"))
-        .stderr(predicate::str::contains("Add new project?"));
+        .stdout(predicate::str::contains("Created task"))
+        .stderr(predicate::str::contains("Create it?"));
 }
 
 #[test]
@@ -54,11 +54,11 @@ fn test_project_not_found_with_match() {
     // Try to add task with typo in project name
     new_cmd(&temp_dir)
         .args(&["add", "Test task", "project=Work"])
+        .write_stdin("y\n")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Created project 'Work'"))
-        .stdout(predicate::str::contains("Created task 1"))
-        .stderr(predicate::str::contains("Add new project?"));
+        .stdout(predicate::str::contains("Created task"))
+        .stderr(predicate::str::contains("Create it?"));
 }
 
 #[test]
@@ -82,11 +82,11 @@ fn test_project_not_found_multiple_matches() {
     // Try to add task with typo
     new_cmd(&temp_dir)
         .args(&["add", "Test task", "project=Newproject"])
+        .write_stdin("y\n")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Created project 'Newproject'"))
-        .stdout(predicate::str::contains("Created task 1"))
-        .stderr(predicate::str::contains("Add new project?"));
+        .stdout(predicate::str::contains("Created task"))
+        .stderr(predicate::str::contains("Create it?"));
     // Should suggest the matches
 }
 
@@ -107,11 +107,11 @@ fn test_project_not_found_in_modify() {
     // Try to modify with typo in project name
     new_cmd(&temp_dir)
         .args(&["1", "modify", "project=Work"])
+        .write_stdin("y\n")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Created project 'Work'"))
         .stdout(predicate::str::contains("Modified task 1"))
-        .stderr(predicate::str::contains("Add new project?"));
+        .stderr(predicate::str::contains("Create it?"));
 }
 
 #[test]
@@ -127,19 +127,19 @@ fn test_project_not_found_case_insensitive() {
     // Try with different case variations
     new_cmd(&temp_dir)
         .args(&["add", "Test task", "project=WORK"])
+        .write_stdin("y\n")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Created project 'WORK'"))
         .stdout(predicate::str::contains("Created task"))
-        .stderr(predicate::str::contains("Add new project?"));
+        .stderr(predicate::str::contains("Create it?"));
     
     new_cmd(&temp_dir)
         .args(&["add", "Test task", "project=WoRk"])
+        .write_stdin("y\n")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Created project 'WoRk'"))
         .stdout(predicate::str::contains("Created task"))
-        .stderr(predicate::str::contains("Add new project?"));
+        .stderr(predicate::str::contains("Create it?"));
 }
 
 #[test]
@@ -161,10 +161,10 @@ fn test_project_not_found_substring_match() {
     // This test verifies the error message format
     new_cmd(&temp_dir)
         .args(&["add", "Test task", "project=work"])
+        .write_stdin("y\n")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Created project 'work'"))
-        .stdout(predicate::str::contains("Created task 1"))
-        .stderr(predicate::str::contains("Add new project?"));
+        .stdout(predicate::str::contains("Created task"))
+        .stderr(predicate::str::contains("Create it?"));
     // May suggest matches if substring logic finds them within threshold
 }

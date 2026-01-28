@@ -66,9 +66,9 @@ fn test_kanban_status_queued() {
     let output = get_task_cmd(&temp_dir).args(&["list"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     
-    // First task at position 0 should be NEXT
-    assert!(stdout.lines().any(|l| l.contains("First task") && l.contains("NEXT")), 
-        "First task should be NEXT (position 0)");
+    // First task at position 0 should be queued (NEXT/LIVE stages were removed)
+    assert!(stdout.lines().any(|l| l.contains("First task") && l.contains("queued")), 
+        "First task should be queued (position 0)");
     
     // Second task at position 1 should be queued
     assert!(stdout.lines().any(|l| l.contains("Second task") && l.contains("queued")), 
@@ -77,60 +77,7 @@ fn test_kanban_status_queued() {
     drop(temp_dir);
 }
 
-#[test]
-fn test_kanban_status_next() {
-    let (temp_dir, _guard) = setup_test_env();
-    
-    // Create a task and add to stack (position 0)
-    get_task_cmd(&temp_dir).args(&["add", "Next task"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    
-    // Should show as "NEXT" (position 0, clock out)
-    get_task_cmd(&temp_dir).args(&["list"]).assert().success()
-        .stdout(predicates::str::contains("NEXT"));
-    
-    drop(temp_dir);
-}
-
-#[test]
-fn test_kanban_status_live() {
-    let (temp_dir, _guard) = setup_test_env();
-    
-    // Create a task, add to stack, and clock in
-    get_task_cmd(&temp_dir).args(&["add", "Live task"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
-    
-    // Should show as "LIVE" (position 0, clock in)
-    get_task_cmd(&temp_dir).args(&["list"]).assert().success()
-        .stdout(predicates::str::contains("LIVE"));
-    
-    // Clean up - clock out
-    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
-    
-    drop(temp_dir);
-}
-
-#[test]
-fn test_kanban_status_next_when_live_in_front() {
-    let (temp_dir, _guard) = setup_test_env();
-    
-    // Create two tasks, enqueue both, and clock in
-    get_task_cmd(&temp_dir).args(&["add", "Live task"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Next task"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["enqueue", "2"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
-    
-    let output = get_task_cmd(&temp_dir).args(&["list"]).assert().success();
-    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
-    assert!(stdout.lines().any(|l| l.contains("Live task") && l.contains("LIVE")));
-    assert!(stdout.lines().any(|l| l.contains("Next task") && l.contains("NEXT")));
-    
-    // Clean up
-    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
-    drop(temp_dir);
-}
+// NOTE: NEXT/LIVE kanban stages were removed (folded into queued + active indicator).
 
 #[test]
 fn test_kanban_status_done() {
@@ -168,47 +115,7 @@ fn test_kanban_filter_proposed() {
     drop(temp_dir);
 }
 
-#[test]
-fn test_kanban_filter_next() {
-    let (temp_dir, _guard) = setup_test_env();
-    
-    // Create a task and add to stack
-    get_task_cmd(&temp_dir).args(&["add", "Next task"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Proposed task"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    
-    // Filter by kanban:next should only show first task
-    let output = get_task_cmd(&temp_dir).args(&["list", "kanban=next"]).assert().success();
-    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
-    
-    assert!(stdout.contains("Next task"), "Should show next task");
-    assert!(!stdout.contains("Proposed task"), "Should not show proposed task");
-    
-    drop(temp_dir);
-}
-
-#[test]
-fn test_kanban_filter_live() {
-    let (temp_dir, _guard) = setup_test_env();
-    
-    // Create two tasks - one live, one proposed
-    get_task_cmd(&temp_dir).args(&["add", "Live task"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["add", "Proposed task"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["on"]).assert().success();
-    
-    // Filter by kanban:live should only show first task
-    let output = get_task_cmd(&temp_dir).args(&["list", "kanban=live"]).assert().success();
-    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
-    
-    assert!(stdout.contains("Live task"), "Should show live task");
-    assert!(!stdout.contains("Proposed task"), "Should not show proposed task");
-    
-    // Clean up
-    get_task_cmd(&temp_dir).args(&["off"]).assert().success();
-    
-    drop(temp_dir);
-}
+// NOTE: `kanban=next` and `kanban=live` filters were removed along with NEXT/LIVE stages.
 
 #[test]
 fn test_kanban_filter_done() {
@@ -240,11 +147,11 @@ fn test_kanban_filter_case_insensitive() {
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     
     // Filter should be case-insensitive
-    get_task_cmd(&temp_dir).args(&["list", "kanban=NEXT"]).assert().success()
+    get_task_cmd(&temp_dir).args(&["list", "kanban=QUEUED"]).assert().success()
         .stdout(predicates::str::contains("Test task"));
-    get_task_cmd(&temp_dir).args(&["list", "kanban=Next"]).assert().success()
+    get_task_cmd(&temp_dir).args(&["list", "kanban=Queued"]).assert().success()
         .stdout(predicates::str::contains("Test task"));
-    get_task_cmd(&temp_dir).args(&["list", "kanban=next"]).assert().success()
+    get_task_cmd(&temp_dir).args(&["list", "kanban=queued"]).assert().success()
         .stdout(predicates::str::contains("Test task"));
     
     drop(temp_dir);
@@ -266,9 +173,9 @@ fn test_kanban_status_paused() {
     // Remove from stack
     get_task_cmd(&temp_dir).args(&["dequeue"]).assert().success();
     
-    // Should show as "paused" (not in stack, has sessions)
+    // Should show as "stalled" (not in stack, has sessions)
     get_task_cmd(&temp_dir).args(&["list"]).assert().success()
-        .stdout(predicates::str::contains("paused"));
+        .stdout(predicates::str::contains("stalled"));
     
     drop(temp_dir);
 }

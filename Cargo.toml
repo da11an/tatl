@@ -1,6 +1,6 @@
 [package]
 name = "tatl"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 authors = ["Dallan Prince"]
 description = "Task and Time Ledger - A powerful command-line task and time tracking tool"

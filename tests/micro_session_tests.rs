@@ -108,19 +108,17 @@ fn test_micro_session_purge() {
     // Wait a short time
     thread::sleep(Duration::from_millis(100));
     
-    // Move to next task (switches to Task 2, creating micro-session for Task 1)
+    // Clock out quickly to create a micro-session for Task 1
     let mut cmd = get_task_cmd();
-    cmd.args(&["next", "1"]).assert().success();
-    
-    // Wait a short time
-    thread::sleep(Duration::from_millis(100));
-    
-    // Move back to Task 1 (should purge Task 2's micro-session)
+    cmd.args(&["off"]).assert().success();
+
+    // Switch to Task 2 within 30 seconds; this should purge Task 1's micro-session
     let mut cmd = get_task_cmd();
-    cmd.args(&["next", "1"])
+    cmd.args(&["on", "2"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Purged micro-session"));
+        .stdout(predicate::str::contains("Purged micro-session")
+            .or(predicate::str::contains("purged micro-session")));
 }
 
 #[test]

@@ -166,6 +166,46 @@ const FILTER_KEYS: &[&str] = &[
     "kanban", "desc", "description", "external",
 ];
 
+/// Resolve a filter key, supporting unambiguous prefix abbreviations.
+///
+/// Rules:
+/// - Exact (case-insensitive) match wins (e.g. "desc" resolves to "desc", not "description")
+/// - Otherwise, if the prefix matches exactly one known key, expand it
+/// - Otherwise, return an error listing matches (ambiguous) or known keys (unknown)
+fn resolve_filter_key(key: &str) -> Result<String, String> {
+    let key_lower = key.to_lowercase();
+
+    // Exact match first (case-insensitive)
+    for k in FILTER_KEYS {
+        if k.eq_ignore_ascii_case(&key_lower) {
+            return Ok((*k).to_string());
+        }
+    }
+
+    // Prefix matches
+    let matches: Vec<&str> = FILTER_KEYS
+        .iter()
+        .filter(|k| k.to_lowercase().starts_with(&key_lower))
+        .copied()
+        .collect();
+
+    if matches.is_empty() {
+        Err(format!(
+            "Unknown filter field '{}'. Known fields: {}",
+            key,
+            FILTER_KEYS.join(", ")
+        ))
+    } else if matches.len() == 1 {
+        Ok(matches[0].to_string())
+    } else {
+        Err(format!(
+            "Ambiguous filter field '{}'. Matches: {}",
+            key,
+            matches.join(", ")
+        ))
+    }
+}
+
 /// Parse a single filter term token
 fn parse_filter_term(token: &str) -> Result<Option<FilterTerm>, String> {
     // Bare numeric ID
@@ -175,14 +215,8 @@ fn parse_filter_term(token: &str) -> Result<Option<FilterTerm>, String> {
 
     // Try to split on operator (=, >, <, >=, <=, !=, <>)
     if let Some((key, op, value)) = split_on_operator(token) {
-        let key_lower = key.to_lowercase();
-
-        // Check for exact match in known keys
-        if !FILTER_KEYS.contains(&key_lower.as_str()) {
-            return Err(format!("Unknown filter field '{}'. Known fields: {}", key, FILTER_KEYS.join(", ")));
-        }
-
-        return match key_lower.as_str() {
+        let key_resolved = resolve_filter_key(&key)?;
+        return match key_resolved.as_str() {
             "id" => {
                 if let Ok(id) = value.parse::<i64>() {
                     Ok(Some(FilterTerm::Id(id)))
@@ -437,6 +471,27 @@ mod tests {
             }
             _ => panic!("Expected Status term"),
         }
+    }
+
+    #[test]
+    fn test_filter_key_abbreviation_unambiguous() {
+        // st=... should expand to status=...
+        let expr = parse_filter(vec!["st=pending".to_string()]).unwrap();
+        match expr {
+            FilterExpr::Term(FilterTerm::Status(statuses)) => {
+                assert_eq!(statuses, vec!["pending".to_string()]);
+            }
+            _ => panic!("Expected Status term"),
+        }
+    }
+
+    #[test]
+    fn test_filter_key_abbreviation_ambiguous_errors() {
+        // d=... is ambiguous between due, desc, description
+        let err = parse_filter(vec!["d=tomorrow".to_string()]).unwrap_err();
+        assert!(err.contains("Ambiguous filter field"));
+        assert!(err.contains("due"));
+        assert!(err.contains("desc"));
     }
 
     #[test]

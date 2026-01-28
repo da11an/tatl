@@ -42,7 +42,7 @@ fn test_projects_report_shows_task_counts() {
         .success();
     
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
-    assert!(stdout.contains("Projects Report"), "Should have report header");
+    assert!(stdout.contains("Project"), "Should have table header");
     assert!(stdout.contains("work"), "Should show work project");
     assert!(stdout.contains("home"), "Should show home project");
     assert!(stdout.contains("TOTAL"), "Should show total row");
@@ -72,6 +72,8 @@ fn test_projects_report_shows_kanban_statuses() {
     
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     assert!(stdout.contains("Proposed"), "Should show Proposed column");
+    assert!(stdout.contains("Stalled"), "Should show Stalled column");
     assert!(stdout.contains("Queued"), "Should show Queued column");
+    assert!(stdout.contains("External"), "Should show External column");
     assert!(stdout.contains("Done"), "Should show Done column");
 }

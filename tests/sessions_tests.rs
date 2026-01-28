@@ -594,14 +594,15 @@ fn test_sessions_report_all_time() {
     
     // Create task and add a session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["sessions", "add", "1", "2026-01-14T10:00", "2026-01-14T12:00"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["onoff", "2026-01-14T10:00..2026-01-14T12:00", "1", "-y"]).assert().success();
     
     // Run report (all time)
     let output = get_task_cmd(&temp_dir).args(&["sessions", "report"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     
     // Should show time report header and totals
-    assert!(stdout.contains("Time Report:"), "Should have Time Report header");
+    assert!(stdout.contains("Project") && stdout.contains("Time"), "Should have report table header");
     assert!(stdout.contains("TOTAL"), "Should have TOTAL line");
     assert!(stdout.contains("2h 00m"), "Should show 2 hours logged");
     assert!(stdout.contains("100.0%"), "Should show 100%");
@@ -615,8 +616,9 @@ fn test_sessions_report_date_range() {
     
     // Create task and add sessions on different days
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["sessions", "add", "1", "2026-01-10T10:00", "2026-01-10T12:00"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["sessions", "add", "1", "2026-01-15T10:00", "2026-01-15T11:00"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["onoff", "2026-01-10T10:00..2026-01-10T12:00", "1", "-y"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["onoff", "2026-01-15T10:00..2026-01-15T11:00", "1", "-y"]).assert().success();
     
     // Run report for a specific date range that includes only the first session
     let output = get_task_cmd(&temp_dir).args(&["sessions", "report", "2026-01-10", "2026-01-11"]).assert().success();
@@ -639,9 +641,10 @@ fn test_sessions_report_nested_projects() {
     get_task_cmd(&temp_dir).args(&["add", "Mobile work", "project=client.mobile"]).assert().success();
     
     // Add sessions
-    get_task_cmd(&temp_dir).args(&["sessions", "add", "1", "2026-01-14T10:00", "2026-01-14T12:00"]).assert().success();  // 2h frontend
-    get_task_cmd(&temp_dir).args(&["sessions", "add", "2", "2026-01-14T13:00", "2026-01-14T14:00"]).assert().success();  // 1h backend
-    get_task_cmd(&temp_dir).args(&["sessions", "add", "3", "2026-01-14T14:00", "2026-01-14T15:00"]).assert().success();  // 1h mobile
+    get_task_cmd(&temp_dir).args(&["enqueue", "1,2,3"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["onoff", "2026-01-14T10:00..2026-01-14T12:00", "1", "-y"]).assert().success();  // 2h frontend
+    get_task_cmd(&temp_dir).args(&["onoff", "2026-01-14T13:00..2026-01-14T14:00", "2", "-y"]).assert().success();  // 1h backend
+    get_task_cmd(&temp_dir).args(&["onoff", "2026-01-14T14:00..2026-01-14T15:00", "3", "-y"]).assert().success();  // 1h mobile
     
     // Run report
     let output = get_task_cmd(&temp_dir).args(&["sessions", "report"]).assert().success();
@@ -683,14 +686,15 @@ fn test_sessions_report_with_relative_dates() {
     
     // Create task and session
     get_task_cmd(&temp_dir).args(&["add", "Task 1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["sessions", "add", "1", "2026-01-14T10:00", "2026-01-14T12:00"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["onoff", "2026-01-14T10:00..2026-01-14T12:00", "1", "-y"]).assert().success();
     
     // Run report with relative dates
     let output = get_task_cmd(&temp_dir).args(&["sessions", "report", "-30d", "today"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     
     // Should show the session
-    assert!(stdout.contains("Time Report:"), "Should have report header");
+    assert!(stdout.contains("Project") && stdout.contains("Time"), "Should have report header");
     assert!(stdout.contains("TOTAL"), "Should have total");
     
     drop(temp_dir);

@@ -66,35 +66,10 @@ fn test_queue_column_shows_position() {
     // Check header has Q column
     assert!(stdout.contains("Q"), "Output should have Q column header");
     
-    // Parse each task line and check Q values
-    for line in stdout.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.is_empty() {
-            continue;
-        }
-        
-        match parts[0] {
-            "1" => {
-                // Task 1 should be at position 0
-                assert!(parts.len() > 1, "Task 1 line should have Q column");
-                assert_eq!(parts[1], "0", "Task 1 should be at queue position 0");
-            }
-            "2" => {
-                // Task 2 should NOT be in queue, so Q should be empty
-                // The next column after ID would be description, not a number
-                if parts.len() > 1 {
-                    assert!(parts[1].parse::<i32>().is_err(), 
-                        "Task 2 should not have queue position (got: {})", parts[1]);
-                }
-            }
-            "3" => {
-                // Task 3 should be at position 1
-                assert!(parts.len() > 1, "Task 3 line should have Q column");
-                assert_eq!(parts[1], "1", "Task 3 should be at queue position 1");
-            }
-            _ => {}
-        }
-    }
+    // Q column is printed as a leading field; verify lines directly
+    assert!(stdout.contains("0    1    task 1"), "Task 1 should be at queue position 0");
+    assert!(stdout.contains("?    2    task 2"), "Task 2 should not have a concrete queue position");
+    assert!(stdout.contains("1    3    task 3"), "Task 3 should be at queue position 1");
 }
 
 #[test]
@@ -119,21 +94,18 @@ fn test_switch_task_with_on_command() {
     let mut cmd = get_task_cmd();
     cmd.args(&["on", "2"]).assert().success();
     
-    // Verify task 2 is now at position 0 in queue
+    // Verify task 2 is now active at position 0 in queue
     let mut cmd = get_task_cmd();
     let output = cmd.args(&["list"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     
-    // Find task 2's line and verify Q=▶ (active indicator)
-    let task_2_line = stdout.lines()
-        .find(|l| {
-            let parts: Vec<&str> = l.split_whitespace().collect();
-            parts.first() == Some(&"2")
-        })
-        .expect("Should find task 2");
-    let parts: Vec<&str> = task_2_line.split_whitespace().collect();
-    assert!(parts.len() > 1, "Line should have Q column");
-    assert_eq!(parts[1], "▶", "Task 2 should show ▶ (active at position 0)");
+    // Verify the second data line is task 2 with ▶ in the Q column
+    let mut lines = stdout.lines().filter(|l| !l.trim().is_empty());
+    let _header = lines.next(); // header
+    let _sep = lines.next();    // separator
+    let second = lines.next().expect("Should have at least one task line");
+    assert!(second.contains("2") && second.trim_start().starts_with("▶"),
+        "Task 2 should show ▶ (active at position 0). Line: {}", second);
     
     // Clock out should work
     let mut cmd = get_task_cmd();

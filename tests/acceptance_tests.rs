@@ -103,10 +103,11 @@ fn acceptance_on_switches_task_and_closes_previous() {
     let task10 = given.task_exists("Task 10");
     let task11 = given.task_exists("Task 11");
     given.stack_contains(&[task10, task11]);
-    given.clock_running_on_task_since(task10, "09:00");
+    given.clock_running_on_task_since(task10, "2026-01-10T09:00");
     
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["on", &task11.to_string()]);
+    // Use an explicit time so this test is deterministic regardless of wall-clock time.
+    when.execute_success(&["on", &task11.to_string(), "2026-01-10T09:10"]);
     
     let then = ThenBuilder::new(&ctx, None);
     // `on 11` should close task 10's session and start task 11's session
@@ -251,10 +252,11 @@ fn acceptance_done_completes_and_removes_from_stack() {
     let task10 = given.task_exists("Task 10");
     let task11 = given.task_exists("Task 11");
     given.stack_contains(&[task10, task11]);
-    given.clock_running_on_task_since(task10, "09:00");
+    given.clock_running_on_task_since(task10, "2026-01-10T09:00");
     
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["finish"]);
+    // Use a deterministic end time for finish (see finish time disambiguation).
+    when.execute_success(&["finish", "2026-01-10T09:30"]);
     
     let then = ThenBuilder::new(&ctx, None);
     then.task_status_is(task10, "completed")
@@ -280,10 +282,11 @@ fn acceptance_done_next_starts_next() {
     let task10 = given.task_exists("Task 10");
     let task11 = given.task_exists("Task 11");
     given.stack_contains(&[task10, task11]);
-    given.clock_running_on_task_since(task10, "09:00");
+    given.clock_running_on_task_since(task10, "2026-01-10T09:00");
 
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["finish", ":", "on"]);
+    // Finish at a deterministic time, then start the next task at the same time.
+    when.execute_success(&["finish", "2026-01-10T09:30", ":", "on", "2026-01-10T09:30"]);
     
     let then = ThenBuilder::new(&ctx, None);
     then.task_status_is(task10, "completed")
@@ -317,7 +320,7 @@ fn acceptance_micro_purge_on_rapid_switch() {
     
     // Switch to task 11 - this should close task 10 and start task 11
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["on", &task11.to_string()]);
+    when.execute_success(&["on", &task11.to_string(), "2026-01-10T09:00"]);
     
     // Verify task 11 is running
     let then = ThenBuilder::new(&ctx, None);

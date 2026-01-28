@@ -954,17 +954,25 @@ fn parse_session_modify_args(args: Vec<String>) -> Result<(Option<Option<i64>>, 
             continue;
         }
         
-        // Legacy start:/end: syntax (still supported for backwards compatibility)
-        if arg.starts_with("start:") {
-            let expr = &arg[6..];
+        // start=/end= syntax (preferred) and legacy start:/end: syntax (backwards compatibility)
+        if arg.starts_with("start=") || arg.starts_with("start:") {
+            let expr = if let Some(v) = arg.strip_prefix("start=") {
+                v
+            } else {
+                &arg[6..]
+            };
             if expr == "none" {
                 return Err(anyhow::anyhow!("Cannot clear start time. Start time is required."));
             }
             let ts = parse_date_expr(expr)
                 .context(format!("Failed to parse start time: {}", expr))?;
             start = Some(Some(ts));
-        } else if arg.starts_with("end:") {
-            let expr = &arg[4..];
+        } else if arg.starts_with("end=") || arg.starts_with("end:") {
+            let expr = if let Some(v) = arg.strip_prefix("end=") {
+                v
+            } else {
+                &arg[4..]
+            };
             if expr == "none" {
                 end = Some(None); // Clear end time (make open)
             } else if expr == "now" {
@@ -974,7 +982,7 @@ fn parse_session_modify_args(args: Vec<String>) -> Result<(Option<Option<i64>>, 
                     .context(format!("Failed to parse end time: {}", expr))?;
                 end = Some(Some(ts));
             }
-        } else if arg == "--yes" || arg == "--force" {
+        } else if arg == "-y" || arg == "--yes" || arg == "--force" {
             // Flags are handled separately
             continue;
         } else {

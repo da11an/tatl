@@ -53,7 +53,7 @@ fn test_project_not_found_error() {
     // Test error message for non-existent project
     get_task_cmd().args(&["projects", "archive", "nonexistent"]).assert()
         .failure()
-        .code(2)
+        .code(1)
         .stderr(predicate::str::contains("Failed to archive project"));
     
     drop(temp_dir);
@@ -150,7 +150,7 @@ fn test_error_messages_go_to_stderr() {
     // Error messages should go to stderr, not stdout
     get_task_cmd().args(&["modify", "999", "description"]).assert()
         .failure()
-        .code(2)
+        .code(1)
         .stdout(predicate::str::is_empty())
         .stderr(predicate::str::contains("Failed to modify task"));
     

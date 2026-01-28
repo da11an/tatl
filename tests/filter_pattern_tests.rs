@@ -169,15 +169,15 @@ fn test_filter_sessions_pattern() {
     
     // Create sessions for tasks
     new_cmd(&temp_dir)
-        .args(&["sessions", "add", "1", "09:00", "09:10"])
+        .args(&["onoff", "09:00..09:10", "1"])
         .assert()
         .success();
     new_cmd(&temp_dir)
-        .args(&["sessions", "add", "2", "10:00", "10:10"])
+        .args(&["onoff", "10:00..10:10", "2"])
         .assert()
         .success();
     new_cmd(&temp_dir)
-        .args(&["sessions", "add", "3", "11:00", "11:10"])
+        .args(&["onoff", "11:00..11:10", "3"])
         .assert()
         .success();
     
