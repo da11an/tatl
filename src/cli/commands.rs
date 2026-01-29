@@ -3,6 +3,7 @@ use rusqlite::Connection;
 use chrono::{Local, TimeZone};
 use crate::db::DbConnection;
 use crate::repo::{ProjectRepo, TaskRepo, StackRepo, SessionRepo, AnnotationRepo, TemplateRepo, ViewRepo, ExternalRepo};
+use crate::models::TaskStatus;
 use crate::cli::parser::{parse_task_args, join_description};
 use crate::cli::commands_sessions::{handle_task_sessions_list_with_filter, handle_task_sessions_show_with_filter, handle_sessions_modify, handle_sessions_delete, handle_sessions_report};
 use crate::cli::output::{format_task_list_table, format_task_summary, TaskListOptions};
@@ -16,7 +17,25 @@ use anyhow::{Context, Result};
 
 #[derive(Parser)]
 #[command(name = "tatl")]
-#[command(about = "Task and Time Ledger - A powerful command-line task and time tracking tool")]
+#[command(about = "Task and Time Ledger - A powerful command-line task and time tracking tool
+
+PIPE OPERATOR ' : ' (space-colon-space):
+  Many commands can be chained with the pipe operator.
+  The pipe passes the created or selected task ID into the next command so you can compose flows.
+  See long help (--help) for examples and supported commands.")]
+#[command(long_about = "Task and Time Ledger - A powerful command-line task and time tracking tool
+
+PIPE OPERATOR ' : ' (space-colon-space):
+  Many commands can be chained with the pipe operator.
+  The pipe passes the created or selected task ID into the next command so you can compose flows.
+
+  Examples:
+    tatl add \"Task\" : on                 # Create and start timing
+    tatl add \"Task\" : enqueue            # Create and enqueue
+    tatl add \"Task\" : onoff 09:00..10:00 : finish  # Create task, backfill 9-10 am session, complete
+
+  Supported piped commands include: add, modify, finish, enqueue, close, reopen,
+  annotate, send, collect, on, dequeue, onoff, offon, off.")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 pub struct Cli {
     #[command(subcommand)]
@@ -87,19 +106,21 @@ EXAMPLES:
     #[command(long_about = "List tasks matching optional filter criteria.
 
 FILTER SYNTAX:
-  Field filters (use = for equality, or >, <, >=, <=, != for comparisons):
-    id=<n>              - Match by task ID
+  Field filters (support = and !=):
+    id=<n>               - Match by task ID (also supports >, <, >=, <=, !=)
     status=<status>      - Match by status (pending, completed, closed, deleted)
     project=<name>       - Match by project (supports prefix matching for nested projects)
+    kanban=<status>      - Match by kanban status (proposed, stalled, queued, external, done)
+    desc=<pattern>       - Match description containing pattern (case-insensitive)
+    description=<pattern> - Alias for desc=
+
+  Date filters (support =, >, <, >=, <=, !=):
     due=<expr>           - Match by due date (see DATE EXPRESSIONS)
     due>tomorrow         - Tasks due after tomorrow
     due<=eod             - Tasks due by end of day
     due!=none            - Tasks that have a due date
     scheduled=<expr>     - Match by scheduled date
     wait=<expr>          - Match by wait date
-    kanban=<status>      - Match by kanban status (proposed, stalled, queued, external, done)
-    desc=<pattern>       - Match description containing pattern (case-insensitive)
-    description=<pattern> - Alias for desc=
 
   Tag filters:
     +<tag>               - Tasks with tag
@@ -906,7 +927,7 @@ pub fn run() -> Result<()> {
                 validate_task_id(&target)
                     .map_err(|_| anyhow::anyhow!("Pipe operator with reopen requires a single task ID as target"))?
             }
-            Commands::Annotate { target, note, task, yes, interactive, delete } => {
+            Commands::Annotate { target, note, task, yes: _, interactive: _, delete } => {
                 if delete.is_some() {
                     anyhow::bail!("Pipe operator not supported with --delete flag");
                 }
@@ -928,8 +949,6 @@ pub fn run() -> Result<()> {
                     .map_err(|e| anyhow::anyhow!("Invalid task ID: {}", e))?
             }
             Commands::On { task_id: task_id_opt, time_args } => {
-                let conn = DbConnection::connect()
-                    .context("Failed to connect to database")?;
                 // For piping, we need a task ID - can't use queue[0]
                 let task_id_str = task_id_opt
                     .ok_or_else(|| anyhow::anyhow!("Pipe operator with 'on' requires a task ID"))?;
@@ -938,8 +957,6 @@ pub fn run() -> Result<()> {
                     .map_err(|e| anyhow::anyhow!("Invalid task ID: {}", e))?
             }
             Commands::Dequeue { task_id: task_id_opt } => {
-                let conn = DbConnection::connect()
-                    .context("Failed to connect to database")?;
                 // For piping, we need a task ID - can't use queue[0]
                 let task_id_str = task_id_opt
                     .ok_or_else(|| anyhow::anyhow!("Pipe operator with 'dequeue' requires a task ID"))?;
@@ -2474,15 +2491,21 @@ fn handle_task_enqueue(task_id_str: String) -> Result<()> {
     };
     
     // Validate all tasks exist before enqueueing any
-    let mut valid_ids = Vec::new();
+    let mut eligible_ids = Vec::new();
     let mut missing_ids = Vec::new();
+    let mut ineligible = Vec::new();
     
     for task_id in &task_ids {
-        if TaskRepo::get_by_id(&conn, *task_id)?.is_some() {
-            valid_ids.push(*task_id);
-        } else {
-            missing_ids.push(*task_id);
-        }
+        match TaskRepo::get_by_id(&conn, *task_id)? {
+            Some(task) => {
+                if task.status == TaskStatus::Pending {
+                    eligible_ids.push(*task_id);
+                } else {
+                    ineligible.push((*task_id, task.status));
+                }
+            }
+            None => missing_ids.push(*task_id),
+        };
     }
     
     if !missing_ids.is_empty() {
@@ -2490,15 +2513,26 @@ fn handle_task_enqueue(task_id_str: String) -> Result<()> {
             missing_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(", ")));
     }
     
-    if valid_ids.is_empty() {
-        user_error("No valid tasks to enqueue");
+    if !ineligible.is_empty() {
+        let details = ineligible.iter()
+            .map(|(id, status)| format!("{} ({})", id, status.as_str()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        user_error(&format!(
+            "Cannot add task(s) to the queue because they are not pending: {}. Reopen the task(s) to make them eligible.",
+            details
+        ));
+    }
+    
+    if eligible_ids.is_empty() {
+        user_error("No eligible tasks to enqueue");
     }
     
     // Enqueue all tasks in order
     let stack = StackRepo::get_or_create_default(&conn)?;
     let stack_id = stack.id.unwrap();
     
-    for task_id in valid_ids {
+    for task_id in eligible_ids {
         StackRepo::enqueue(&conn, stack_id, task_id)
             .context(format!("Failed to enqueue task {}", task_id))?;
         println!("Enqueued task {}", task_id);
@@ -2611,12 +2645,37 @@ fn handle_offon_current_session(conn: &Connection, time_args: Vec<String>) -> Re
     
     let arg_str = time_args.join(" ");
     
-    // Parse time arguments - check for interval syntax
-    let (stop_ts, start_ts_opt) = parse_offon_time_args(&arg_str)?;
+    // Capture raw expressions for time-only disambiguation
+    let (stop_expr, start_expr_opt) = if let Some(sep_pos) = arg_str.find("..") {
+        (
+            arg_str[..sep_pos].trim().to_string(),
+            Some(arg_str[sep_pos + 2..].trim().to_string())
+        )
+    } else {
+        (arg_str.clone(), None)
+    };
     
-    // Get current session
+    // Get current session (anchor for interpreting time-only expressions)
     let current_session = SessionRepo::get_open(conn)?
         .expect("Session should exist - checked in caller");
+    
+    // Parse time arguments - check for interval syntax, then align time-only expressions to the session timeline
+    let (mut stop_ts, mut start_ts_opt) = parse_offon_time_args(&arg_str)?;
+    stop_ts = align_time_only_to_anchor(stop_ts, &stop_expr, current_session.start_ts);
+    if stop_ts <= current_session.start_ts {
+        user_error(&format!(
+            "Stop time must be after the running session start at {}.",
+            format_time(current_session.start_ts)
+        ));
+    }
+    
+    if let Some(start_ts) = start_ts_opt {
+        let resume_ts = align_time_only_to_anchor(start_ts, start_expr_opt.as_deref().unwrap_or(""), stop_ts);
+        if resume_ts <= stop_ts {
+            user_error("Resume time must be after the stop time. Provide a later time or include a date.");
+        }
+        start_ts_opt = Some(resume_ts);
+    }
     
     // Use a transaction for atomicity
     let tx = conn.unchecked_transaction()?;
@@ -2889,6 +2948,49 @@ fn parse_offon_time_args(arg_str: &str) -> Result<(i64, Option<i64>)> {
     }
 }
 
+/// Detect simple time-only expressions (no explicit date or relative keywords)
+fn is_time_only_expression(expr: &str) -> bool {
+    let expr = expr.trim();
+    if expr.is_empty() {
+        return false;
+    }
+    
+    let lower = expr.to_lowercase();
+    let has_date_hint = lower.contains('-')
+        || lower.contains('t')
+        || lower.contains("today")
+        || lower.contains("tomorrow")
+        || lower.contains("eod")
+        || lower.contains("eow")
+        || lower.contains("eom")
+        || lower.starts_with('+')
+        || lower.starts_with("in ")
+        || lower.contains("next ");
+    
+    if has_date_hint {
+        return false;
+    }
+    
+    lower.contains(':')
+        || lower.ends_with("am")
+        || lower.ends_with("pm")
+        || lower == "noon"
+        || lower == "midnight"
+}
+
+/// Align a time-only timestamp to be after the provided anchor (by adding 24h if needed)
+fn align_time_only_to_anchor(ts: i64, expr: &str, anchor_ts: i64) -> i64 {
+    if !is_time_only_expression(expr) {
+        return ts;
+    }
+    
+    let mut aligned = ts;
+    while aligned <= anchor_ts {
+        aligned += 86_400; // 24h in seconds
+    }
+    aligned
+}
+
 /// Parse onoff arguments: <start>..<end> [<task_id>] [note:<text>]
 fn parse_onoff_args(args: &[String]) -> Result<(i64, i64, Option<i64>, Option<String>)> {
     let mut start_ts: Option<i64> = None;
@@ -3118,6 +3220,17 @@ fn handle_on_queue_top(conn: &Connection, args: Vec<String>) -> Result<()> {
     
     // Get queue[0] task
     let task_id = items[0].task_id;
+    let task = match TaskRepo::get_by_id(conn, task_id)? {
+        Some(task) => task,
+        None => user_error(&format!("Task {} not found", task_id)),
+    };
+    if task.status != TaskStatus::Pending {
+        user_error(&format!(
+            "Task {} is {} and cannot be started from the queue. Reopen the task to make it eligible.",
+            task_id,
+            task.status.as_str()
+        ));
+    }
     
     // Parse arguments - check for interval syntax (start..end)
     let arg_str = args.join(" ");
@@ -3186,10 +3299,19 @@ fn handle_task_on(task_id_str: String, args: Vec<String>) -> Result<()> {
         Err(e) => user_error(&e),
     };
     
-    // Check if task exists
-    if TaskRepo::get_by_id(&conn, task_id)?.is_none() {
-        user_error(&format!("Task {} not found", task_id));
+    // Check if task exists and is eligible for queue
+    let task = match TaskRepo::get_by_id(&conn, task_id)? {
+        Some(task) => task,
+        None => user_error(&format!("Task {} not found", task_id)),
+    };
+    if task.status != TaskStatus::Pending {
+        user_error(&format!(
+            "Task {} is {} and cannot be added to the queue. Reopen the task to make it eligible.",
+            task_id,
+            task.status.as_str()
+        ));
     }
+    let task_desc = task.description.clone();
     
     // Parse arguments - check for interval syntax (start..end)
     let arg_str = args.join(" ");
@@ -3272,10 +3394,7 @@ fn handle_task_on(task_id_str: String, args: Vec<String>) -> Result<()> {
         SessionRepo::create(&tx, task_id, effective_start_ts)
             .context("Failed to start session")?;
         tx.commit()?;
-        // Get task description for better message
-        let task = TaskRepo::get_by_id(&conn, task_id)?;
-        let desc = task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
-        println!("Started timing task {}: {}", task_id, desc);
+        println!("Started timing task {}: {}", task_id, task_desc);
     }
     
     Ok(())

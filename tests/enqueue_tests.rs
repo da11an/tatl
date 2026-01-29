@@ -181,17 +181,11 @@ fn test_enqueue_completed_task() {
     
     // Try to enqueue the completed task
     let mut cmd = get_task_cmd();
-    cmd.args(&["enqueue", "1"]).assert().success();
-    
-    // Verify it's on the queue by starting timing
-    let mut cmd = get_task_cmd();
-    cmd.args(&["on"])
+    cmd.args(&["enqueue", "1"])
         .assert()
-        .success()
-        .stdout(predicate::str::contains("Started timing task 1"));
-    
-    let mut cmd = get_task_cmd();
-    cmd.args(&["off"]).assert().success();
+        .failure()
+        .stderr(predicate::str::contains("not pending"))
+        .stderr(predicate::str::contains("Reopen"));
 }
 
 #[test]

@@ -170,15 +170,28 @@ fn match_date_field(
 impl FilterTerm {
     fn matches(&self, task: &Task, conn: &Connection) -> Result<bool> {
         match self {
-            FilterTerm::Id(id) => {
-                Ok(task.id == Some(*id))
+            FilterTerm::Id(op, id) => {
+                let task_id = task.id.unwrap_or(0);
+                match op {
+                    ComparisonOp::Eq => Ok(task_id == *id),
+                    ComparisonOp::Neq => Ok(task_id != *id),
+                    ComparisonOp::Gt => Ok(task_id > *id),
+                    ComparisonOp::Lt => Ok(task_id < *id),
+                    ComparisonOp::Gte => Ok(task_id >= *id),
+                    ComparisonOp::Lte => Ok(task_id <= *id),
+                }
             }
-            FilterTerm::Status(statuses) => {
+            FilterTerm::Status(op, statuses) => {
                 // Multi-value status filter: status=pending,closed matches if task status is any of the values
                 let task_status = task.status.as_str();
-                Ok(statuses.iter().any(|s| task_status == s.as_str()))
+                let matches_any = statuses.iter().any(|s| task_status == s.as_str());
+                match op {
+                    ComparisonOp::Eq => Ok(matches_any),
+                    ComparisonOp::Neq => Ok(!matches_any),
+                    _ => Err(anyhow::anyhow!("Status filter supports only '=' and '!='")),
+                }
             }
-            FilterTerm::Project(project_names) => {
+            FilterTerm::Project(op, project_names) => {
                 // Multi-value project filter: project=pro1,pro2 matches if task's project matches ANY of the values (OR logic)
                 // Special cases:
                 // - project= or project=none matches tasks WITHOUT a project
@@ -191,7 +204,7 @@ impl FilterTerm {
 
                 if let Some(project_id) = task.project_id {
                     // Task HAS a project
-                    if wants_no_project && project_names.len() == 1 {
+                    if wants_no_project && project_names.len() == 1 && *op == ComparisonOp::Eq {
                         // Only filtering for no-project, but task has one
                         return Ok(false);
                     }
@@ -208,20 +221,47 @@ impl FilterTerm {
                             }
                             // Exact match
                             if pname == *project_name {
-                                return Ok(true);
+                                return match op {
+                                    ComparisonOp::Eq => Ok(true),
+                                    ComparisonOp::Neq => Ok(false),
+                                    _ => Err(anyhow::anyhow!("Project filter supports only '=' and '!='")),
+                                };
                             }
                             // Prefix match: pname starts with "project_name."
                             if pname.starts_with(&format!("{}.", project_name)) {
-                                return Ok(true);
+                                return match op {
+                                    ComparisonOp::Eq => Ok(true),
+                                    ComparisonOp::Neq => Ok(false),
+                                    _ => Err(anyhow::anyhow!("Project filter supports only '=' and '!='")),
+                                };
                             }
                         }
-                        Ok(false)
+                        match op {
+                            ComparisonOp::Eq => Ok(false),
+                            ComparisonOp::Neq => Ok(true),
+                            _ => Err(anyhow::anyhow!("Project filter supports only '=' and '!='")),
+                        }
                     } else {
-                        Ok(false)
+                        match op {
+                            ComparisonOp::Eq => Ok(false),
+                            ComparisonOp::Neq => Ok(true),
+                            _ => Err(anyhow::anyhow!("Project filter supports only '=' and '!='")),
+                        }
                     }
                 } else {
                     // Task has NO project - match if filter wants no-project
-                    Ok(wants_no_project)
+                    if wants_no_project {
+                        return match op {
+                            ComparisonOp::Eq => Ok(true),
+                            ComparisonOp::Neq => Ok(false),
+                            _ => Err(anyhow::anyhow!("Project filter supports only '=' and '!='")),
+                        };
+                    }
+                    match op {
+                        ComparisonOp::Eq => Ok(false),
+                        ComparisonOp::Neq => Ok(true),
+                        _ => Err(anyhow::anyhow!("Project filter supports only '=' and '!='")),
+                    }
                 }
             }
             FilterTerm::Tag(tag, is_positive) => {
@@ -241,23 +281,38 @@ impl FilterTerm {
             FilterTerm::Waiting => {
                 Ok(task.is_waiting())
             }
-            FilterTerm::Kanban(statuses) => {
+            FilterTerm::Kanban(op, statuses) => {
                 // Multi-value kanban filter: kanban=queued,stalled matches if task kanban is any of the values
                 let task_kanban = calculate_task_kanban(task, conn)?;
                 let task_kanban_lower = task_kanban.to_lowercase();
-                Ok(statuses.iter().any(|s| task_kanban_lower == s.to_lowercase()))
+                let matches_any = statuses.iter().any(|s| task_kanban_lower == s.to_lowercase());
+                match op {
+                    ComparisonOp::Eq => Ok(matches_any),
+                    ComparisonOp::Neq => Ok(!matches_any),
+                    _ => Err(anyhow::anyhow!("Kanban filter supports only '=' and '!='")),
+                }
             }
-            FilterTerm::Desc(pattern) => {
+            FilterTerm::Desc(op, pattern) => {
                 // Case-insensitive substring match on description
                 let desc_lower = task.description.to_lowercase();
                 let pattern_lower = pattern.to_lowercase();
-                Ok(desc_lower.contains(&pattern_lower))
+                let contains = desc_lower.contains(&pattern_lower);
+                match op {
+                    ComparisonOp::Eq => Ok(contains),
+                    ComparisonOp::Neq => Ok(!contains),
+                    _ => Err(anyhow::anyhow!("Description filter supports only '=' and '!='")),
+                }
             }
-            FilterTerm::External(recipient) => {
+            FilterTerm::External(op, recipient) => {
                 // Check if task has active externals matching the recipient
                 let task_id = task.id.unwrap_or(0);
                 let externals = ExternalRepo::get_active_for_task(conn, task_id)?;
-                Ok(externals.iter().any(|e| e.recipient == *recipient))
+                let has_match = externals.iter().any(|e| e.recipient == *recipient);
+                match op {
+                    ComparisonOp::Eq => Ok(has_match),
+                    ComparisonOp::Neq => Ok(!has_match),
+                    _ => Err(anyhow::anyhow!("External filter supports only '=' and '!='")),
+                }
             }
         }
     }

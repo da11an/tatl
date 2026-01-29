@@ -29,7 +29,6 @@ const ANSI_FG_BRIGHT_YELLOW: &str = "\x1b[93m";
 const ANSI_FG_BRIGHT_BLUE: &str = "\x1b[94m";
 const ANSI_FG_BRIGHT_MAGENTA: &str = "\x1b[95m";
 const ANSI_FG_BRIGHT_CYAN: &str = "\x1b[96m";
-const ANSI_FG_BRIGHT_WHITE: &str = "\x1b[97m";
 
 // ANSI background colors
 const ANSI_BG_RED: &str = "\x1b[41m";
@@ -655,6 +654,7 @@ enum TaskListColumn {
     Description,
     Kanban,
     Project,
+    Created,
     Tags,
     Due,
     Alloc,
@@ -681,7 +681,8 @@ fn column_priority(column: TaskListColumn) -> u8 {
         TaskListColumn::Alloc => 7,
         TaskListColumn::Priority => 8,
         TaskListColumn::Tags => 9,
-        TaskListColumn::Status => 10,     // Hidden first
+        TaskListColumn::Created => 10,
+        TaskListColumn::Status => 11,     // Hidden first
     }
 }
 
@@ -699,6 +700,7 @@ fn column_min_width(column: TaskListColumn) -> usize {
         TaskListColumn::Tags => 6,
         TaskListColumn::Alloc => 5,
         TaskListColumn::Clock => 5,
+        TaskListColumn::Created => 10,
     }
 }
 
@@ -722,6 +724,7 @@ fn parse_task_column(name: &str) -> Option<TaskListColumn> {
         "description" | "desc" => Some(TaskListColumn::Description),
         "kanban" => Some(TaskListColumn::Kanban),
         "project" | "proj" => Some(TaskListColumn::Project),
+        "created" | "age" => Some(TaskListColumn::Created),
         "tags" | "tag" => Some(TaskListColumn::Tags),
         "due" => Some(TaskListColumn::Due),
         "alloc" | "allocation" => Some(TaskListColumn::Alloc),
@@ -734,17 +737,18 @@ fn parse_task_column(name: &str) -> Option<TaskListColumn> {
 
 fn column_label(column: TaskListColumn) -> &'static str {
     match column {
-        TaskListColumn::Id => "ID",
         TaskListColumn::Queue => "Q",
+        TaskListColumn::Id => "ID",
         TaskListColumn::Description => "Description",
-        TaskListColumn::Kanban => "Kanban",
         TaskListColumn::Project => "Project",
         TaskListColumn::Tags => "Tags",
         TaskListColumn::Due => "Due",
         TaskListColumn::Alloc => "Alloc",
-        TaskListColumn::Priority => "Priority",
-        TaskListColumn::Clock => "Clock",
+        TaskListColumn::Clock => "Timer",
+        TaskListColumn::Created => "Created",
         TaskListColumn::Status => "Status",
+        TaskListColumn::Kanban => "Kanban",
+        TaskListColumn::Priority => "Priority",
     }
 }
 
@@ -895,6 +899,7 @@ pub fn format_task_list_table(
         values.insert(TaskListColumn::Description, task.description.clone());
         values.insert(TaskListColumn::Kanban, kanban.to_string());
         values.insert(TaskListColumn::Project, project.clone());
+        values.insert(TaskListColumn::Created, format_date(task.created_ts));
         values.insert(TaskListColumn::Tags, tag_str.clone());
         values.insert(TaskListColumn::Due, due.clone());
         values.insert(TaskListColumn::Alloc, alloc.clone());
@@ -909,6 +914,7 @@ pub fn format_task_list_table(
         sort_values.insert(TaskListColumn::Description, Some(SortValue::Str(task.description.clone())));
         sort_values.insert(TaskListColumn::Kanban, Some(SortValue::Int(kanban_sort_order(&kanban))));
         sort_values.insert(TaskListColumn::Project, Some(SortValue::Str(project)));
+        sort_values.insert(TaskListColumn::Created, Some(SortValue::Int(task.created_ts)));
         sort_values.insert(TaskListColumn::Tags, Some(SortValue::Str(tag_str)));
         sort_values.insert(TaskListColumn::Due, task.due_ts.map(SortValue::Int));
         sort_values.insert(TaskListColumn::Alloc, task.alloc_secs.map(SortValue::Int));
@@ -955,14 +961,15 @@ pub fn format_task_list_table(
     }
     
     let default_columns = [
-        TaskListColumn::Status,
-        TaskListColumn::Kanban,
         TaskListColumn::Project,
         TaskListColumn::Tags,
+        TaskListColumn::Priority,
         TaskListColumn::Due,
         TaskListColumn::Alloc,
-        TaskListColumn::Priority,
         TaskListColumn::Clock,
+        TaskListColumn::Created,
+        TaskListColumn::Status,
+        TaskListColumn::Kanban,
     ];
     for column in default_columns {
         if !columns.contains(&column) {

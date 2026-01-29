@@ -927,18 +927,19 @@ Filters support AND, OR, and NOT operations with implicit AND.
 
 ### Filter Terms
 
-- `1` - Task ID
-- `status=<status>` - Task status (pending, completed, closed, deleted)
-- `project=<name>` - Project name (supports prefix matching for nested projects)
+- `1` - Task ID (supports `=`, `!=`, `>`, `<`, `>=`, `<=`)
+- `status=<status>` - Task status (pending, completed, closed, deleted) supports `=`/`!=`
+- `project=<name>` - Project name (supports prefix matching for nested projects) supports `=`/`!=`
 - `+<tag>` - Has tag
 - `-<tag>` - Does not have tag
-- `due=<expr>` - Due date (any, none, or date expression)
-- `due>expr`, `due<expr`, `due>=expr`, `due<=expr`, `due!=expr` - Date comparisons
-- `scheduled=<expr>` - Scheduled date
-- `wait=<expr>` - Wait date
-- `desc=<pattern>` - Description contains pattern (case-insensitive substring match)
+- `desc=<pattern>` - Description contains pattern (case-insensitive substring match) supports `=`/`!=`
+- `kanban=<status>` - Derived kanban status (proposed, stalled, queued, external, done) supports `=`/`!=`
 - `waiting` - Derived: wait_ts is set and in the future
-- `kanban=<status>` - Derived kanban status (proposed, stalled, queued, external, done)
+
+Date fields (support `=`, `!=`, `>`, `<`, `>=`, `<=`):
+- `due=<expr>`; also `due>expr`, `due<expr`, `due>=expr`, `due<=expr`, `due!=expr`
+- `scheduled=<expr>`; also comparisons as above
+- `wait=<expr>`; also comparisons as above
 
 ### Operators
 

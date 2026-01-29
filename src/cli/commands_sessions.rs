@@ -6,7 +6,7 @@ use crate::models::Session;
 use crate::cli::error::{user_error, validate_task_id};
 use crate::cli::output::is_tty;
 use crate::filter::{parse_filter, filter_tasks};
-use crate::utils::parse_date_expr;
+use crate::utils::{parse_date_expr, parse_duration};
 use anyhow::{Context, Result};
 use chrono::{Local, TimeZone, Timelike};
 use rusqlite::Connection;
@@ -316,6 +316,121 @@ fn is_view_name_token(token: &str) -> bool {
         && !token.starts_with('+') && !token.starts_with('-') && token.parse::<i64>().is_err()
 }
 
+fn split_on_operator(token: &str) -> Option<(String, SessionComparisonOp, String)> {
+    let op_start = token.find(|c: char| c == '=' || c == '>' || c == '<' || c == '!')?;
+    let key = token[..op_start].to_string();
+    if key.is_empty() {
+        return None;
+    }
+    let rest = &token[op_start..];
+    let (op, op_len) = if rest.starts_with(">=") {
+        (SessionComparisonOp::Gte, 2)
+    } else if rest.starts_with("<=") {
+        (SessionComparisonOp::Lte, 2)
+    } else if rest.starts_with("!=") {
+        (SessionComparisonOp::Neq, 2)
+    } else if rest.starts_with("<>") {
+        (SessionComparisonOp::Neq, 2)
+    } else if rest.starts_with('=') {
+        (SessionComparisonOp::Eq, 1)
+    } else if rest.starts_with('>') {
+        (SessionComparisonOp::Gt, 1)
+    } else if rest.starts_with('<') {
+        (SessionComparisonOp::Lt, 1)
+    } else {
+        return None;
+    };
+    let value = rest[op_len..].to_string();
+    Some((key, op, value))
+}
+
+fn parse_session_filter_term(token: &str) -> Result<Option<SessionFilterTerm>, String> {
+    if let Some((key, op, value)) = split_on_operator(token) {
+        let key_lower = key.to_lowercase();
+        match key_lower.as_str() {
+            "session" | "session_id" | "id" => {
+                let id = value.parse::<i64>()
+                    .map_err(|_| format!("Invalid session id: '{}'", value))?;
+                return Ok(Some(SessionFilterTerm::SessionId(op, id)));
+            }
+            "task" | "task_id" => {
+                let task_id = value.parse::<i64>()
+                    .map_err(|_| format!("Invalid task id: '{}'", value))?;
+                return Ok(Some(SessionFilterTerm::TaskId(op, task_id)));
+            }
+            "start" => {
+                let ts = parse_date_expr(&value)
+                    .map_err(|e| format!("Invalid start time: {}", e))?;
+                return Ok(Some(SessionFilterTerm::Start(op, ts)));
+            }
+            "end" => {
+                let ts = parse_date_expr(&value)
+                    .map_err(|e| format!("Invalid end time: {}", e))?;
+                return Ok(Some(SessionFilterTerm::End(op, ts)));
+            }
+            "duration" => {
+                let secs = parse_duration(&value)
+                    .map_err(|e| format!("Invalid duration '{}': {}", value, e))?;
+                return Ok(Some(SessionFilterTerm::Duration(op, secs)));
+            }
+            "desc" | "description" => {
+                if op != SessionComparisonOp::Eq && op != SessionComparisonOp::Neq {
+                    return Err("Description filter supports only '=' and '!='".to_string());
+                }
+                return Ok(Some(SessionFilterTerm::Description(op, value)));
+            }
+            _ => {}
+        }
+    }
+    Ok(None)
+}
+
+fn match_int(op: SessionComparisonOp, left: i64, right: i64) -> bool {
+    match op {
+        SessionComparisonOp::Eq => left == right,
+        SessionComparisonOp::Neq => left != right,
+        SessionComparisonOp::Gt => left > right,
+        SessionComparisonOp::Lt => left < right,
+        SessionComparisonOp::Gte => left >= right,
+        SessionComparisonOp::Lte => left <= right,
+    }
+}
+
+fn session_matches_filter(session: &Session, task_desc: &str, term: &SessionFilterTerm) -> bool {
+    match term {
+        SessionFilterTerm::SessionId(op, id) => {
+            if let Some(sid) = session.id {
+                match_int(*op, sid, *id)
+            } else {
+                false
+            }
+        }
+        SessionFilterTerm::TaskId(op, task_id) => match_int(*op, session.task_id, *task_id),
+        SessionFilterTerm::Start(op, ts) => match_int(*op, session.start_ts, *ts),
+        SessionFilterTerm::End(op, ts) => {
+            if let Some(end) = session.end_ts {
+                match_int(*op, end, *ts)
+            } else {
+                false
+            }
+        }
+        SessionFilterTerm::Duration(op, secs) => {
+            let dur = session.duration_secs().unwrap_or_else(|| chrono::Utc::now().timestamp() - session.start_ts);
+            match_int(*op, dur, *secs)
+        }
+        SessionFilterTerm::Description(op, pattern) => {
+            let desc_lower = task_desc.to_lowercase();
+            let pat_lower = pattern.to_lowercase();
+            let contains = desc_lower.contains(&pat_lower);
+            match op {
+                SessionComparisonOp::Eq => contains,
+                SessionComparisonOp::Neq => !contains,
+                _ => false,
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum SessionListColumn {
     SessionId,
@@ -324,6 +439,16 @@ enum SessionListColumn {
     Start,
     End,
     Duration,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionComparisonOp {
+    Eq,
+    Neq,
+    Gt,
+    Lt,
+    Gte,
+    Lte,
 }
 
 #[derive(Debug, Clone)]
@@ -336,6 +461,16 @@ enum SortValue {
 struct SessionRow {
     values: std::collections::HashMap<SessionListColumn, String>,
     sort_values: std::collections::HashMap<SessionListColumn, Option<SortValue>>,
+}
+
+#[derive(Debug, Clone)]
+enum SessionFilterTerm {
+    SessionId(SessionComparisonOp, i64),
+    TaskId(SessionComparisonOp, i64),
+    Start(SessionComparisonOp, i64),
+    End(SessionComparisonOp, i64),
+    Duration(SessionComparisonOp, i64),
+    Description(SessionComparisonOp, String), // contains match for Eq/Neq
 }
 
 fn parse_session_column(name: &str) -> Option<SessionListColumn> {
@@ -644,16 +779,39 @@ pub fn handle_task_sessions_list_with_filter(filter_args: Vec<String>, json: boo
     }
     
     let mut request = parse_list_request(task_filters);
+    let original_filter_tokens = request.filter_tokens.clone();
+
+    // Split filters into session filters and task filters
+    let mut session_filters: Vec<SessionFilterTerm> = Vec::new();
+    let mut task_filter_tokens: Vec<String> = Vec::new();
+    for token in request.filter_tokens.into_iter() {
+        match parse_session_filter_term(&token) {
+            Ok(Some(term)) => session_filters.push(term),
+            Ok(None) => task_filter_tokens.push(token),
+            Err(e) => user_error(&format!("Session filter error: {}", e)),
+        }
+    }
+
     if request.sort_columns.is_empty()
         && request.group_columns.is_empty()
-        && request.filter_tokens.len() == 1
-        && is_view_name_token(&request.filter_tokens[0])
+        && task_filter_tokens.len() == 1
+        && is_view_name_token(&task_filter_tokens[0])
     {
-        if let Some(view) = ViewRepo::get_by_name(&conn, "sessions", &request.filter_tokens[0])? {
-            request.filter_tokens = view.filter_tokens;
+        if let Some(view) = ViewRepo::get_by_name(&conn, "sessions", &task_filter_tokens[0])? {
+            request.filter_tokens = view.filter_tokens.clone();
             request.sort_columns = view.sort_columns;
             request.group_columns = view.group_columns;
             request.hide_columns = view.hide_columns;
+            // Reload filters split
+            session_filters.clear();
+            task_filter_tokens.clear();
+            for token in view.filter_tokens {
+                match parse_session_filter_term(&token) {
+                    Ok(Some(term)) => session_filters.push(term),
+                    Ok(None) => task_filter_tokens.push(token),
+                    Err(e) => user_error(&format!("Session filter error: {}", e)),
+                }
+            }
         }
     }
     
@@ -662,7 +820,7 @@ pub fn handle_task_sessions_list_with_filter(filter_args: Vec<String>, json: boo
             &conn,
             &alias,
             "sessions",
-            &request.filter_tokens,
+            &original_filter_tokens,
             &request.sort_columns,
             &request.group_columns,
             &request.hide_columns,
@@ -672,12 +830,12 @@ pub fn handle_task_sessions_list_with_filter(filter_args: Vec<String>, json: boo
         println!("Saved view '{}'.", alias);
     }
     
-    let sessions = if request.filter_tokens.is_empty() {
+    let sessions = if task_filter_tokens.is_empty() {
         // List all sessions
         SessionRepo::list_all(&conn)?
-    } else if request.filter_tokens.len() == 1 {
+    } else if task_filter_tokens.len() == 1 {
         // Single argument - try to parse as task ID first, otherwise treat as filter
-        match validate_task_id(&request.filter_tokens[0]) {
+        match validate_task_id(&task_filter_tokens[0]) {
             Ok(task_id) => {
                 // Single task ID
                 if TaskRepo::get_by_id(&conn, task_id)?.is_none() {
@@ -687,7 +845,7 @@ pub fn handle_task_sessions_list_with_filter(filter_args: Vec<String>, json: boo
             }
             Err(_) => {
                 // Treat as filter - aggregate sessions across all matching tasks
-                let filter_expr = match parse_filter(request.filter_tokens) {
+                let filter_expr = match parse_filter(task_filter_tokens) {
                     Ok(expr) => expr,
                     Err(e) => user_error(&format!("Filter parse error: {}", e)),
                 };
@@ -719,7 +877,7 @@ pub fn handle_task_sessions_list_with_filter(filter_args: Vec<String>, json: boo
         }
     } else {
         // Multiple arguments - treat as filter
-        let filter_expr = match parse_filter(request.filter_tokens) {
+        let filter_expr = match parse_filter(task_filter_tokens) {
             Ok(expr) => expr,
             Err(e) => user_error(&format!("Filter parse error: {}", e)),
         };
@@ -749,7 +907,17 @@ pub fn handle_task_sessions_list_with_filter(filter_args: Vec<String>, json: boo
         all_sessions
     };
     
-    // Apply session date filtering if specified
+    // Build task description map for session filtering/display
+    let mut tasks_by_id = std::collections::HashMap::new();
+    for session in &sessions {
+        if !tasks_by_id.contains_key(&session.task_id) {
+            if let Ok(Some(task)) = TaskRepo::get_by_id(&conn, session.task_id) {
+                tasks_by_id.insert(session.task_id, task.description);
+            }
+        }
+    }
+
+    // Apply session date filtering if specified, then session column filters
     let sessions: Vec<_> = sessions.into_iter()
         .filter(|session| {
             // Apply start: filter
@@ -790,6 +958,16 @@ pub fn handle_task_sessions_list_with_filter(filter_args: Vec<String>, json: boo
 
             true
         })
+        .filter(|session| {
+            // Apply column-style session filters
+            for term in &session_filters {
+                let desc = tasks_by_id.get(&session.task_id).cloned().unwrap_or_default();
+                if !session_matches_filter(session, &desc, term) {
+                    return false;
+                }
+            }
+            true
+        })
         .collect();
     
     if json {
@@ -813,15 +991,6 @@ pub fn handle_task_sessions_list_with_filter(filter_args: Vec<String>, json: boo
         }
         println!("{}", serde_json::to_string_pretty(&json_sessions)?);
     } else {
-        let mut tasks_by_id = std::collections::HashMap::new();
-        for session in &sessions {
-            if !tasks_by_id.contains_key(&session.task_id) {
-                if let Ok(Some(task)) = TaskRepo::get_by_id(&conn, session.task_id) {
-                    tasks_by_id.insert(session.task_id, task.description);
-                }
-            }
-        }
-        
         let table = format_sessions_list_table(
             &sessions,
             &tasks_by_id,
