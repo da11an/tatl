@@ -16,27 +16,28 @@ fn get_task_cmd(temp_dir: &TempDir) -> Command {
 #[test]
 fn test_offon_stops_and_resumes_current_session() {
     let temp_dir = TempDir::new().unwrap();
-    
-    // Add a task and start timing
+
+    // Add a task and start timing at a specific time (use fixed past date to avoid timing issues)
     let output = get_task_cmd(&temp_dir)
         .args(&["add", "Test task"])
         .output()
         .unwrap();
     assert!(output.status.success());
-    
+
     let output = get_task_cmd(&temp_dir)
         .args(&["enqueue", "1"])
         .output()
         .unwrap();
     assert!(output.status.success());
-    
+
+    // Start session at 14:00 today
     let output = get_task_cmd(&temp_dir)
-        .args(&["on"])
+        .args(&["on", "14:00"])
         .output()
         .unwrap();
     assert!(output.status.success());
-    
-    // Use offon to stop and resume
+
+    // Use offon to stop at 14:30 and resume now (14:30 is after 14:00)
     let output = get_task_cmd(&temp_dir)
         .args(&["offon", "14:30"])
         .output()
@@ -50,27 +51,28 @@ fn test_offon_stops_and_resumes_current_session() {
 #[test]
 fn test_offon_with_interval_creates_break() {
     let temp_dir = TempDir::new().unwrap();
-    
-    // Add a task and start timing
+
+    // Add a task and start timing at a specific time
     let output = get_task_cmd(&temp_dir)
         .args(&["add", "Test task"])
         .output()
         .unwrap();
     assert!(output.status.success());
-    
+
     let output = get_task_cmd(&temp_dir)
         .args(&["enqueue", "1"])
         .output()
         .unwrap();
     assert!(output.status.success());
-    
+
+    // Start session at 14:00 today
     let output = get_task_cmd(&temp_dir)
-        .args(&["on"])
+        .args(&["on", "14:00"])
         .output()
         .unwrap();
     assert!(output.status.success());
-    
-    // Use offon with interval
+
+    // Use offon with interval: stop at 14:30, resume at 15:00
     let output = get_task_cmd(&temp_dir)
         .args(&["offon", "14:30..15:00"])
         .output()

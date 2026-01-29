@@ -172,9 +172,9 @@ Tasks have derived Kanban statuses based on their state:
 | `done` | Completed or closed |
 
 ```bash
-tatl list kanban:queued      # Show queued tasks
-tatl list kanban:stalled     # Show tasks needing attention
-tatl list kanban:external    # Show tasks with external parties
+tatl list kanban=queued      # Show queued tasks
+tatl list kanban=stalled     # Show tasks needing attention
+tatl list kanban=external    # Show tasks with external parties
 ```
 
 ## Command Reference
@@ -189,15 +189,15 @@ tatl add "Meeting" : on 14:00       # Create and start timing at 14:00
 tatl add "Past work" : onoff 09:00..12:00  # Create with historical session
 tatl add "Already done" : finish    # Create already completed
 tatl add "Cancelled" : close        # Create already closed
-tatl add "Past meeting" --onoff 14:00..15:00 --finish  # Historical session + complete
+tatl add "Past meeting" : onoff 14:00..15:00 : finish  # Historical session + complete
 
 # Read
 tatl list                           # All pending tasks
-tatl list project:work +urgent      # With filters
+tatl list project=work +urgent      # With filters
 tatl show 5                         # Detailed view
 
 # Update
-tatl modify 5 +urgent due:+2d       # Add tag, change due date
+tatl modify 5 +urgent due=+2d       # Add tag, change due date
 tatl annotate 5 "Found the issue"   # Add note
 
 # Complete
@@ -264,32 +264,32 @@ tatl collect 5                       # Collect task back
 
 ```bash
 tatl sessions list                  # All sessions
-tatl sessions list project:work     # With task filter
+tatl sessions list project=work     # With task filter
 tatl sessions list -7d              # Sessions from last 7 days
 tatl sessions list start:-7d        # Sessions starting on/after 7 days ago
 tatl sessions list start:today      # Sessions starting today
 tatl sessions list end:today        # Sessions ending today
 tatl sessions list start:2024-01-01..2024-01-31  # Start date range
 tatl sessions list end:-7d..-1d     # End date range
-tatl sessions list start:-7d project:work  # Combine date and task filters
+tatl sessions list start:-7d project=work  # Combine date and task filters
 tatl sessions modify 5 09:00..17:00  # Adjust both times
 tatl sessions modify 5 ..17:00      # Adjust end time only
 tatl sessions modify 5 09:00..      # Adjust start time only
 tatl sessions delete 5 -y           # Delete session
 tatl sessions report -7d            # Time report for last 7 days
-tatl sessions report -7d..now project:work  # Report with filter
+tatl sessions report -7d..now project=work  # Report with filter
 ```
 
-### Dashboard
+### Report
 
 ```bash
-tatl dashboard                    # Show dashboard with this week's stats
-tatl dashboard --period=week      # Same as above (default)
-tatl dashboard --period=month     # Show this month's stats
-tatl dashboard --period=year      # Show this year's stats
+tatl report                    # Show dashboard with this week's stats
+tatl report --period=week      # Same as above (default)
+tatl report --period=month     # Show this month's stats
+tatl report --period=year      # Show this year's stats
 ```
 
-The dashboard shows:
+The report shows:
 - Current work queue with priorities
 - Today's sessions and time tracked
 - Period statistics with project breakdown
@@ -298,8 +298,14 @@ The dashboard shows:
 ## Filter Syntax
 
 ```bash
-# AND (implicit)
-tatl list project:work +urgent
+# Equality filters (use = for matching)
+tatl list project=work +urgent
+tatl list status=pending
+
+# Comparison operators (for dates)
+tatl list due>tomorrow           # Tasks due after tomorrow
+tatl list due<=eod               # Tasks due by end of day
+tatl list due!=none              # Tasks that have a due date
 
 # OR (explicit)
 tatl list +urgent or +important
@@ -308,16 +314,16 @@ tatl list +urgent or +important
 tatl list not +waiting
 
 # Description search
-tatl list desc:meeting           # Tasks with "meeting" in description
-tatl list desc:"code review"     # Phrase search
+tatl list desc=meeting           # Tasks with "meeting" in description
+tatl list desc="code review"     # Phrase search
 
 # Complex
-tatl list project:work status:pending not +blocked
+tatl list project=work status=pending not +blocked
 
 # Kanban status
-tatl list kanban:queued
-tatl list kanban:stalled
-tatl list kanban:external
+tatl list kanban=queued
+tatl list kanban=stalled
+tatl list kanban=external
 ```
 
 ### Display Options

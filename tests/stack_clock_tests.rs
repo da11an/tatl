@@ -98,14 +98,14 @@ fn test_switch_task_with_on_command() {
     let mut cmd = get_task_cmd();
     let output = cmd.args(&["list"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
-    
-    // Verify the second data line is task 2 with ▶ in the Q column
-    let mut lines = stdout.lines().filter(|l| !l.trim().is_empty());
-    let _header = lines.next(); // header
-    let _sep = lines.next();    // separator
-    let second = lines.next().expect("Should have at least one task line");
-    assert!(second.contains("2") && second.trim_start().starts_with("▶"),
-        "Task 2 should show ▶ (active at position 0). Line: {}", second);
+
+    // Find the task 2 line and verify it has ▶ in the Q column (active at position 0)
+    // Note: list output is sorted by ID, so task 2 may not be the first data line
+    let task2_line = stdout.lines()
+        .find(|l| l.contains("task 2"))
+        .expect("Should have a line for task 2");
+    assert!(task2_line.trim_start().starts_with("▶"),
+        "Task 2 should show ▶ (active at position 0). Line: {}", task2_line);
     
     // Clock out should work
     let mut cmd = get_task_cmd();

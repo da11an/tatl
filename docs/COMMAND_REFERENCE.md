@@ -54,7 +54,7 @@ tatl add Review PR project=work +code-review +urgent
 tatl add Write documentation project=docs due=tomorrow allocation=2h
 
 # Task with respawn rule (creates new instance when completed)
-tatl add "Daily standup" respawn:daily due:09:00
+tatl add "Daily standup" respawn=daily due=09:00
 
 # Task with UDA
 tatl add Customer call uda.client=acme uda.priority=high
@@ -91,7 +91,7 @@ tatl add "New feature" project=newproject
 # - c: Cancel task creation
 
 # Task with -y (non-interactive)
-tatl add -y "New feature" project:newproject
+tatl add -y "New feature" project=newproject
 # Automatically creates project if it doesn't exist
 ```
 
@@ -124,9 +124,9 @@ List tasks matching optional filter with display customization.
 tatl list
 
 # List with filter
-tatl list project:work
+tatl list project=work
 tatl list +urgent
-tatl list status:pending
+tatl list status=pending
 
 # Sort and group
 tatl list sort:project,priority group:kanban
@@ -160,19 +160,19 @@ Modify one or more tasks.
 **Examples:**
 ```bash
 # Modify single task
-tatl modify 10 +urgent due:+2d
+tatl modify 10 +urgent due=+2d
 
 # Modify multiple tasks (with confirmation)
 tatl modify project=work description=Updated description
 
 # Modify with --yes flag
-tatl modify +urgent due:+1d --yes
+tatl modify +urgent due=+1d --yes
 
 # Modify with new project (prompts to create)
-tatl modify 10 project:newproject
+tatl modify 10 project=newproject
 
 # Clear attributes
-tatl 10 modify project:none due:none allocation:none
+tatl 10 modify project=none due=none allocation=none
 ```
 
 ### `tatl finish [<id|filter>] [--at <expr>] [--next] [--yes] [--interactive]`
@@ -371,7 +371,7 @@ tatl projects archive old-project
 
 Display task counts by project and kanban status.
 
-Shows a table with columns for each kanban status (Proposed, Queued, Paused, NEXT, LIVE, Done) and rows for each project.
+Shows a table with columns for each kanban status (Proposed, Stalled, Queued, External, Done) and rows for each project.
 
 **Examples:**
 ```bash
@@ -383,13 +383,13 @@ tatl projects report
 ```
 Projects Report
 ═══════════════════════════════════════════════════════════════════
-Project                   Proposed   Queued   Paused   NEXT   LIVE   Done  Total
-───────────────────────── ──────── ──────── ──────── ────── ────── ────── ──────
-work                            3        2        1      1      0      5     12
-work.email                      1        0        0      0      0      2      3
-personal                        2        1        0      0      1      3      7
-───────────────────────── ──────── ──────── ──────── ────── ────── ────── ──────
-TOTAL                           6        3        1      1      1     10     22
+Project                   Proposed   Stalled   Queued   External   Done  Total
+───────────────────────── ──────── ──────── ──────── ──────── ────── ──────
+work                            3        1        2        0      5     11
+work.email                      1        0        0        0      2      3
+personal                        2        0        1        1      3      7
+───────────────────────── ──────── ──────── ──────── ──────── ────── ──────
+TOTAL                           6        1        3        1     10     21
 ```
 
 ---
@@ -609,7 +609,7 @@ Date expressions support:
 - Time-only: `09:00`, `14:30`
 
 **Options:**
-- `<filter>...` - Filter arguments (e.g., "project:work +urgent")
+- `<filter>...` - Filter arguments (e.g., "project=work +urgent")
 - `--json` - Output in JSON format
 
 **Examples:**
@@ -645,9 +645,9 @@ tatl sessions list start:-7d..                   # Starting 7+ days ago (open-en
 tatl sessions list start:..today                 # Starting up to today
 
 # Combine date filters with task filters
-tatl sessions list start:-7d project:work
+tatl sessions list start:-7d project=work
 tatl sessions list start:today +urgent
-tatl sessions list end:today project:work +billable
+tatl sessions list end:today project=work +billable
 
 # JSON output
 tatl sessions list --json
@@ -750,7 +750,7 @@ Generate a time report summarizing hours by project.
 - Single date: `tatl sessions report -7d` (last 7 days to now)
 - Date range: `tatl sessions report 2024-01-01 2024-01-31`
 - Interval syntax: `tatl sessions report -7d..now`
-- With filter: `tatl sessions report -7d project:work`
+- With filter: `tatl sessions report -7d project=work`
 
 **Arguments:**
 - `<start>` - Start date for report period (date expression)
@@ -776,20 +776,20 @@ tatl sessions report -7d..now
 tatl sessions report 2024-01-01..2024-01-31
 
 # With task filter
-tatl sessions report -7d project:work
+tatl sessions report -7d project=work
 tatl sessions report -30d +urgent
 
 # Combining all options
-tatl sessions report -7d..now project:work +billable
+tatl sessions report -7d..now project=work +billable
 ```
 
 ---
 
-## Dashboard
+## Report
 
-### `tatl dashboard [--period <week|month|year>]`
+### `tatl report [--period <week|month|year>]`
 
-Display a composite dashboard view with queue, sessions, statistics, and attention items.
+Display a composite report view with queue, sessions, statistics, and attention items.
 
 **Sections:**
 1. **Queue** - Current work queue showing top tasks with priorities
@@ -805,14 +805,14 @@ Display a composite dashboard view with queue, sessions, statistics, and attenti
 
 **Examples:**
 ```bash
-# Show dashboard with this week's statistics
-tatl dashboard
+# Show report with this week's statistics
+tatl report
 
-# Show dashboard with this month's statistics
-tatl dashboard --period=month
+# Show report with this month's statistics
+tatl report --period=month
 
-# Show dashboard with this year's statistics
-tatl dashboard --period=year
+# Show report with this year's statistics
+tatl report --period=year
 ```
 
 **Sample Output:**
@@ -869,40 +869,40 @@ Tasks with a `respawn` rule automatically create a new instance when completed o
 
 ```bash
 # Daily task - respawns tomorrow when completed
-tatl add "Daily standup" respawn:daily due:09:00
+tatl add "Daily standup" respawn=daily due=09:00
 
 # Weekly task
-tatl add "Weekly review" respawn:weekly due:friday
+tatl add "Weekly review" respawn=weekly due=friday
 
 # Specific weekdays
-tatl add "Team sync" respawn:weekdays:mon,wed,fri due:10:00
+tatl add "Team sync" respawn=mon,wed,fri due=10:00
 
 # Specific days of month
-tatl add "Timesheet" respawn:monthdays:14,30 due:17:00
+tatl add "Timesheet" respawn=14,30 due=17:00
 
 # Nth weekday of month
-tatl add "Monthly board meeting" respawn:nth:2:tue due:14:00
+tatl add "Monthly board meeting" respawn=2nd-tue due=14:00
 
 # Custom intervals
-tatl add "Check-in" respawn:every:3d
-tatl add "Quarterly review" respawn:every:3m
+tatl add "Check-in" respawn=3d
+tatl add "Quarterly review" respawn=3m
 ```
 
 ### Respawn Patterns
 
 | Pattern | Example | Description |
 |---------|---------|-------------|
-| `daily` | `respawn:daily` | Every day |
-| `weekly` | `respawn:weekly` | Every 7 days |
-| `monthly` | `respawn:monthly` | Same day each month |
-| `yearly` | `respawn:yearly` | Same date each year |
-| `every:Nd` | `respawn:every:3d` | Every N days |
-| `every:Nw` | `respawn:every:2w` | Every N weeks |
-| `every:Nm` | `respawn:every:6m` | Every N months |
-| `every:Ny` | `respawn:every:1y` | Every N years |
-| `weekdays:` | `respawn:weekdays:mon,fri` | Specific weekdays |
-| `monthdays:` | `respawn:monthdays:1,15` | Specific days of month |
-| `nth:N:day` | `respawn:nth:2:tue` | Nth weekday of month |
+| `daily` | `respawn=daily` | Every day |
+| `weekly` | `respawn=weekly` | Every 7 days |
+| `monthly` | `respawn=monthly` | Same day each month |
+| `yearly` | `respawn=yearly` | Same date each year |
+| `Nd` | `respawn=3d` | Every N days |
+| `Nw` | `respawn=2w` | Every N weeks |
+| `Nm` | `respawn=6m` | Every N months |
+| `Ny` | `respawn=1y` | Every N years |
+| `day,day,...` | `respawn=mon,fri` | Specific weekdays |
+| `N,N,...` | `respawn=1,15` | Specific days of month |
+| `Nth-day` | `respawn=2nd-tue` | Nth weekday of month |
 
 ### Respawn Behavior
 
@@ -928,16 +928,17 @@ Filters support AND, OR, and NOT operations with implicit AND.
 ### Filter Terms
 
 - `1` - Task ID
-- `status:<status>` - Task status (pending, completed, closed, deleted)
-- `project:<name>` - Project name (supports prefix matching for nested projects)
+- `status=<status>` - Task status (pending, completed, closed, deleted)
+- `project=<name>` - Project name (supports prefix matching for nested projects)
 - `+<tag>` - Has tag
 - `-<tag>` - Does not have tag
-- `due:<expr>` - Due date (any, none, or date expression)
-- `scheduled:<expr>` - Scheduled date
-- `wait:<expr>` - Wait date
-- `desc:<pattern>` - Description contains pattern (case-insensitive substring match)
+- `due=<expr>` - Due date (any, none, or date expression)
+- `due>expr`, `due<expr`, `due>=expr`, `due<=expr`, `due!=expr` - Date comparisons
+- `scheduled=<expr>` - Scheduled date
+- `wait=<expr>` - Wait date
+- `desc=<pattern>` - Description contains pattern (case-insensitive substring match)
 - `waiting` - Derived: wait_ts is set and in the future
-- `kanban:<status>` - Derived kanban status (proposed, paused, queued, working, next, live, done)
+- `kanban=<status>` - Derived kanban status (proposed, stalled, queued, external, done)
 
 ### Operators
 
@@ -947,32 +948,25 @@ Filters support AND, OR, and NOT operations with implicit AND.
 
 **Precedence:** `not` > `and` > `or`
 
-### Abbreviations
-
-Filter tokens allow unambiguous abbreviations:
-- `st:pending` → `status:pending`
-- `proj:work` → `project:work`
-- Ambiguous prefixes error with suggestions.
-
 ### Examples
 
 ```bash
 # AND (implicit)
-tatl list project:work +urgent
-tatl list status:pending due:tomorrow
+tatl list project=work +urgent
+tatl list status=pending due=tomorrow
 
 # OR (explicit)
 tatl list +urgent or +important
-tatl list project:work or project:home
+tatl list project=work or project=home
 
 # NOT
 tatl list not +waiting
-tatl list not project:work
+tatl list not project=work
 
 # Complex filters
-tatl list project:work +urgent or project:home +important
-tatl list status:pending not +waiting
-tatl list (project:work or project:home) +urgent  # Note: parentheses not yet supported
+tatl list project=work +urgent or project=home +important
+tatl list status=pending not +waiting
+tatl list (project=work or project=home) +urgent  # Note: parentheses not yet supported
 ```
 
 ---
@@ -1031,12 +1025,12 @@ eom      # End of month
 
 ```bash
 # Due dates
-tatl add Review PR due:tomorrow
-tatl add Fix bug due:+2d
+tatl add Review PR due=tomorrow
+tatl add Fix bug due=+2d
 tatl add Meeting due:2026-01-15T14:00
 
 # Scheduled dates
-tatl add Prepare presentation scheduled:next Monday
+tatl add Prepare presentation scheduled="next Monday"
 tatl add Follow up scheduled:+1w
 
 # Wait dates

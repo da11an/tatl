@@ -1006,7 +1006,7 @@ pub fn run() -> Result<()> {
             return Ok(());
         }
     };
-
+    
     handle_command(cli)
 }
 
@@ -1118,8 +1118,8 @@ fn handle_command(cli: Cli) -> Result<()> {
                 SessionsCommands::Report { args } => {
                     handle_sessions_report(args)
                 }
+                }
             }
-        }
         Commands::Report { period } => {
             handle_report(period)
         }
@@ -1368,7 +1368,7 @@ fn handle_report(period: String) -> Result<()> {
 
     if stack_items.is_empty() {
         println!("  (no tasks in queue)");
-    } else {
+        } else {
         println!(" #  ID   Description                              Project    Priority");
         for (pos, item) in stack_items.iter().take(5).enumerate() {
             if let Ok(Some(task)) = TaskRepo::get_by_id(&conn, item.task_id) {
@@ -1885,40 +1885,40 @@ fn handle_task_add(args: Vec<String>, auto_yes: bool) -> Result<i64> {
             // project=none or project= (empty) means no project
             None
         } else {
-            let project = ProjectRepo::get_by_name(&conn, &project_name)?;
-            if let Some(p) = project {
-                Some(p.id.unwrap())
-            } else {
-                // Project doesn't exist - prompt user or auto-create
+        let project = ProjectRepo::get_by_name(&conn, &project_name)?;
+        if let Some(p) = project {
+            Some(p.id.unwrap())
+        } else {
+            // Project doesn't exist - prompt user or auto-create
                 if auto_yes {
                     // Auto-create project (-y flag)
-                    if let Err(e) = validate_project_name(&project_name) {
-                        user_error(&e);
-                    }
-                    let project = ProjectRepo::create(&conn, &project_name)
-                        .map_err(|e| anyhow::anyhow!("Failed to create project: {}", e))?;
-                    println!("Created project '{}' (id: {})", project.name, project.id.unwrap());
-                    Some(project.id.unwrap())
-                } else {
-                    // Interactive prompt
+                if let Err(e) = validate_project_name(&project_name) {
+                    user_error(&e);
+                }
+                let project = ProjectRepo::create(&conn, &project_name)
+                    .map_err(|e| anyhow::anyhow!("Failed to create project: {}", e))?;
+                println!("Created project '{}' (id: {})", project.name, project.id.unwrap());
+                Some(project.id.unwrap())
+            } else {
+                // Interactive prompt
                     match prompt_create_project(&project_name, &conn)? {
-                        Some(true) => {
-                            // User said yes - create project
-                            if let Err(e) = validate_project_name(&project_name) {
-                                user_error(&e);
-                            }
-                            let project = ProjectRepo::create(&conn, &project_name)
-                                .map_err(|e| anyhow::anyhow!("Failed to create project: {}", e))?;
-                            println!("Created project '{}' (id: {})", project.name, project.id.unwrap());
-                            Some(project.id.unwrap())
+                    Some(true) => {
+                        // User said yes - create project
+                        if let Err(e) = validate_project_name(&project_name) {
+                            user_error(&e);
                         }
-                        Some(false) => {
-                            // User said no - skip project, create task without it
-                            None
-                        }
-                        None => {
-                            // User cancelled
-                            println!("Cancelled.");
+                        let project = ProjectRepo::create(&conn, &project_name)
+                            .map_err(|e| anyhow::anyhow!("Failed to create project: {}", e))?;
+                        println!("Created project '{}' (id: {})", project.name, project.id.unwrap());
+                        Some(project.id.unwrap())
+                    }
+                    Some(false) => {
+                        // User said no - skip project, create task without it
+                        None
+                    }
+                    None => {
+                        // User cancelled
+                        println!("Cancelled.");
                             std::process::exit(0);
                         }
                     }
@@ -2013,7 +2013,7 @@ fn handle_task_add(args: Vec<String>, auto_yes: bool) -> Result<i64> {
     
     let task_id = task.id.unwrap();
     println!("Created task {}: {}", task_id, description);
-
+    
     Ok(task_id)
 }
 
@@ -2817,7 +2817,7 @@ fn handle_onoff(args: Vec<String>, mut yes: bool) -> Result<()> {
             std::io::stdin().read_line(&mut input)?;
             if !input.trim().eq_ignore_ascii_case("y") {
                 println!("Cancelled.");
-                return Ok(());
+        return Ok(());
             }
         }
         
@@ -2882,7 +2882,7 @@ fn parse_offon_time_args(arg_str: &str) -> Result<(i64, Option<i64>)> {
         };
         
         Ok((stop_ts, Some(start_ts)))
-    } else {
+        } else {
         let stop_ts = parse_date_expr(arg_str)
             .context("Invalid time expression")?;
         Ok((stop_ts, None))
@@ -2959,7 +2959,7 @@ fn modify_session_for_removal(conn: &Connection, session: &crate::models::Sessio
         if is_open {
             // Original was open - second part should remain open
             SessionRepo::create(conn, session.task_id, remove_end)?;
-        } else {
+            } else {
             SessionRepo::create_closed(conn, session.task_id, remove_end, s_end)?;
         }
         
@@ -2978,13 +2978,13 @@ fn modify_session_for_removal(conn: &Connection, session: &crate::models::Sessio
         if is_open {
             // Original was open - second part should remain open
             SessionRepo::create(conn, session.task_id, remove_start)?;
-        } else {
+                } else {
             SessionRepo::create_closed(conn, session.task_id, remove_start, s_end)?;
-        }
-    }
+                }
+            }
     
-    Ok(())
-}
+            Ok(())
+        }
 
 /// Format a timestamp for display
 fn format_time(ts: i64) -> String {
@@ -3019,7 +3019,7 @@ fn format_duration_human(seconds: i64) -> String {
         format!("{}s", seconds)
     } else if seconds < 3600 {
         format!("{}m", seconds / 60)
-    } else {
+                } else {
         let hours = seconds / 3600;
         let mins = (seconds % 3600) / 60;
         if mins == 0 {
@@ -3050,7 +3050,7 @@ fn describe_session_modification(session: &crate::models::Session, remove_start:
             format_time(remove_start),
             format_interval(s_start, remove_start),
             format_interval(remove_start, s_end))
-    } else {
+            } else {
         "MODIFY".to_string()
     }
 }
@@ -3817,7 +3817,7 @@ fn handle_finish_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64) -
     use std::io::{self, Write};
     
     let open_session = SessionRepo::get_open(conn)?;
-
+    
     for task_id in task_ids {
         // Get task description for display
         let task = TaskRepo::get_by_id(conn, *task_id)?;
@@ -3880,7 +3880,7 @@ fn handle_finish_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64) -
         
         println!("Finished task {}", task_id);
     }
-
+    
     Ok(())
 }
 

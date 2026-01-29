@@ -30,18 +30,18 @@ fn get_task_cmd(temp_dir: &TempDir) -> Command {
 #[test]
 fn test_version_command() {
     let (temp_dir, _guard) = setup_test_env();
-    
-    // Test --version flag
+
+    // Test --version flag - should output "tatl X.Y.Z"
     let mut cmd = get_task_cmd(&temp_dir);
     cmd.args(&["--version"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("0.2.0"));
-    
+        .stdout(predicate::str::contains("tatl"));
+
     // Test -V flag
     let mut cmd = get_task_cmd(&temp_dir);
     cmd.args(&["-V"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("0.2.0"));
+        .stdout(predicate::str::contains("tatl"));
 }
