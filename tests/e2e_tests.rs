@@ -14,8 +14,8 @@ use serde_json::json;
 // ============================================================================
 
 #[test]
-fn e2e_complete_workflow_add_clock_annotate_finish() {
-    // Complete workflow: add task → clock in → annotate → finish
+fn e2e_complete_workflow_add_clock_annotate_close() {
+    // Complete workflow: add task → clock in → annotate → close
     // This tests the most common user workflow
     
     let ctx = AcceptanceTestContext::new();
@@ -45,11 +45,11 @@ fn e2e_complete_workflow_add_clock_annotate_finish() {
     assert_eq!(annotations.len(), 1);
     assert!(annotations[0].note.contains("Started working on documentation"));
     
-    // Step 5: Finish the task
-    when.execute_success(&["finish"]);
-    
-    // Verify task is completed and removed from stack
-    then.task_status_is(task_id, "completed")
+    // Step 5: Close the task
+    when.execute_success(&["close"]);
+
+    // Verify task is closed and removed from stack
+    then.task_status_is(task_id, "closed")
         .stack_is_empty();
     
     // Verify session was closed
@@ -59,7 +59,7 @@ fn e2e_complete_workflow_add_clock_annotate_finish() {
 
 #[test]
 fn e2e_complete_workflow_with_project_and_tags() {
-    // Complete workflow with project and tags: add → modify → clock in → finish
+    // Complete workflow with project and tags: add → modify → clock in → close
     
     let ctx = AcceptanceTestContext::new();
     let given = GivenBuilder::new(&ctx);
@@ -85,11 +85,11 @@ fn e2e_complete_workflow_with_project_and_tags() {
     // Step 4: Add annotation
     when.execute_success(&["annotate", &task_id.to_string(), "Found 3 issues to address"]);
     
-    // Step 5: Finish task
-    when.execute_success(&["finish"]);
-    
+    // Step 5: Close task
+    when.execute_success(&["close"]);
+
     // Verify final state
-    then.task_status_is(task_id, "completed");
+    then.task_status_is(task_id, "closed");
     
     // Verify annotation is still linked
     let sessions = SessionRepo::get_by_task(ctx.db(), task_id).unwrap();
@@ -99,8 +99,8 @@ fn e2e_complete_workflow_with_project_and_tags() {
 }
 
 #[test]
-fn e2e_complete_workflow_with_finish_next() {
-    // Complete workflow with --next flag: add multiple tasks → clock in → finish --next
+fn e2e_complete_workflow_with_close_next() {
+    // Complete workflow with --next flag: add multiple tasks → clock in → close --next
     
     let ctx = AcceptanceTestContext::new();
     let given = GivenBuilder::new(&ctx);
@@ -122,11 +122,11 @@ fn e2e_complete_workflow_with_finish_next() {
     let then = ThenBuilder::new(&ctx, None);
     then.running_session_exists_for_task(task1);
     
-    // Step 4: Finish task 1 with --next (should start task 2)
-    when.execute_success(&["finish", ":", "on"]);
-    
-    // Verify task 1 is completed
-    then.task_status_is(task1, "completed");
+    // Step 4: Close task 1 with --next (should start task 2)
+    when.execute_success(&["close", ":", "on"]);
+
+    // Verify task 1 is closed
+    then.task_status_is(task1, "closed");
     
     // Verify task 2 is now running
     then.running_session_exists_for_task(task2);
@@ -134,10 +134,10 @@ fn e2e_complete_workflow_with_finish_next() {
     // Verify stack order
     then.stack_order_is(&[task2, task3]);
     
-    // Step 5: Finish task 2 with --next (should start task 3)
-    when.execute_success(&["finish", ":", "on"]);
-    
-    then.task_status_is(task2, "completed")
+    // Step 5: Close task 2 with --next (should start task 3)
+    when.execute_success(&["close", ":", "on"]);
+
+    then.task_status_is(task2, "closed")
         .running_session_exists_for_task(task3)
         .stack_order_is(&[task3]);
 }
@@ -273,8 +273,8 @@ fn e2e_complex_filter_with_nested_projects() {
 // ============================================================================
 
 #[test]
-fn e2e_respawn_on_finish_workflow() {
-    // Complete workflow: create task with respawn rule → finish → verify respawned instance
+fn e2e_respawn_on_close_workflow() {
+    // Complete workflow: create task with respawn rule → close → verify respawned instance
     
     let ctx = AcceptanceTestContext::new();
     let given = GivenBuilder::new(&ctx);
@@ -301,13 +301,13 @@ fn e2e_respawn_on_finish_workflow() {
     
     let task_id = task.id.unwrap();
     
-    // Step 3: Finish the task
+    // Step 3: Close the task
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["finish", &task_id.to_string(), "-y"]);
-    
-    // Step 4: Verify original task is completed
+    when.execute_success(&["close", &task_id.to_string(), "-y"]);
+
+    // Step 4: Verify original task is closed
     let original_task = TaskRepo::get_by_id(ctx.db(), task_id).unwrap().unwrap();
-    assert_eq!(original_task.status, tatl::models::TaskStatus::Completed);
+    assert_eq!(original_task.status, tatl::models::TaskStatus::Closed);
     
     // Step 5: Verify a new task was respawned
     let all_tasks = TaskRepo::list_all(ctx.db()).unwrap();
@@ -329,8 +329,8 @@ fn e2e_respawn_on_finish_workflow() {
 }
 
 #[test]
-fn e2e_respawn_on_close_workflow() {
-    // Test that respawn also happens on close (task abandoned but obligation persists)
+fn e2e_respawn_on_cancel_workflow() {
+    // Test that respawn also happens on cancel (task abandoned but obligation persists)
     
     let ctx = AcceptanceTestContext::new();
     
@@ -349,13 +349,13 @@ fn e2e_respawn_on_close_workflow() {
     
     let task_id = task.id.unwrap();
     
-    // Close the task (abandon it)
+    // Cancel the task (abandon it)
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["close", &task_id.to_string(), "-y"]);
-    
-    // Verify original task is closed
+    when.execute_success(&["cancel", &task_id.to_string(), "-y"]);
+
+    // Verify original task is cancelled
     let original_task = TaskRepo::get_by_id(ctx.db(), task_id).unwrap().unwrap();
-    assert_eq!(original_task.status, tatl::models::TaskStatus::Closed);
+    assert_eq!(original_task.status, tatl::models::TaskStatus::Cancelled);
     
     // Verify a new task was respawned
     let all_tasks = TaskRepo::list_all(ctx.db()).unwrap();
@@ -504,9 +504,9 @@ fn e2e_multi_task_modify_workflow() {
 }
 
 #[test]
-fn e2e_multi_task_finish_workflow() {
-    // Test completing multiple tasks with filters
-    // Note: finish command requires tasks to be clocked in, so we'll clock them in first
+fn e2e_multi_task_close_workflow() {
+    // Test closing multiple tasks with filters
+    // Note: close command requires tasks to be clocked in, so we'll clock them in first
     
     let ctx = AcceptanceTestContext::new();
     let given = GivenBuilder::new(&ctx);
@@ -519,19 +519,19 @@ fn e2e_multi_task_finish_workflow() {
     // Add tasks to stack and clock them in one by one, then complete
     let mut when = WhenBuilder::new(&ctx);
     
-    // Clock in task 1, complete it
+    // Clock in task 1, close it
     when.execute_success(&["on", &task1.to_string()]);
-    when.execute_success(&["finish"]);
-    
-    // Clock in task 2, complete it
+    when.execute_success(&["close"]);
+
+    // Clock in task 2, close it
     when.execute_success(&["on", &task2.to_string()]);
-    when.execute_success(&["finish"]);
-    
-    // Verify tasks 1 and 2 are completed, task 3 is not
+    when.execute_success(&["close"]);
+
+    // Verify tasks 1 and 2 are closed, task 3 is not
     let then = ThenBuilder::new(&ctx, None);
-    then.task_status_is(task1, "completed")
-        .task_status_is(task2, "completed");
-    
+    then.task_status_is(task1, "closed")
+        .task_status_is(task2, "closed");
+
     let task3_updated = TaskRepo::get_by_id(ctx.db(), task3).unwrap().unwrap();
-    assert_eq!(task3_updated.status.as_str(), "pending");
+    assert_eq!(task3_updated.status.as_str(), "open");
 }

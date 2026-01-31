@@ -43,10 +43,10 @@ pub fn compute_root_status(conn: &rusqlite::Connection) -> Result<String> {
     let stack_items = StackRepo::get_items(conn, stack.id.unwrap())?;
     let tasks_in_stack = stack_items.len();
     
-    // Backlogged tasks (pending status)
+    // Backlogged tasks (open status)
     let all_tasks = TaskRepo::list_all(conn)?;
     let backlogged = all_tasks.iter()
-        .filter(|(task, _)| task.status == TaskStatus::Pending)
+        .filter(|(task, _)| task.status == TaskStatus::Open)
         .count();
     
     // Active projects

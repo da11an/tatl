@@ -1,33 +1,43 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Task status
+/// Task status (lifecycle state)
+///
+/// Plan 41 state model:
+/// - Open: task is alive and actionable
+/// - Closed: intent fulfilled (terminal)
+/// - Cancelled: intent shifted / not fulfilled (terminal)
+/// - Deleted: ledger correction (not a lifecycle state)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TaskStatus {
-    Pending,
-    Completed,
+    Open,
     Closed,
+    Cancelled,
     Deleted,
 }
 
 impl TaskStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
-            TaskStatus::Pending => "pending",
-            TaskStatus::Completed => "completed",
+            TaskStatus::Open => "open",
             TaskStatus::Closed => "closed",
+            TaskStatus::Cancelled => "cancelled",
             TaskStatus::Deleted => "deleted",
         }
     }
 
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
-            "pending" => Some(TaskStatus::Pending),
-            "completed" => Some(TaskStatus::Completed),
+            "open" => Some(TaskStatus::Open),
             "closed" => Some(TaskStatus::Closed),
+            "cancelled" => Some(TaskStatus::Cancelled),
             "deleted" => Some(TaskStatus::Deleted),
             _ => None,
         }
+    }
+
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::Closed | Self::Cancelled | Self::Deleted)
     }
 }
 
@@ -58,7 +68,7 @@ impl Task {
             id: None,
             uuid: uuid::Uuid::new_v4().to_string(),
             description,
-            status: TaskStatus::Pending,
+            status: TaskStatus::Open,
             project_id: None,
             due_ts: None,
             scheduled_ts: None,
@@ -89,18 +99,28 @@ mod tests {
 
     #[test]
     fn test_task_status_conversion() {
-        assert_eq!(TaskStatus::Pending.as_str(), "pending");
-        assert_eq!(TaskStatus::from_str("pending"), Some(TaskStatus::Pending));
+        assert_eq!(TaskStatus::Open.as_str(), "open");
+        assert_eq!(TaskStatus::from_str("open"), Some(TaskStatus::Open));
         assert_eq!(TaskStatus::Closed.as_str(), "closed");
         assert_eq!(TaskStatus::from_str("closed"), Some(TaskStatus::Closed));
+        assert_eq!(TaskStatus::Cancelled.as_str(), "cancelled");
+        assert_eq!(TaskStatus::from_str("cancelled"), Some(TaskStatus::Cancelled));
         assert_eq!(TaskStatus::from_str("invalid"), None);
+    }
+
+    #[test]
+    fn test_task_status_terminal() {
+        assert!(!TaskStatus::Open.is_terminal());
+        assert!(TaskStatus::Closed.is_terminal());
+        assert!(TaskStatus::Cancelled.is_terminal());
+        assert!(TaskStatus::Deleted.is_terminal());
     }
 
     #[test]
     fn test_task_creation() {
         let task = Task::new("Test task".to_string());
         assert_eq!(task.description, "Test task");
-        assert_eq!(task.status, TaskStatus::Pending);
+        assert_eq!(task.status, TaskStatus::Open);
         assert!(task.id.is_none());
         assert!(!task.uuid.is_empty());
     }
@@ -108,15 +128,15 @@ mod tests {
     #[test]
     fn test_task_is_waiting() {
         let mut task = Task::new("Test".to_string());
-        
+
         // Not waiting if wait_ts is None
         assert!(!task.is_waiting());
-        
+
         // Waiting if wait_ts is in the future
         let future = chrono::Utc::now().timestamp() + 3600;
         task.wait_ts = Some(future);
         assert!(task.is_waiting());
-        
+
         // Not waiting if wait_ts is in the past
         let past = chrono::Utc::now().timestamp() - 3600;
         task.wait_ts = Some(past);

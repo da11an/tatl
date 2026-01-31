@@ -11,7 +11,7 @@ use tatl::repo::{TaskRepo, StackRepo, SessionRepo};
 
 #[test]
 fn test_finish_next_atomic() {
-    // Test that finish --next is atomic:
+    // Test that close --next is atomic:
     // 1. Close current session
     // 2. Complete task
     // 3. Remove from stack
@@ -28,11 +28,11 @@ fn test_finish_next_atomic() {
     
     // Complete task1 with --next
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["finish", ":", "on"]);
+    when.execute_success(&["close", ":", "on"]);
     
     // Verify atomicity: all changes applied together
     let then = ThenBuilder::new(&ctx, None);
-    then.task_status_is(task1, "completed")
+    then.task_status_is(task1, "closed")
         .stack_order_is(&[task2])
         .running_session_exists_for_task(task2);
     
@@ -106,7 +106,7 @@ fn test_rollback_on_task_not_found() {
 
 #[test]
 fn test_no_partial_state_on_finish_failure() {
-    // Test that if finish operation fails partway through,
+    // Test that if close operation fails partway through,
     // no partial state changes remain
     
     let ctx = AcceptanceTestContext::new();
@@ -123,7 +123,7 @@ fn test_no_partial_state_on_finish_failure() {
     let initial_session = SessionRepo::get_open(ctx.db()).unwrap();
     
     // Try to complete non-existent task
-    let result = ctx.cmd().args(&["finish", "999"]).output().unwrap();
+    let result = ctx.cmd().args(&["close", "999"]).output().unwrap();
     
     // Verify state is unchanged (regardless of exit code)
     let final_stack = StackRepo::get_or_create_default(ctx.db()).unwrap();

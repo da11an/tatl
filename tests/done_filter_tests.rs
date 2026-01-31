@@ -26,7 +26,7 @@ fn get_task_cmd() -> Command {
 }
 
 #[test]
-fn test_finish_with_filter_single_match() {
+fn test_close_with_filter_single_match() {
     let (_temp_dir, _guard) = setup_test_env();
     
     // Create tasks
@@ -40,16 +40,16 @@ fn test_finish_with_filter_single_match() {
     let mut cmd = get_task_cmd();
     cmd.args(&["on", "1"]).assert().success();
     
-    // Finish Task 1 using filter
+    // Close Task 1 using filter
     let mut cmd = get_task_cmd();
-    cmd.args(&["finish", "+urgent"])
+    cmd.args(&["close", "+urgent"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Finished task 1"));
+        .stdout(predicate::str::contains("Closed task 1"));
 }
 
 #[test]
-fn test_finish_with_yes_flag() {
+fn test_close_with_yes_flag() {
     let (_temp_dir, _guard) = setup_test_env();
     
     // Create tasks with same tag
@@ -60,16 +60,16 @@ fn test_finish_with_yes_flag() {
     let mut cmd = get_task_cmd();
     cmd.args(&["on", "1"]).assert().success();
     
-    // Finish with --yes flag (should work even for single task)
+    // Close with --yes flag (should work even for single task)
     let mut cmd = get_task_cmd();
-    cmd.args(&["finish", "+urgent", "--yes"])
+    cmd.args(&["close", "+urgent", "--yes"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Finished task 1"));
+        .stdout(predicate::str::contains("Closed task 1"));
 }
 
 #[test]
-fn test_finish_with_next_flag() {
+fn test_close_with_next_flag() {
     let (_temp_dir, _guard) = setup_test_env();
     
     // Create tasks and enqueue
@@ -89,11 +89,11 @@ fn test_finish_with_next_flag() {
     let mut cmd = get_task_cmd();
     cmd.args(&["on"]).assert().success();
     
-    // Finish Task 1 with --next flag
+    // Close Task 1 with --next flag
     let mut cmd = get_task_cmd();
-    cmd.args(&["finish", ":", "on"])
+    cmd.args(&["close", ":", "on"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Finished task 1"))
+        .stdout(predicate::str::contains("Closed task 1"))
         .stdout(predicate::str::contains("Started timing task 2"));
 }

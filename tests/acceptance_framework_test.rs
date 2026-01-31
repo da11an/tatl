@@ -106,7 +106,7 @@ fn test_then_task_status() {
     
     // Assert status
     let then = ThenBuilder::new(&ctx, None);
-    then.task_status_is(task_id, "pending");
+    then.task_status_is(task_id, "open");
 }
 
 #[test]

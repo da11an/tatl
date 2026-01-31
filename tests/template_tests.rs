@@ -109,7 +109,7 @@ fn test_respawn_with_template() {
     let task_id = task.id.unwrap();
     
     // Finish the task to trigger respawn
-    get_task_cmd().args(&["finish", &task_id.to_string(), "-y"]).assert().success();
+    get_task_cmd().args(&["close", &task_id.to_string(), "-y"]).assert().success();
     
     // Verify respawned instance was created
     let tasks_after = TaskRepo::list_all(&conn).unwrap();

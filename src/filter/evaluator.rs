@@ -11,14 +11,14 @@
 //! # Filter Terms
 //!
 //! - `id` - Match by task ID
-//! - `status=<status>` - Match by status (pending, completed, closed, deleted)
+//! - `status=<status>` - Match by status (open, closed, cancelled, deleted)
 //! - `project=<name>` - Match by project (supports prefix matching for nested projects)
 //! - `+tag` / `-tag` - Match by tag presence/absence
 //! - `due=<expr>` - Match by due date (supports =, >, <, >=, <=, !=)
 //! - `scheduled=<expr>` - Match by scheduled date
 //! - `wait=<expr>` - Match by wait date
 //! - `waiting` - Derived: matches tasks with wait_ts in the future
-//! - `kanban=<status>` - Derived: matches tasks by kanban status (proposed, stalled, queued, done)
+//! - `stage=<stage>` - Derived: matches tasks by stage (proposed, planned, in progress, suspended, active, external, completed, cancelled)
 
 use crate::models::{Task, TaskStatus};
 use crate::repo::{TaskRepo, SessionRepo, StackRepo, ExternalRepo};
@@ -281,15 +281,15 @@ impl FilterTerm {
             FilterTerm::Waiting => {
                 Ok(task.is_waiting())
             }
-            FilterTerm::Kanban(op, statuses) => {
-                // Multi-value kanban filter: kanban=queued,stalled matches if task kanban is any of the values
-                let task_kanban = calculate_task_kanban(task, conn)?;
-                let task_kanban_lower = task_kanban.to_lowercase();
-                let matches_any = statuses.iter().any(|s| task_kanban_lower == s.to_lowercase());
+            FilterTerm::Stage(op, statuses) => {
+                // Multi-value stage filter: stage=planned,suspended matches if task stage is any of the values
+                let task_stage = calculate_task_stage(task, conn)?;
+                let task_stage_lower = task_stage.to_lowercase();
+                let matches_any = statuses.iter().any(|s| task_stage_lower == s.to_lowercase());
                 match op {
                     ComparisonOp::Eq => Ok(matches_any),
                     ComparisonOp::Neq => Ok(!matches_any),
-                    _ => Err(anyhow::anyhow!("Kanban filter supports only '=' and '!='")),
+                    _ => Err(anyhow::anyhow!("Stage filter supports only '=' and '!='")),
                 }
             }
             FilterTerm::Desc(op, pattern) => {
@@ -318,46 +318,60 @@ impl FilterTerm {
     }
 }
 
-/// Calculate the kanban status for a task
-/// This is a helper function for filter evaluation
-/// Matches the logic in calculate_kanban_status() in output.rs
-fn calculate_task_kanban(task: &Task, conn: &Connection) -> Result<String> {
-    // Completed/closed tasks are "done"
-    if task.status == TaskStatus::Completed || task.status == TaskStatus::Closed {
-        return Ok("done".to_string());
+/// Calculate the derived stage for a task (Plan 41 classification)
+///
+/// Precedence (highest wins):
+/// 1. Closed (status=closed) → "completed"
+/// 2. Cancelled (status=cancelled) → "cancelled"
+/// 3. Active (timer on) → "active"
+/// 4. External (waiting on external party) → "external"
+/// 5. Internal open state mapping:
+///    | Queue | Work History | Stage      |
+///    | No    | No           | proposed   |
+///    | Yes   | No           | planned    |
+///    | Yes   | Yes          | in progress|
+///    | No    | Yes          | suspended  |
+pub fn calculate_task_stage(task: &Task, conn: &Connection) -> Result<String> {
+    // 1. Closed → completed
+    if task.status == TaskStatus::Closed {
+        return Ok("completed".to_string());
+    }
+
+    // 2. Cancelled → cancelled
+    if task.status == TaskStatus::Cancelled {
+        return Ok("cancelled".to_string());
     }
 
     let task_id = task.id.unwrap_or(0);
 
-    // Check for externals
+    // 3. Active (timer on) → active
+    let open_session = SessionRepo::get_open(conn)?;
+    if let Some(ref session) = open_session {
+        if session.task_id == task_id {
+            return Ok("active".to_string());
+        }
+    }
+
+    // 4. External waiting → external
     let has_externals = ExternalRepo::has_active_externals(conn, task_id)?;
     if has_externals {
         return Ok("external".to_string());
     }
 
-    // Get stack position
+    // 5. Internal open state mapping
     let stack = StackRepo::get_or_create_default(conn)?;
     let items = StackRepo::get_items(conn, stack.id.unwrap())?;
-    let stack_position = items.iter().position(|item| item.task_id == task_id);
+    let in_queue = items.iter().any(|item| item.task_id == task_id);
 
-    // Check if task has sessions
     let all_sessions = SessionRepo::list_all(conn)?;
     let has_sessions = all_sessions.iter().any(|s| s.task_id == task_id);
 
-    match stack_position {
-        Some(_pos) => {
-            // In stack (any position) = queued
-            Ok("queued".to_string())
-        }
-        None => {
-            // Not in stack
-            if has_sessions {
-                Ok("stalled".to_string())  // Has sessions but not in queue
-            } else {
-                Ok("proposed".to_string())  // New task, not started
-            }
-        }
-    }
+    Ok(match (in_queue, has_sessions) {
+        (false, false) => "proposed".to_string(),
+        (true, false) => "planned".to_string(),
+        (true, true) => "in progress".to_string(),
+        (false, true) => "suspended".to_string(),
+    })
 }
 
 /// Get tasks matching a filter expression
@@ -400,12 +414,12 @@ mod tests {
     fn test_filter_status() {
         let conn = DbConnection::connect_in_memory().unwrap();
 
-        // Create tasks (all pending by default)
+        // Create tasks (all open by default)
         TaskRepo::create(&conn, "Task 1", None).unwrap();
         TaskRepo::create(&conn, "Task 2", None).unwrap();
 
         // Filter by status
-        let filter = parse_filter(vec!["status=pending".to_string()]).unwrap();
+        let filter = parse_filter(vec!["status=open".to_string()]).unwrap();
         let results = filter_tasks(&conn, &filter).unwrap();
         assert_eq!(results.len(), 2);
     }

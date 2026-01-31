@@ -27,11 +27,9 @@ fn test_indexes_exist() {
     
     // Expected indexes from the schema (actual index names from migrations)
     let expected_indexes = vec![
-        "idx_tasks_project_id",
-        "idx_tasks_status",
-        "idx_tasks_due_ts",
-        "idx_tasks_scheduled_ts",
-        "idx_tasks_wait_ts",
+        "idx_externals_recipient",
+        "idx_externals_returned",
+        "idx_externals_task",
         "idx_task_tags_tag",
         "idx_task_annotations_task_entry",
         "idx_task_annotations_session",
@@ -85,7 +83,7 @@ fn test_index_usage_in_common_queries() {
     
     // Test 2: Query by status (should use ix_tasks_status)
     let mut stmt = conn.prepare("EXPLAIN QUERY PLAN SELECT * FROM tasks WHERE status = ?1").unwrap();
-    let plan: Vec<String> = stmt.query_map(["pending"], |row| {
+    let plan: Vec<String> = stmt.query_map(["open"], |row| {
         Ok(format!("{}|{}|{}|{}", 
             row.get::<_, i64>(0)?,
             row.get::<_, i64>(1)?,

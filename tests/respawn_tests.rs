@@ -78,7 +78,7 @@ fn test_respawn_on_finish() {
     let task_id = task.id.unwrap();
     
     // Finish the task
-    get_task_cmd().args(&["finish", &task_id.to_string(), "-y"]).assert().success()
+    get_task_cmd().args(&["close", &task_id.to_string(), "-y"]).assert().success()
         .stdout(predicate::str::contains("Respawned"));
     
     // Verify respawned task exists
@@ -93,20 +93,20 @@ fn test_respawn_on_finish() {
 }
 
 #[test]
-fn test_respawn_on_close() {
+fn test_respawn_on_cancel() {
     let (_temp_dir, _guard) = setup_test_env();
-    
+
     // Create a task with respawn rule
     get_task_cmd().args(&["add", "Weekly review", "respawn=weekly"]).assert().success();
-    
+
     // Get task ID
     let conn = DbConnection::connect().unwrap();
     let tasks = TaskRepo::list_all(&conn).unwrap();
     let (task, _) = tasks.iter().find(|(t, _)| t.description == "Weekly review").unwrap();
     let task_id = task.id.unwrap();
-    
-    // Close the task (abandon it)
-    get_task_cmd().args(&["close", &task_id.to_string(), "-y"]).assert().success()
+
+    // Cancel the task (abandon it)
+    get_task_cmd().args(&["cancel", &task_id.to_string(), "-y"]).assert().success()
         .stdout(predicate::str::contains("Respawned"));
     
     // Verify respawned task exists
@@ -132,8 +132,8 @@ fn test_no_respawn_without_rule() {
     let task_id = task.id.unwrap();
     
     // Finish the task
-    get_task_cmd().args(&["finish", &task_id.to_string(), "-y"]).assert().success()
-        .stdout(predicate::str::contains("Finished"));
+    get_task_cmd().args(&["close", &task_id.to_string(), "-y"]).assert().success()
+        .stdout(predicate::str::contains("Closed"));
     
     // Verify no respawned task exists
     let tasks_after = TaskRepo::list_all(&conn).unwrap();
@@ -163,7 +163,7 @@ fn test_respawn_carries_attributes() {
     assert!(tags.contains(&"important".to_string()));
     
     // Finish the task
-    get_task_cmd().args(&["finish", &task_id.to_string(), "-y"]).assert().success();
+    get_task_cmd().args(&["close", &task_id.to_string(), "-y"]).assert().success();
     
     // Verify respawned task has same attributes
     let tasks_after = TaskRepo::list_all(&conn).unwrap();

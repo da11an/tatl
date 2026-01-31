@@ -49,7 +49,7 @@ fn test_projects_report_shows_task_counts() {
 }
 
 #[test]
-fn test_projects_report_shows_kanban_statuses() {
+fn test_projects_report_shows_stage_statuses() {
     let (temp_dir, _guard) = setup_test_env();
     
     // Create project
@@ -62,7 +62,7 @@ fn test_projects_report_shows_kanban_statuses() {
     
     // Complete a task
     get_task_cmd(&temp_dir).args(&["add", "Done task", "project=work"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["finish", "3", "-y"]).assert().success();
+    get_task_cmd(&temp_dir).args(&["close", "3", "-y"]).assert().success();
     
     // Run report
     let output = get_task_cmd(&temp_dir)
@@ -72,8 +72,8 @@ fn test_projects_report_shows_kanban_statuses() {
     
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     assert!(stdout.contains("Proposed"), "Should show Proposed column");
-    assert!(stdout.contains("Stalled"), "Should show Stalled column");
-    assert!(stdout.contains("Queued"), "Should show Queued column");
+    assert!(stdout.contains("Suspended"), "Should show Suspended column");
+    assert!(stdout.contains("Planned"), "Should show Planned column");
     assert!(stdout.contains("External"), "Should show External column");
-    assert!(stdout.contains("Done"), "Should show Done column");
+    assert!(stdout.contains("Completed"), "Should show Completed column");
 }

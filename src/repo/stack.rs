@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OptionalExtension};
 use crate::models::{Stack, StackItem};
-use crate::repo::EventRepo;
+use crate::repo::{EventRepo, TaskRepo, ExternalRepo};
 use anyhow::Result;
 
 /// Stack repository for database operations
@@ -86,8 +86,33 @@ impl StackRepo {
         Ok(items)
     }
 
+    /// Validate that a task is eligible for queue insertion via enqueue.
+    /// Rejects terminal tasks and external-waiting tasks.
+    /// Note: push_to_top() does NOT call this — it is used by the `on` command
+    /// for temporarily working on external tasks.
+    fn validate_enqueue_eligibility(conn: &Connection, task_id: i64) -> Result<()> {
+        let task = TaskRepo::get_by_id(conn, task_id)?
+            .ok_or_else(|| anyhow::anyhow!("Task {} not found", task_id))?;
+
+        if task.status.is_terminal() {
+            anyhow::bail!("Cannot queue task {}: status is {}", task_id, task.status.as_str());
+        }
+
+        if ExternalRepo::has_active_externals(conn, task_id)? {
+            anyhow::bail!(
+                "Cannot queue task {}: waiting on external party. Use 'collect' first, or 'on {}' to work on it temporarily.",
+                task_id, task_id
+            );
+        }
+
+        Ok(())
+    }
+
     /// Add task to end of stack (enqueue)
     pub fn enqueue(conn: &Connection, stack_id: i64, task_id: i64) -> Result<()> {
+        // Validate eligibility (terminal tasks and external-waiting tasks are rejected)
+        Self::validate_enqueue_eligibility(conn, task_id)?;
+
         // Check if task already in stack
         let existing: Option<i32> = conn.query_row(
             "SELECT ordinal FROM stack_items WHERE stack_id = ?1 AND task_id = ?2",

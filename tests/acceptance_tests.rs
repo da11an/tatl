@@ -231,8 +231,8 @@ fn acceptance_done_errors_if_not_running() {
     given.no_running_session();
     
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_failure(&["finish"]);
-    
+    when.execute_failure(&["close"]);
+
     let then = ThenBuilder::new(&ctx, when.result());
     then.exit_code_is(1);
 }
@@ -256,10 +256,10 @@ fn acceptance_done_completes_and_removes_from_stack() {
     
     let mut when = WhenBuilder::new(&ctx);
     // Use a deterministic end time for finish (see finish time disambiguation).
-    when.execute_success(&["finish", "2026-01-10T09:30"]);
-    
+    when.execute_success(&["close", "2026-01-10T09:30"]);
+
     let then = ThenBuilder::new(&ctx, None);
-    then.task_status_is(task10, "completed")
+    then.task_status_is(task10, "closed")
         .stack_order_is(&[task11]);
     
     // Verify session was closed
@@ -286,10 +286,10 @@ fn acceptance_done_next_starts_next() {
 
     let mut when = WhenBuilder::new(&ctx);
     // Finish at a deterministic time, then start the next task at the same time.
-    when.execute_success(&["finish", "2026-01-10T09:30", ":", "on", "2026-01-10T09:30"]);
-    
+    when.execute_success(&["close", "2026-01-10T09:30", ":", "on", "2026-01-10T09:30"]);
+
     let then = ThenBuilder::new(&ctx, None);
-    then.task_status_is(task10, "completed")
+    then.task_status_is(task10, "closed")
         .stack_order_is(&[task11])
         .running_session_exists_for_task(task11);
     
@@ -548,11 +548,11 @@ fn acceptance_respawn_on_finish() {
     
     // Finish the task
     let mut when = WhenBuilder::new(&ctx);
-    when.execute_success(&["finish", &task_id.to_string(), "-y"]);
+    when.execute_success(&["close", &task_id.to_string(), "-y"]);
     
     // Verify original task is completed
     let original = TaskRepo::get_by_id(ctx.db(), task_id).unwrap().unwrap();
-    assert_eq!(original.status, tatl::models::TaskStatus::Completed);
+    assert_eq!(original.status, tatl::models::TaskStatus::Closed);
     
     // Verify new respawned task exists
     let all_tasks = TaskRepo::list_all(ctx.db()).unwrap();

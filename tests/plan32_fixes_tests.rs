@@ -96,9 +96,9 @@ fn test_add_on_with_past_time() {
 // Phase 2: Display/Label Tests
 // =============================================================================
 
-/// Test that `projects report` shows correct kanban headers (Stalled, External, not Paused/NEXT/LIVE)
+/// Test that `projects report` shows correct stage headers (Suspended, External, not Paused/NEXT/LIVE/Stalled)
 #[test]
-fn test_projects_report_kanban_headers() {
+fn test_projects_report_stage_headers() {
     let ctx = AcceptanceTestContext::new();
     let given = GivenBuilder::new(&ctx);
 
@@ -112,19 +112,21 @@ fn test_projects_report_kanban_headers() {
     let result = when.result().unwrap();
     let stdout = String::from_utf8_lossy(&result.stdout);
 
-    // Should have new kanban headers
-    assert!(stdout.contains("Stalled"),
-        "Report should show 'Stalled' column: {}", stdout);
+    // Should have new stage headers
+    assert!(stdout.contains("Suspended"),
+        "Report should show 'Suspended' column: {}", stdout);
     assert!(stdout.contains("External"),
         "Report should show 'External' column: {}", stdout);
 
-    // Should NOT have old NEXT/LIVE columns
+    // Should NOT have old NEXT/LIVE/Stalled columns
     assert!(!stdout.contains("NEXT"),
         "Report should not have NEXT column: {}", stdout);
     assert!(!stdout.contains("LIVE"),
         "Report should not have LIVE column: {}", stdout);
     assert!(!stdout.contains("Paused"),
-        "Report should not have Paused column (should be Stalled): {}", stdout);
+        "Report should not have Paused column: {}", stdout);
+    assert!(!stdout.contains("Stalled"),
+        "Report should not have Stalled column (should be Suspended): {}", stdout);
 }
 
 /// Test that `tatl show` displays "Respawn:" not "Recurrence:"

@@ -12,15 +12,15 @@ use chrono::Utc;
 /// - Due date proximity (higher urgency for tasks due soon or overdue)
 /// - Allocation (tasks with less allocation remaining get higher urgency)
 /// - Age (older tasks get slightly higher urgency)
-/// - Status (pending tasks only)
-/// 
+/// - Status (open tasks only)
+///
 /// Returns a floating-point urgency score (higher = more urgent)
 pub fn calculate_priority(task: &Task, conn: &Connection) -> Result<f64> {
     let mut urgency = 0.0;
     let now = Utc::now().timestamp();
-    
-    // Base urgency for pending tasks
-    if task.status == crate::models::TaskStatus::Pending {
+
+    // Base urgency for open tasks
+    if task.status == crate::models::TaskStatus::Open {
         urgency += 1.0;
     }
     
@@ -93,7 +93,7 @@ pub fn get_top_priority_tasks(
         .into_iter()
         .filter(|(task, _)| {
             !exclude_task_ids.contains(&task.id.unwrap_or(0)) &&
-            task.status == crate::models::TaskStatus::Pending
+            task.status == crate::models::TaskStatus::Open
         })
         .filter_map(|(task, tags)| {
             if let Ok(priority) = calculate_priority(&task, conn) {

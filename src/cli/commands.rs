@@ -32,9 +32,9 @@ PIPE OPERATOR ' : ' (space-colon-space):
   Examples:
     tatl add \"Task\" : on                 # Create and start timing
     tatl add \"Task\" : enqueue            # Create and enqueue
-    tatl add \"Task\" : onoff 09:00..10:00 : finish  # Create task, backfill 9-10 am session, complete
+    tatl add \"Task\" : onoff 09:00..10:00 : close  # Create task, backfill 9-10 am session, close
 
-  Supported piped commands include: add, modify, finish, enqueue, close, reopen,
+  Supported piped commands include: add, modify, close, enqueue, cancel, reopen,
   annotate, send, collect, on, dequeue, onoff, offon, off.")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 pub struct Cli {
@@ -83,9 +83,9 @@ PIPE OPERATOR ( : ):
   tatl add \"Task\" project=work : on           # Create and start timing
   tatl add \"Task\" : onoff 09:00..10:00         # Create with historical session
   tatl add \"Task\" : enqueue                    # Create and enqueue
-  tatl add \"Task\" : finish                     # Create as completed
-  tatl add \"Task\" : onoff 09:00..10:00 : finish  # Historical session + complete
   tatl add \"Task\" : close                      # Create as closed
+  tatl add \"Task\" : onoff 09:00..10:00 : close  # Historical session + close
+  tatl add \"Task\" : cancel                     # Create as cancelled
   tatl add \"Task\" : annotate \"note\"            # Create and annotate
 
 EXAMPLES:
@@ -93,7 +93,7 @@ EXAMPLES:
   tatl add \"Review PR\" due=tomorrow allocation=1h
   tatl add \"Daily standup\" respawn=daily due=09:00
   tatl add \"Start working\" : on
-  tatl add \"Meeting\" : onoff 14:00..15:00 : finish")]
+  tatl add \"Meeting\" : onoff 14:00..15:00 : close")]
     Add {
         /// Auto-confirm prompts (create new projects, modify overlapping sessions)
         #[arg(short = 'y', long)]
@@ -108,9 +108,9 @@ EXAMPLES:
 FILTER SYNTAX:
   Field filters (support = and !=):
     id=<n>               - Match by task ID (also supports >, <, >=, <=, !=)
-    status=<status>      - Match by status (pending, completed, closed, deleted)
+    status=<status>      - Match by status (open, closed, cancelled, deleted)
     project=<name>       - Match by project (supports prefix matching for nested projects)
-    kanban=<status>      - Match by kanban status (proposed, stalled, queued, external, done)
+    stage=<stage>        - Match by stage (proposed, planned, in progress, suspended, active, external, completed, cancelled)
     desc=<pattern>       - Match description containing pattern (case-insensitive)
     description=<pattern> - Alias for desc=
 
@@ -139,8 +139,8 @@ FILTER SYNTAX:
     +urgent or +important
     not +waiting
     project=work +urgent or project=home +important
-    desc=bug status=pending
-    due=tomorrow kanban=queued
+    desc=bug status=open
+    due=tomorrow stage=planned
 
 DATE EXPRESSIONS (for due=, scheduled=, wait=):
   Relative: tomorrow, +3d, -1w, +2m, +1y
@@ -152,12 +152,12 @@ EXAMPLES:
   tatl list
   tatl list project=work +urgent
   tatl list +urgent or +important
-  tatl list desc=bug status=pending
-  tatl list due=tomorrow kanban=queued --relative
+  tatl list desc=bug status=open
+  tatl list due=tomorrow stage=planned --relative
   tatl list due>tomorrow
   tatl list due!=none")]
     List {
-        /// Filter arguments. Multiple filters are ANDed together. Use 'or' for OR, 'not' for NOT. Examples: \"project=work +urgent\", \"+urgent or +important\", \"desc=bug status=pending\"
+        /// Filter arguments. Multiple filters are ANDed together. Use 'or' for OR, 'not' for NOT. Examples: \"project=work +urgent\", \"+urgent or +important\", \"desc=bug status=open\"
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         filter: Vec<String>,
         /// Output in JSON format
@@ -217,7 +217,7 @@ RESPAWN PATTERNS:
   Monthdays: 1,15
   Nth weekday: 2nd-tue, 1st-mon, last-fri
 
-  Respawn rules are validated on modification. A preview message shows what will happen when the task is completed.
+  Respawn rules are validated on modification. A preview message shows what will happen when the task is closed.
 
 DATE EXPRESSIONS:
   Relative: tomorrow, +3d, -1w, +2m, +1y
@@ -305,8 +305,8 @@ If the interval overlaps with existing sessions, you'll be prompted to modify th
         #[arg(short = 'y', long)]
         yes: bool,
     },
-    /// Remove task from queue without finishing
-    #[command(long_about = "Remove a task from the queue without completing it. The task remains in pending status.")]
+    /// Remove task from queue without closing
+    #[command(long_about = "Remove a task from the queue without closing it. The task remains in open status.")]
     Dequeue {
         /// Task ID (optional, defaults to queue[0])
         task_id: Option<String>,
@@ -341,8 +341,8 @@ Use --delete <annotation_id> to remove an annotation.")]
         #[arg(long)]
         delete: Option<String>,
     },
-    /// Mark task(s) as finished
-    #[command(long_about = "Mark one or more tasks as completed. If task has a respawn rule, a new instance will be created when completed.
+    /// Close task(s) (intent fulfilled)
+    #[command(long_about = "Close one or more tasks (intent fulfilled). If task has a respawn rule, a new instance will be created when closed.
 
 TARGET SYNTAX:
   Omit:              Uses queue[0] (current task)
@@ -357,13 +357,13 @@ TIME EXPRESSIONS:
   Date + time:       2024-01-15 14:30
 
 PIPE OPERATOR:
-  Use 'finish : on' to finish the current task and start timing the next task in queue.
+  Use 'close : on' to close the current task and start timing the next task in queue.
 
 EXAMPLES:
-  tatl finish
-  tatl finish 10
-  tatl finish : on")]
-    Finish {
+  tatl close
+  tatl close 10
+  tatl close : on")]
+    Close {
         /// Task ID, ID range, ID list, or filter (optional, defaults to queue[0]). Examples: \"10\", \"1-5\", \"1,3,5\", \"project=work +urgent\"
         target: Option<String>,
         /// End time expression (optional, defaults to now). Time-only (e.g., \"14:30\") ends session at that time today.
@@ -376,8 +376,8 @@ EXAMPLES:
         #[arg(long)]
         interactive: bool,
     },
-    /// Mark task(s) as closed
-    #[command(long_about = "Mark one or more tasks as closed (cancelled, won't do, etc.). If task has a respawn rule, a new instance will be created when closed.
+    /// Cancel task(s) (intent shifted, won't do)
+    #[command(long_about = "Cancel one or more tasks (intent shifted, won't do, etc.). If task has a respawn rule, a new instance will be created when cancelled.
 
 TARGET SYNTAX:
   Omit:              Uses queue[0] (current task)
@@ -385,26 +385,26 @@ TARGET SYNTAX:
   ID range:          1-5
   ID list:           1,3,5
   Filter:            project=work +urgent")]
-    Close {
+    Cancel {
         /// Task ID, ID range, ID list, or filter (optional, defaults to queue[0]). Examples: \"10\", \"1-5\", \"1,3,5\", \"project=work +urgent\"
         target: Option<String>,
-        /// Close all matching tasks without confirmation
+        /// Cancel all matching tasks without confirmation
         #[arg(short = 'y', long)]
         yes: bool,
         /// Force one-by-one confirmation for each task
         #[arg(long)]
         interactive: bool,
     },
-    /// Reopen completed or closed task(s)
-    #[command(long_about = "Reopen one or more completed or closed tasks, setting their status back to pending.
+    /// Reopen closed or cancelled task(s)
+    #[command(long_about = "Reopen one or more closed or cancelled tasks, setting their status back to open.
 
 TARGET SYNTAX:
   Task ID:           10
   ID range:          1-5
   ID list:           1,3,5
-  Filter:            project=work status=completed")]
+  Filter:            project=work status=closed")]
     Reopen {
-        /// Task ID, ID range, ID list, or filter. Examples: \"10\", \"1-5\", \"1,3,5\", \"project=work status=completed\"
+        /// Task ID, ID range, ID list, or filter. Examples: \"10\", \"1-5\", \"1,3,5\", \"project=work status=closed\"
         target: String,
         /// Reopen all matching tasks without confirmation
         #[arg(short = 'y', long)]
@@ -420,9 +420,9 @@ TARGET SYNTAX:
   Task ID:           10
   ID range:          1-5
   ID list:           1,3,5
-  Filter:            project=work status=completed")]
+  Filter:            project=work status=closed")]
     Delete {
-        /// Task ID, ID range, ID list, or filter. Examples: \"10\", \"1-5\", \"1,3,5\", \"project=work status=completed\"
+        /// Task ID, ID range, ID list, or filter. Examples: \"10\", \"1-5\", \"1,3,5\", \"project=work status=closed\"
         target: String,
         /// Delete all matching tasks without confirmation
         #[arg(short = 'y', long)]
@@ -438,7 +438,7 @@ TARGET SYNTAX:
         task_id: String,
     },
     /// Send task to external party for review/approval
-    #[command(long_about = "Send a task to an external party (colleague, supervisor, release window, etc.). The task will be removed from the queue and marked as 'external' in kanban view.
+    #[command(long_about = "Send a task to an external party (colleague, supervisor, release window, etc.). The task will be removed from the queue and marked as 'external' stage.
 
 The task remains visible but is no longer in your active queue. When the external party returns it, use 'collect' to bring it back under your control.
 
@@ -456,12 +456,12 @@ EXAMPLES:
         request: Vec<String>,
     },
     /// Collect task back from external party
-    #[command(long_about = "Collect a task that was sent to an external party. Marks all externals for the task as returned. The task returns to normal kanban flow (proposed or stalled, depending on whether it has sessions).
+    #[command(long_about = "Collect a task that was sent to an external party. Marks all externals for the task as returned. The task returns to normal stage flow (proposed or suspended, depending on whether it has sessions).
 
 After collecting, you can:
   - Re-queue it: tatl enqueue <task_id>
-  - Finish it: tatl finish <task_id>
   - Close it: tatl close <task_id>
+  - Cancel it: tatl cancel <task_id>
 
 EXAMPLES:
   tatl collect 10")]
@@ -557,8 +557,8 @@ pub enum ProjectCommands {
         /// Project name to unarchive
         name: String,
     },
-    /// Show task counts by kanban status per project
-    #[command(long_about = "Generate a report showing task counts grouped by project and kanban status (proposed, stalled, queued, external, done).")]
+    /// Show task counts by stage per project
+    #[command(long_about = "Generate a report showing task counts grouped by project and stage (proposed, planned, in progress, suspended, active, external, completed, cancelled).")]
     Report,
 }
 
@@ -692,7 +692,7 @@ fn execute_piped_command(task_id: i64, segment: &[String]) -> Result<i64> {
 
     match cmd.as_str() {
         "on" => {
-            // Special case: a prior stage (e.g., `finish` with no explicit target) can return 0
+            // Special case: a prior stage (e.g., `close` with no explicit target) can return 0
             // to mean "operate on queue[0]". For `on`, that should start timing queue[0].
             if task_id == 0 {
                 handle_on(None, rest.to_vec())?;
@@ -713,12 +713,12 @@ fn execute_piped_command(task_id: i64, segment: &[String]) -> Result<i64> {
             handle_task_enqueue(task_id.to_string())?;
             Ok(task_id)
         }
-        "finish" => {
-            handle_task_finish(Some(task_id.to_string()), None, false, false)?;
+        "close" => {
+            handle_task_close(Some(task_id.to_string()), None, false, false)?;
             Ok(task_id)
         }
-        "close" => {
-            handle_task_close(task_id.to_string(), false, false)?;
+        "cancel" => {
+            handle_task_cancel(task_id.to_string(), false, false)?;
             Ok(task_id)
         }
         "annotate" => {
@@ -784,7 +784,7 @@ fn execute_piped_command(task_id: i64, segment: &[String]) -> Result<i64> {
         }
         _ => {
             anyhow::bail!(
-                "Unknown pipe command: '{}'. Valid: on, onoff, enqueue, finish, close, annotate, send, collect, off, dequeue",
+                "Unknown pipe command: '{}'. Valid: on, onoff, enqueue, close, cancel, annotate, send, collect, off, dequeue",
                 cmd
             );
         }
@@ -833,7 +833,7 @@ pub fn run() -> Result<()> {
         let first_arg = &args[0];
         // Check if it's a numeric ID or ID spec (not a global subcommand)
         let is_global_subcommand = matches!(first_arg.as_str(), 
-            "projects" | "sessions" | "add" | "list" | "modify" | "annotate" | "finish" | "close" | "delete" | "show" | "status");
+            "projects" | "sessions" | "add" | "list" | "modify" | "annotate" | "close" | "cancel" | "delete" | "show" | "status");
         
         if !is_global_subcommand {
             // Try to parse as task ID spec
@@ -891,15 +891,15 @@ pub fn run() -> Result<()> {
                 validate_task_id(&target)
                     .map_err(|_| anyhow::anyhow!("Pipe operator with modify requires a single task ID as target"))?
             }
-            Commands::Finish { target, time_args, yes, interactive } => {
+            Commands::Close { target, time_args, yes, interactive } => {
                 let end_time = if time_args.is_empty() { None } else { Some(time_args.join(" ")) };
-                let finish_target = target.clone();
-                handle_task_finish(target, end_time, yes, interactive)?;
+                let close_target = target.clone();
+                handle_task_close(target, end_time, yes, interactive)?;
 
-                if let Some(t) = finish_target {
+                if let Some(t) = close_target {
                     validate_task_id(&t).unwrap_or(0)
                 } else {
-                    // Finished queue[0], return 0 to signal "use queue[0]" for next command
+                    // Closed queue[0], return 0 to signal "use queue[0]" for next command
                     0
                 }
             }
@@ -913,13 +913,13 @@ pub fn run() -> Result<()> {
                 handle_task_enqueue(task_id_str)?;
                 task_ids[0] // Return first task ID for piping
             }
-            Commands::Close { target, yes, interactive } => {
+            Commands::Cancel { target, yes, interactive } => {
                 let target_str = target.clone()
-                    .ok_or_else(|| anyhow::anyhow!("Pipe operator with close requires a task ID as target"))?;
-                handle_task_close_optional(target, yes, interactive)?;
+                    .ok_or_else(|| anyhow::anyhow!("Pipe operator with cancel requires a task ID as target"))?;
+                handle_task_cancel_optional(target, yes, interactive)?;
                 // Extract task ID from target (only works with single task ID)
                 validate_task_id(&target_str)
-                    .map_err(|_| anyhow::anyhow!("Pipe operator with close requires a single task ID as target"))?
+                    .map_err(|_| anyhow::anyhow!("Pipe operator with cancel requires a single task ID as target"))?
             }
             Commands::Reopen { target, yes, interactive } => {
                 handle_task_reopen(target.clone(), yes, interactive)?;
@@ -999,7 +999,7 @@ pub fn run() -> Result<()> {
                 task_id
             }
             _ => {
-                anyhow::bail!("Pipe operator is not supported with this command. Supported commands: add, modify, finish, enqueue, close, reopen, annotate, send, collect, on, dequeue, onoff, offon, off");
+                anyhow::bail!("Pipe operator is not supported with this command. Supported commands: add, modify, close, enqueue, cancel, reopen, annotate, send, collect, on, dequeue, onoff, offon, off");
             }
         };
 
@@ -1084,13 +1084,13 @@ fn handle_command(cli: Cli) -> Result<()> {
                 }
             }
         }
-        Commands::Finish { target, time_args, yes, interactive } => {
+        Commands::Close { target, time_args, yes, interactive } => {
             // Convert time_args to optional end time
             let end_time = if time_args.is_empty() { None } else { Some(time_args.join(" ")) };
-            handle_task_finish(target, end_time, yes, interactive)
+            handle_task_close(target, end_time, yes, interactive)
         }
-        Commands::Close { target, yes, interactive } => {
-            handle_task_close_optional(target, yes, interactive)
+        Commands::Cancel { target, yes, interactive } => {
+            handle_task_cancel_optional(target, yes, interactive)
         }
         Commands::Reopen { target, yes, interactive } => {
             handle_task_reopen(target, yes, interactive)
@@ -1483,7 +1483,7 @@ fn handle_report(period: String) -> Result<()> {
     let all_tasks = TaskRepo::list_all(&conn)?;
     let completed_in_period = all_tasks.iter()
         .filter(|(t, _)| {
-            t.status == TaskStatus::Completed || t.status == TaskStatus::Closed
+            t.status.is_terminal()
         })
         .count();
 
@@ -1531,7 +1531,7 @@ fn handle_report(period: String) -> Result<()> {
     // Overdue tasks
     let overdue_tasks: Vec<_> = all_tasks.iter()
         .filter(|(t, _)| {
-            t.status == TaskStatus::Pending
+            t.status == TaskStatus::Open
                 && t.due_ts.map(|d| d < now.timestamp()).unwrap_or(false)
         })
         .collect();
@@ -1545,7 +1545,7 @@ fn handle_report(period: String) -> Result<()> {
         .collect();
     let stalled_tasks: Vec<_> = all_tasks.iter()
         .filter(|(t, _)| {
-            t.status == TaskStatus::Pending
+            t.status == TaskStatus::Open
                 && !stack_task_ids.contains(&t.id.unwrap_or(0))
                 && tasks_with_sessions.contains(&t.id.unwrap_or(0))
                 && !ExternalRepo::has_active_externals(&conn, t.id.unwrap_or(0)).unwrap_or(false)
@@ -1555,7 +1555,7 @@ fn handle_report(period: String) -> Result<()> {
     // External tasks
     let external_tasks: Vec<_> = all_tasks.iter()
         .filter(|(t, _)| {
-            t.status == TaskStatus::Pending
+            t.status == TaskStatus::Open
                 && ExternalRepo::has_active_externals(&conn, t.id.unwrap_or(0)).unwrap_or(false)
         })
         .collect();
@@ -1622,58 +1622,38 @@ fn format_duration_short(secs: i64) -> String {
 }
 
 fn handle_projects_report(conn: &Connection) -> Result<()> {
-    use crate::models::TaskStatus;
     use std::collections::BTreeMap;
+    use crate::filter::calculate_task_stage;
 
     // Get all tasks
     let all_tasks = TaskRepo::list_all(conn)?;
 
-    // Get stack items for kanban status calculation
-    let stack = StackRepo::get_or_create_default(conn)?;
-    let stack_items = StackRepo::get_items(conn, stack.id.unwrap())?;
-    let stack_task_ids: std::collections::HashSet<i64> = stack_items.iter().map(|i| i.task_id).collect();
-
-    // Build project hierarchy with counts
-    // New kanban stages: proposed, stalled, queued, external, done
+    // Build project hierarchy with counts by stage
     #[derive(Default)]
     struct ProjectStats {
         proposed: i64,
-        stalled: i64,
-        queued: i64,
+        planned: i64,
+        in_progress: i64,
+        suspended: i64,
+        active: i64,
         external: i64,
-        done: i64,
+        completed: i64,
+        cancelled: i64,
     }
 
     impl ProjectStats {
         fn total(&self) -> i64 {
-            self.proposed + self.stalled + self.queued + self.external + self.done
+            self.proposed + self.planned + self.in_progress + self.suspended
+                + self.active + self.external + self.completed + self.cancelled
         }
     }
 
     let mut project_stats: BTreeMap<String, ProjectStats> = BTreeMap::new();
     let mut no_project_stats = ProjectStats::default();
 
-    // Calculate kanban status for each task
+    // Calculate stage for each task
     for (task, _tags) in &all_tasks {
-        let task_id = task.id.unwrap();
-
-        // Calculate kanban status (updated stages)
-        let kanban = if task.status == TaskStatus::Completed || task.status == TaskStatus::Closed {
-            "done"
-        } else if ExternalRepo::has_active_externals(conn, task_id)? {
-            "external"
-        } else if stack_task_ids.contains(&task_id) {
-            // All queued tasks (including position 0 and timing) are "queued"
-            "queued"
-        } else {
-            // Not in queue - check if has sessions (stalled) or not (proposed)
-            let sessions = SessionRepo::get_by_task(conn, task_id)?;
-            if !sessions.is_empty() {
-                "stalled"
-            } else {
-                "proposed"
-            }
-        };
+        let stage = calculate_task_stage(task, conn)?;
 
         // Get project name and extract top-level project (aggregate children)
         let project_name = if let Some(pid) = task.project_id {
@@ -1692,12 +1672,15 @@ fn handle_projects_report(conn: &Connection) -> Result<()> {
             &mut no_project_stats
         };
 
-        match kanban {
+        match stage.as_str() {
             "proposed" => stats.proposed += 1,
-            "stalled" => stats.stalled += 1,
-            "queued" => stats.queued += 1,
+            "planned" => stats.planned += 1,
+            "in progress" => stats.in_progress += 1,
+            "suspended" => stats.suspended += 1,
+            "active" => stats.active += 1,
             "external" => stats.external += 1,
-            "done" => stats.done += 1,
+            "completed" => stats.completed += 1,
+            "cancelled" => stats.cancelled += 1,
             _ => {}
         }
     }
@@ -1706,48 +1689,57 @@ fn handle_projects_report(conn: &Connection) -> Result<()> {
     let mut total_stats = ProjectStats::default();
     for stats in project_stats.values() {
         total_stats.proposed += stats.proposed;
-        total_stats.stalled += stats.stalled;
-        total_stats.queued += stats.queued;
+        total_stats.planned += stats.planned;
+        total_stats.in_progress += stats.in_progress;
+        total_stats.suspended += stats.suspended;
+        total_stats.active += stats.active;
         total_stats.external += stats.external;
-        total_stats.done += stats.done;
+        total_stats.completed += stats.completed;
+        total_stats.cancelled += stats.cancelled;
     }
     total_stats.proposed += no_project_stats.proposed;
-    total_stats.stalled += no_project_stats.stalled;
-    total_stats.queued += no_project_stats.queued;
+    total_stats.planned += no_project_stats.planned;
+    total_stats.in_progress += no_project_stats.in_progress;
+    total_stats.suspended += no_project_stats.suspended;
+    total_stats.active += no_project_stats.active;
     total_stats.external += no_project_stats.external;
-    total_stats.done += no_project_stats.done;
+    total_stats.completed += no_project_stats.completed;
+    total_stats.cancelled += no_project_stats.cancelled;
 
     // Print report
-    let pw = 25; // project width
-    println!("{:<pw$} {:>8} {:>8} {:>8} {:>8} {:>6} {:>6}",
-        "Project", "Proposed", "Stalled", "Queued", "External", "Done", "Total", pw = pw);
-    println!("{} {} {} {} {} {} {}",
-        "─".repeat(pw), "─".repeat(8), "─".repeat(8), "─".repeat(8),
-        "─".repeat(8), "─".repeat(6), "─".repeat(6));
+    let pw = 20; // project width
+    println!("{:<pw$} {:>8} {:>7} {:>7} {:>9} {:>6} {:>8} {:>9} {:>9} {:>6}",
+        "Project", "Proposed", "Planned", "In Prog", "Suspended", "Active", "External", "Completed", "Cancelled", "Total", pw = pw);
+    println!("{} {} {} {} {} {} {} {} {} {}",
+        "─".repeat(pw), "─".repeat(8), "─".repeat(7), "─".repeat(7),
+        "─".repeat(9), "─".repeat(6), "─".repeat(8), "─".repeat(9), "─".repeat(9), "─".repeat(6));
 
     for (name, stats) in &project_stats {
-        println!("{:<pw$} {:>8} {:>8} {:>8} {:>8} {:>6} {:>6}",
+        println!("{:<pw$} {:>8} {:>7} {:>7} {:>9} {:>6} {:>8} {:>9} {:>9} {:>6}",
             truncate_str(name, pw),
-            stats.proposed, stats.stalled, stats.queued,
-            stats.external, stats.done, stats.total(),
+            stats.proposed, stats.planned, stats.in_progress,
+            stats.suspended, stats.active, stats.external,
+            stats.completed, stats.cancelled, stats.total(),
             pw = pw);
     }
 
     if no_project_stats.total() > 0 {
-        println!("{:<pw$} {:>8} {:>8} {:>8} {:>8} {:>6} {:>6}",
+        println!("{:<pw$} {:>8} {:>7} {:>7} {:>9} {:>6} {:>8} {:>9} {:>9} {:>6}",
             "(no project)",
-            no_project_stats.proposed, no_project_stats.stalled, no_project_stats.queued,
-            no_project_stats.external, no_project_stats.done, no_project_stats.total(),
+            no_project_stats.proposed, no_project_stats.planned, no_project_stats.in_progress,
+            no_project_stats.suspended, no_project_stats.active, no_project_stats.external,
+            no_project_stats.completed, no_project_stats.cancelled, no_project_stats.total(),
             pw = pw);
     }
 
-    println!("{} {} {} {} {} {} {}",
-        "─".repeat(pw), "─".repeat(8), "─".repeat(8), "─".repeat(8),
-        "─".repeat(8), "─".repeat(6), "─".repeat(6));
-    println!("{:<pw$} {:>8} {:>8} {:>8} {:>8} {:>6} {:>6}",
+    println!("{} {} {} {} {} {} {} {} {} {}",
+        "─".repeat(pw), "─".repeat(8), "─".repeat(7), "─".repeat(7),
+        "─".repeat(9), "─".repeat(6), "─".repeat(8), "─".repeat(9), "─".repeat(9), "─".repeat(6));
+    println!("{:<pw$} {:>8} {:>7} {:>7} {:>9} {:>6} {:>8} {:>9} {:>9} {:>6}",
         "TOTAL",
-        total_stats.proposed, total_stats.stalled, total_stats.queued,
-        total_stats.external, total_stats.done, total_stats.total(),
+        total_stats.proposed, total_stats.planned, total_stats.in_progress,
+        total_stats.suspended, total_stats.active, total_stats.external,
+        total_stats.completed, total_stats.cancelled, total_stats.total(),
         pw = pw);
 
     Ok(())
@@ -1766,10 +1758,14 @@ fn handle_send(task_id_str: String, recipient: String, request: Vec<String>) -> 
     let task_id = validate_task_id(&task_id_str)
         .map_err(|e| anyhow::anyhow!("Invalid task ID: {}", e))?;
     
-    // Verify task exists
+    // Verify task exists and is open
     let task = TaskRepo::get_by_id(&conn, task_id)?
         .ok_or_else(|| anyhow::anyhow!("Task {} not found", task_id))?;
-    
+
+    if task.status.is_terminal() {
+        user_error(&format!("Cannot send task {}: status is {}", task_id, task.status.as_str()));
+    }
+
     // Check if task is already sent to this recipient
     let existing_externals = ExternalRepo::get_active_for_task(&conn, task_id)?;
     if existing_externals.iter().any(|e| e.recipient == recipient) {
@@ -1815,9 +1811,14 @@ fn handle_collect(task_id_str: String) -> Result<()> {
     
     // Mark all as returned
     ExternalRepo::mark_all_returned_for_task(&conn, task_id)?;
-    
+
+    // Auto-enqueue at bottom (Plan 41: collect re-queues)
+    let stack = StackRepo::get_or_create_default(&conn)?;
+    StackRepo::enqueue(&conn, stack.id.unwrap(), task_id)?;
+
     println!("Collected task {}: {}", task_id, task.description);
     println!("  Returned from: {}", externals.iter().map(|e| e.recipient.as_str()).collect::<Vec<_>>().join(", "));
+    println!("  Added to queue");
     Ok(())
 }
 
@@ -2498,7 +2499,7 @@ fn handle_task_enqueue(task_id_str: String) -> Result<()> {
     for task_id in &task_ids {
         match TaskRepo::get_by_id(&conn, *task_id)? {
             Some(task) => {
-                if task.status == TaskStatus::Pending {
+                if task.status == TaskStatus::Open {
                     eligible_ids.push(*task_id);
                 } else {
                     ineligible.push((*task_id, task.status));
@@ -2519,7 +2520,7 @@ fn handle_task_enqueue(task_id_str: String) -> Result<()> {
             .collect::<Vec<_>>()
             .join(", ");
         user_error(&format!(
-            "Cannot add task(s) to the queue because they are not pending: {}. Reopen the task(s) to make them eligible.",
+            "Cannot add task(s) to the queue because they are not open: {}. Reopen the task(s) to make them eligible.",
             details
         ));
     }
@@ -2595,12 +2596,19 @@ fn handle_off(time_args: Vec<String>) -> Result<()> {
         .context("Failed to close session")?;
     
     if let Some(session) = closed {
+        let task_id = session.task_id;
         // Get task description for better message
-        let task = TaskRepo::get_by_id(&conn, session.task_id)?;
+        let task = TaskRepo::get_by_id(&conn, task_id)?;
         let desc = task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
-        println!("Stopped timing task {}: {}", session.task_id, desc);
+        println!("Stopped timing task {}: {}", task_id, desc);
+
+        // Invariant 3: external-waiting tasks are removed from queue when timer stops
+        if ExternalRepo::has_active_externals(&conn, task_id)? {
+            let stack = StackRepo::get_or_create_default(&conn)?;
+            StackRepo::remove_task(&conn, stack.id.unwrap(), task_id)?;
+        }
     }
-    
+
     Ok(())
 }
 
@@ -3166,7 +3174,7 @@ trait Pipe: Sized {
 
 impl<T> Pipe for T {}
 
-/// Handle `tatl dequeue [<task_id>]` - Remove from queue without finishing
+/// Handle `tatl dequeue [<task_id>]` - Remove from queue without closing
 fn handle_dequeue(task_id_opt: Option<String>) -> Result<()> {
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
@@ -3224,7 +3232,7 @@ fn handle_on_queue_top(conn: &Connection, args: Vec<String>) -> Result<()> {
         Some(task) => task,
         None => user_error(&format!("Task {} not found", task_id)),
     };
-    if task.status != TaskStatus::Pending {
+    if task.status != TaskStatus::Open {
         user_error(&format!(
             "Task {} is {} and cannot be started from the queue. Reopen the task to make it eligible.",
             task_id,
@@ -3304,7 +3312,7 @@ fn handle_task_on(task_id_str: String, args: Vec<String>) -> Result<()> {
         Some(task) => task,
         None => user_error(&format!("Task {} not found", task_id)),
     };
-    if task.status != TaskStatus::Pending {
+    if task.status != TaskStatus::Open {
         user_error(&format!(
             "Task {} is {} and cannot be added to the queue. Reopen the task to make it eligible.",
             task_id,
@@ -3720,7 +3728,7 @@ fn handle_annotation_delete(task_id_str: String, annotation_id_str: String) -> R
     Ok(())
 }
 
-fn handle_task_finish(
+fn handle_task_close(
     mut id_or_filter_opt: Option<String>,
     mut at_opt: Option<String>,
     yes: bool,
@@ -3729,7 +3737,7 @@ fn handle_task_finish(
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
 
-    // Disambiguation: allow `tatl finish <time>` (with no explicit target).
+    // Disambiguation: allow `tatl close <time>` (with no explicit target).
     //
     // Clap will otherwise treat the first positional as `target` because it's optional and
     // `time_args` is `trailing_var_arg`. If the "target" looks like a time expression and
@@ -3842,8 +3850,8 @@ fn handle_task_finish(
     if task_ids.len() > 1 {
         if !yes && !interactive {
             // Prompt for confirmation
-            println!("This will finish {} task(s).", task_ids.len());
-            print!("Finish all tasks? (y/n/i): ");
+            println!("This will close {} task(s).", task_ids.len());
+            print!("Close all tasks? (y/n/i): ");
             use std::io::{self, Write};
             io::stdout().flush()?;
             
@@ -3861,7 +3869,7 @@ fn handle_task_finish(
                 }
                 "i" | "interactive" => {
                     // Interactive mode - confirm one by one
-                    return handle_finish_interactive(&conn, &task_ids, end_ts);
+                    return handle_close_interactive(&conn, &task_ids, end_ts);
                 }
                 _ => {
                     println!("Invalid input. Cancelled.");
@@ -3870,7 +3878,7 @@ fn handle_task_finish(
             }
         } else if interactive {
             // Force interactive mode
-            return handle_finish_interactive(&conn, &task_ids, end_ts);
+            return handle_close_interactive(&conn, &task_ids, end_ts);
         }
     }
     
@@ -3892,16 +3900,19 @@ fn handle_task_finish(
                     .context("Failed to close session")?;
             }
         }
-        // Note: We allow completing tasks even if no session is running
-        
-        // Get task before completing (to check respawn rule)
+        // Note: We allow closing tasks even if no session is running
+
+        // Get task before closing (to check respawn rule)
         let task = TaskRepo::get_by_id(&conn, *task_id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", task_id))?;
-        
-        // Mark task as completed
-        TaskRepo::complete(&conn, *task_id)
-            .context("Failed to finish task")?;
-        
+
+        // Mark task as closed (intent fulfilled)
+        TaskRepo::close(&conn, *task_id)
+            .context("Failed to close task")?;
+
+        // Invariant 4: terminal lifecycle cleanup - clear active externals
+        ExternalRepo::mark_all_returned_for_task(&conn, *task_id)?;
+
         // Handle respawn if task has respawn rule
         if let Some(new_task_id) = respawn_task(&conn, &task, effective_end_ts)? {
             // Get new task for display
@@ -3914,25 +3925,25 @@ fn handle_task_finish(
                 println!("↻ Respawned as task {}{}", new_task_id, due_str);
             }
         }
-        
+
         // Remove from stack
         let stack = StackRepo::get_or_create_default(&conn)?;
         let stack_id = stack.id.unwrap();
         let items = StackRepo::get_items(&conn, stack_id)?;
-        
+
         // Find the task in the stack and remove it
         if let Some(item) = items.iter().find(|item| item.task_id == *task_id) {
             // Drop the task at this position using its ordinal
             StackRepo::drop(&conn, stack_id, item.ordinal as i32)?;
         }
-        
-        println!("Finished task {}", task_id);
+
+        println!("Closed task {}", task_id);
     }
     
     Ok(())
 }
 
-fn handle_finish_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64) -> Result<()> {
+fn handle_close_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64) -> Result<()> {
     use std::io::{self, Write};
     
     let open_session = SessionRepo::get_open(conn)?;
@@ -3947,7 +3958,7 @@ fn handle_finish_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64) -
         let task = task.unwrap();
         
         // Prompt for confirmation
-        print!("Finish task {} ({})? (y/n): ", task_id, task.description);
+        print!("Close task {} ({})? (y/n): ", task_id, task.description);
         io::stdout().flush()?;
         
         let mut input = String::new();
@@ -3969,10 +3980,13 @@ fn handle_finish_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64) -
             }
         }
         
-        // Mark task as completed
-        TaskRepo::complete(conn, *task_id)
-            .context("Failed to finish task")?;
-        
+        // Mark task as closed (intent fulfilled)
+        TaskRepo::close(conn, *task_id)
+            .context("Failed to close task")?;
+
+        // Invariant 4: terminal lifecycle cleanup - clear active externals
+        ExternalRepo::mark_all_returned_for_task(conn, *task_id)?;
+
         // Handle respawn if task has respawn rule
         if let Some(new_task_id) = respawn_task(conn, &task, effective_end_ts)? {
             // Get new task for display
@@ -3985,26 +3999,26 @@ fn handle_finish_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64) -
                 println!("↻ Respawned as task {}{}", new_task_id, due_str);
             }
         }
-        
+
         // Remove from stack
         let stack = StackRepo::get_or_create_default(conn)?;
         let stack_id = stack.id.unwrap();
         let items = StackRepo::get_items(conn, stack_id)?;
-        
+
         // Find the task in the stack and remove it
         if let Some(item) = items.iter().find(|item| item.task_id == *task_id) {
             // Drop the task at this position using its ordinal
             StackRepo::drop(conn, stack_id, item.ordinal as i32)?;
         }
-        
-        println!("Finished task {}", task_id);
+
+        println!("Closed task {}", task_id);
     }
     
     Ok(())
 }
 
-/// Handle task close with optional target (defaults to queue[0])
-fn handle_task_close_optional(target: Option<String>, yes: bool, interactive: bool) -> Result<()> {
+/// Handle task cancel with optional target (defaults to queue[0])
+fn handle_task_cancel_optional(target: Option<String>, yes: bool, interactive: bool) -> Result<()> {
     let id_or_filter = if let Some(t) = target {
         t
     } else {
@@ -4021,10 +4035,10 @@ fn handle_task_close_optional(target: Option<String>, yes: bool, interactive: bo
         items[0].task_id.to_string()
     };
     
-    handle_task_close(id_or_filter, yes, interactive)
+    handle_task_cancel(id_or_filter, yes, interactive)
 }
 
-fn handle_task_close(id_or_filter: String, yes: bool, interactive: bool) -> Result<()> {
+fn handle_task_cancel(id_or_filter: String, yes: bool, interactive: bool) -> Result<()> {
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
     
@@ -4061,8 +4075,8 @@ fn handle_task_close(id_or_filter: String, yes: bool, interactive: bool) -> Resu
     
     if task_ids.len() > 1 {
         if !yes && !interactive {
-            println!("This will close {} task(s).", task_ids.len());
-            print!("Close all tasks? (y/n/i): ");
+            println!("This will cancel {} task(s).", task_ids.len());
+            print!("Cancel all tasks? (y/n/i): ");
             use std::io::{self, Write};
             io::stdout().flush()?;
             
@@ -4077,7 +4091,7 @@ fn handle_task_close(id_or_filter: String, yes: bool, interactive: bool) -> Resu
                     return Ok(());
                 }
                 "i" | "interactive" => {
-                    return handle_close_interactive(&conn, &task_ids);
+                    return handle_cancel_interactive(&conn, &task_ids);
                 }
                 _ => {
                     println!("Invalid input. Cancelled.");
@@ -4085,7 +4099,7 @@ fn handle_task_close(id_or_filter: String, yes: bool, interactive: bool) -> Resu
                 }
             }
         } else if interactive {
-            return handle_close_interactive(&conn, &task_ids);
+            return handle_cancel_interactive(&conn, &task_ids);
         }
     }
     
@@ -4107,13 +4121,16 @@ fn handle_task_close(id_or_filter: String, yes: bool, interactive: bool) -> Resu
             }
         }
         
-        // Get task before closing (to check respawn rule)
+        // Get task before cancelling (to check respawn rule)
         let task = TaskRepo::get_by_id(&conn, *task_id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", task_id))?;
-        
-        TaskRepo::close(&conn, *task_id)
-            .context("Failed to close task")?;
-        
+
+        TaskRepo::cancel(&conn, *task_id)
+            .context("Failed to cancel task")?;
+
+        // Invariant 4: terminal lifecycle cleanup - clear active externals
+        ExternalRepo::mark_all_returned_for_task(&conn, *task_id)?;
+
         // Handle respawn if task has respawn rule
         if let Some(new_task_id) = respawn_task(&conn, &task, end_ts)? {
             // Get new task for display
@@ -4126,21 +4143,21 @@ fn handle_task_close(id_or_filter: String, yes: bool, interactive: bool) -> Resu
                 println!("↻ Respawned as task {}{}", new_task_id, due_str);
             }
         }
-        
+
         let stack = StackRepo::get_or_create_default(&conn)?;
         let stack_id = stack.id.unwrap();
         let items = StackRepo::get_items(&conn, stack_id)?;
         if let Some(item) = items.iter().find(|item| item.task_id == *task_id) {
             StackRepo::drop(&conn, stack_id, item.ordinal as i32)?;
         }
-        
-        println!("Closed task {}", task_id);
+
+        println!("Cancelled task {}", task_id);
     }
     
     Ok(())
 }
 
-fn handle_close_interactive(conn: &Connection, task_ids: &[i64]) -> Result<()> {
+fn handle_cancel_interactive(conn: &Connection, task_ids: &[i64]) -> Result<()> {
     use std::io::{self, Write};
     
     let end_ts = chrono::Utc::now().timestamp();
@@ -4160,18 +4177,18 @@ fn handle_close_interactive(conn: &Connection, task_ids: &[i64]) -> Result<()> {
             }
         };
         
-        print!("Close task {} ({})? (y/n): ", task_id, task.description);
+        print!("Cancel task {} ({})? (y/n): ", task_id, task.description);
         io::stdout().flush()?;
-        
+
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
         let input = input.trim().to_lowercase();
-        
+
         if input != "y" && input != "yes" {
             println!("Skipped task {}.", task_id);
             continue;
         }
-        
+
         if let Some(session) = &open_session {
             if !closed_open_session && session.task_id == *task_id {
                 SessionRepo::close_open(conn, end_ts)
@@ -4179,10 +4196,13 @@ fn handle_close_interactive(conn: &Connection, task_ids: &[i64]) -> Result<()> {
                 closed_open_session = true;
             }
         }
-        
-        TaskRepo::close(conn, *task_id)
-            .context("Failed to close task")?;
-        
+
+        TaskRepo::cancel(conn, *task_id)
+            .context("Failed to cancel task")?;
+
+        // Invariant 4: terminal lifecycle cleanup - clear active externals
+        ExternalRepo::mark_all_returned_for_task(conn, *task_id)?;
+
         // Handle respawn if task has respawn rule
         if let Some(new_task_id) = respawn_task(conn, &task, end_ts)? {
             // Get new task for display
@@ -4195,21 +4215,21 @@ fn handle_close_interactive(conn: &Connection, task_ids: &[i64]) -> Result<()> {
                 println!("↻ Respawned as task {}{}", new_task_id, due_str);
             }
         }
-        
+
         let stack = StackRepo::get_or_create_default(conn)?;
         let stack_id = stack.id.unwrap();
         let items = StackRepo::get_items(conn, stack_id)?;
         if let Some(item) = items.iter().find(|item| item.task_id == *task_id) {
             StackRepo::drop(conn, stack_id, item.ordinal as i32)?;
         }
-        
-        println!("Closed task {}", task_id);
+
+        println!("Cancelled task {}", task_id);
     }
     
     Ok(())
 }
 
-/// Handle task reopen (set status back to pending)
+/// Handle task reopen (set status back to open)
 fn handle_task_reopen(id_or_filter: String, yes: bool, interactive: bool) -> Result<()> {
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
@@ -4284,8 +4304,8 @@ fn handle_task_reopen(id_or_filter: String, yes: bool, interactive: bool) -> Res
             }
         };
         
-        if task.status == crate::models::TaskStatus::Pending {
-            println!("Task {} is already pending", task_id);
+        if task.status == crate::models::TaskStatus::Open {
+            println!("Task {} is already open", task_id);
             continue;
         }
         
@@ -4314,8 +4334,8 @@ fn handle_reopen_interactive(conn: &Connection, task_ids: &[i64]) -> Result<()> 
             }
         };
         
-        if task.status == crate::models::TaskStatus::Pending {
-            println!("Task {} is already pending, skipping.", task_id);
+        if task.status == crate::models::TaskStatus::Open {
+            println!("Task {} is already open, skipping.", task_id);
             continue;
         }
         

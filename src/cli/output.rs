@@ -66,17 +66,20 @@ const CATEGORICAL_BG_PALETTE: &[&str] = &[
 fn get_semantic_fg_color(column: &str, value: &str) -> Option<&'static str> {
     match column {
         "status" => match value {
-            "pending" => None, // Default color
-            "completed" => Some(ANSI_FG_GREEN),
-            "closed" => Some(ANSI_FG_BRIGHT_BLACK),
+            "open" => None, // Default color
+            "closed" => Some(ANSI_FG_GREEN),
+            "cancelled" => Some(ANSI_FG_BRIGHT_BLACK),
             _ => None,
         },
-        "kanban" => match value {
+        "stage" => match value {
             "proposed" => Some(ANSI_FG_BRIGHT_BLACK),
-            "stalled" => Some(ANSI_FG_YELLOW),
-            "queued" => Some(ANSI_FG_BLUE),
+            "planned" => Some(ANSI_FG_BLUE),
+            "in progress" => Some(ANSI_FG_CYAN),
+            "active" => Some(ANSI_FG_GREEN),
+            "suspended" => Some(ANSI_FG_YELLOW),
             "external" => Some(ANSI_FG_MAGENTA),
-            "done" => Some(ANSI_FG_GREEN),
+            "completed" => Some(ANSI_FG_BRIGHT_BLACK),
+            "cancelled" => Some(ANSI_FG_BRIGHT_BLACK),
             _ => None,
         },
         _ => None,
@@ -86,17 +89,20 @@ fn get_semantic_fg_color(column: &str, value: &str) -> Option<&'static str> {
 fn get_semantic_bg_color(column: &str, value: &str) -> Option<&'static str> {
     match column {
         "status" => match value {
-            "pending" => None,
-            "completed" => Some(ANSI_BG_GREEN),
-            "closed" => Some(ANSI_BG_BRIGHT_BLACK),
+            "open" => None,
+            "closed" => Some(ANSI_BG_GREEN),
+            "cancelled" => Some(ANSI_BG_BRIGHT_BLACK),
             _ => None,
         },
-        "kanban" => match value {
+        "stage" => match value {
             "proposed" => Some(ANSI_BG_BRIGHT_BLACK),
-            "stalled" => Some(ANSI_BG_YELLOW),
-            "queued" => Some(ANSI_BG_BLUE),
+            "planned" => Some(ANSI_BG_BLUE),
+            "in progress" => Some(ANSI_BG_CYAN),
+            "active" => Some(ANSI_BG_GREEN),
+            "suspended" => Some(ANSI_BG_YELLOW),
             "external" => Some(ANSI_BG_MAGENTA),
-            "done" => Some(ANSI_BG_GREEN),
+            "completed" => Some(ANSI_BG_BRIGHT_BLACK),
+            "cancelled" => Some(ANSI_BG_BRIGHT_BLACK),
             _ => None,
         },
         _ => None,
@@ -235,14 +241,14 @@ fn get_contrasting_fg_for_bg(bg_color: &str) -> &'static str {
 /// Column types for automatic color mapping detection
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ColumnColorType {
-    Categorical,  // project, status, kanban, tags
+    Categorical,  // project, status, stage, tags
     Numeric,      // priority, alloc, clock
     Date,         // due, scheduled
 }
 
 fn detect_column_color_type(column: &str) -> ColumnColorType {
     match column.to_lowercase().as_str() {
-        "project" | "status" | "kanban" | "tags" => ColumnColorType::Categorical,
+        "project" | "status" | "stage" | "tags" => ColumnColorType::Categorical,
         "priority" | "alloc" | "clock" | "allocation" => ColumnColorType::Numeric,
         "due" | "scheduled" | "wait" => ColumnColorType::Date,
         _ => ColumnColorType::Categorical, // Default to categorical
@@ -332,49 +338,61 @@ fn bold_if_tty(text: &str, is_tty: bool) -> String {
     }
 }
 
-/// Kanban status values (derived from task state)
-/// 
-/// | Kanban    | Status    | Clock stack      | Sessions list                  | External     |
-/// | --------- | --------- | ---------------- | ------------------------------ | ------------ |
-/// | proposed  | pending   | Not in stack     | Task id not in sessions list   | No externals |
-/// | stalled   | pending   | Not in stack     | Task id in sessions list       | No externals |
-/// | queued    | pending   | In stack (any)   | (any)                          | No externals |
-/// | external  | pending   | (any)            | (any)                          | Has externals|
-/// | done      | completed | (ineligible)     | N/A                            | N/A          |
-/// | done      | closed    | (ineligible)     | N/A                            | N/A          |
-/// 
-/// Note: Q column shows exact queue position (0, 1, 2, etc. or E for external)
-pub fn calculate_kanban_status(
+/// Stage status values (derived from task state - Plan 41 classification)
+///
+/// | Stage       | Condition                                                    |
+/// | ----------- | ------------------------------------------------------------ |
+/// | completed   | task.status == Closed                                        |
+/// | cancelled   | task.status == Cancelled                                     |
+/// | active      | Open session for this task (actively being timed)            |
+/// | external    | Has active externals (waiting on external party)             |
+/// | in progress | In queue AND has sessions (work started, in queue)           |
+/// | planned     | In queue but no sessions yet (queued, not started)           |
+/// | suspended   | Not in queue but has sessions (work started, pulled out)     |
+/// | proposed    | Not in queue, no sessions (new task, not started)            |
+///
+/// Note: Q column shows exact queue position (0, 1, 2, etc. or @ for external)
+pub fn calculate_stage_status(
     task: &Task,
     stack_position: Option<usize>,
     has_sessions: bool,
-    _open_session_task_id: Option<i64>,  // Not used after removing NEXT/LIVE, kept for API compatibility
-    _stack_top_task_id: Option<i64>,      // Not used after removing NEXT/LIVE, kept for API compatibility
+    open_session_task_id: Option<i64>,
     has_externals: bool,
 ) -> &'static str {
-    // Completed/closed tasks are "done"
-    if task.status == TaskStatus::Completed || task.status == TaskStatus::Closed {
-        return "done";
+    // Terminal states first
+    if task.status == TaskStatus::Closed {
+        return "completed";
     }
-    
-    // External tasks (sent to external party)
+    if task.status == TaskStatus::Cancelled {
+        return "cancelled";
+    }
+
+    // Active timer (open session for this task)
+    if let Some(open_tid) = open_session_task_id {
+        if task.id == Some(open_tid) {
+            return "active";
+        }
+    }
+
+    // External waiting
     if has_externals {
         return "external";
     }
-    
-    // At this point, task is pending (or other non-terminal status)
+
+    // Internal open states based on queue position and session history
     match stack_position {
         Some(_pos) => {
-            // In stack (any position) = queued
-            // Q column shows exact position
-            "queued"
+            if has_sessions {
+                "in progress"  // In queue with prior work
+            } else {
+                "planned"      // In queue but not started
+            }
         }
         None => {
-            // Not in stack
             if has_sessions {
-                "stalled"  // Has sessions but not in queue (needs attention)
+                "suspended"    // Has sessions but not in queue
             } else {
-                "proposed"  // New task, not started
+                "proposed"     // New task, not started
             }
         }
     }
@@ -504,20 +522,18 @@ fn parse_sort_spec(spec: &str) -> SortSpec {
     }
 }
 
-/// Ordinal value for kanban status (workflow progression)
-/// Order: proposed → stalled → external → queued → done
-fn kanban_sort_order(kanban: &str) -> i64 {
-    match kanban.to_lowercase().as_str() {
+/// Ordinal value for stage status (workflow progression)
+/// Order: proposed → planned → suspended → external → in progress → active → completed → cancelled
+fn stage_sort_order(stage: &str) -> i64 {
+    match stage.to_lowercase().as_str() {
         "proposed" => 0,
-        "stalled" => 1,
-        "external" => 2,  // Moved before queued
-        "queued" => 3,
-        "done" => 4,
-        // Legacy support (for migration period)
-        "paused" => 1,  // Maps to stalled
-        "next" => 3,   // Maps to queued
-        "live" => 3,   // Maps to queued
-        "quit" => 4,   // Maps to done
+        "planned" => 1,
+        "suspended" => 2,
+        "external" => 3,
+        "in progress" => 4,
+        "active" => 5,
+        "completed" => 6,
+        "cancelled" => 7,
         _ => 99,
     }
 }
@@ -525,9 +541,10 @@ fn kanban_sort_order(kanban: &str) -> i64 {
 /// Ordinal value for task status (lifecycle progression)
 fn status_sort_order(status: &str) -> i64 {
     match status.to_lowercase().as_str() {
-        "pending" => 0,
-        "completed" => 1,
-        "closed" => 2,
+        "open" => 0,
+        "closed" => 1,
+        "cancelled" => 2,
+        "deleted" => 3,
         _ => 99,
     }
 }
@@ -652,7 +669,7 @@ enum TaskListColumn {
     Id,
     Queue,
     Description,
-    Kanban,
+    Stage,
     Project,
     Created,
     Tags,
@@ -668,7 +685,7 @@ enum TaskListColumn {
 /// Priority 2-3: Important (truncate only)
 /// Priority 4+: Secondary/Optional (hide first)
 /// 
-/// Hide order (first to last): Status -> Tags -> Priority -> Alloc -> Clock -> Kanban -> Due
+/// Hide order (first to last): Status -> Tags -> Priority -> Alloc -> Clock -> Stage -> Due
 fn column_priority(column: TaskListColumn) -> u8 {
     match column {
         TaskListColumn::Id => 1,          // Never hide
@@ -676,7 +693,7 @@ fn column_priority(column: TaskListColumn) -> u8 {
         TaskListColumn::Description => 2, // Truncate only
         TaskListColumn::Project => 3,     // Truncate only
         TaskListColumn::Due => 4,         // Hidden last
-        TaskListColumn::Kanban => 5,
+        TaskListColumn::Stage => 5,
         TaskListColumn::Clock => 6,
         TaskListColumn::Alloc => 7,
         TaskListColumn::Priority => 8,
@@ -694,7 +711,7 @@ fn column_min_width(column: TaskListColumn) -> usize {
         TaskListColumn::Description => 15,
         TaskListColumn::Project => 8,
         TaskListColumn::Status => 7,
-        TaskListColumn::Kanban => 8,
+        TaskListColumn::Stage => 8,
         TaskListColumn::Due => 10,
         TaskListColumn::Priority => 8,
         TaskListColumn::Tags => 6,
@@ -722,7 +739,7 @@ fn parse_task_column(name: &str) -> Option<TaskListColumn> {
         "id" => Some(TaskListColumn::Id),
         "q" | "queue" => Some(TaskListColumn::Queue),
         "description" | "desc" => Some(TaskListColumn::Description),
-        "kanban" => Some(TaskListColumn::Kanban),
+        "stage" => Some(TaskListColumn::Stage),
         "project" | "proj" => Some(TaskListColumn::Project),
         "created" | "age" => Some(TaskListColumn::Created),
         "tags" | "tag" => Some(TaskListColumn::Tags),
@@ -747,7 +764,7 @@ fn column_label(column: TaskListColumn) -> &'static str {
         TaskListColumn::Clock => "Timer",
         TaskListColumn::Created => "Created",
         TaskListColumn::Status => "Status",
-        TaskListColumn::Kanban => "Kanban",
+        TaskListColumn::Stage => "Stage",
         TaskListColumn::Priority => "Priority",
     }
 }
@@ -786,11 +803,8 @@ pub fn format_task_list_table(
         return Ok("No tasks found.".to_string());
     }
     
-    // Pre-compute kanban-related data for all tasks (batch queries for performance)
+    // Pre-compute stage-related data for all tasks (batch queries for performance)
     let stack_positions = get_stack_positions(conn)?;
-    let stack = StackRepo::get_or_create_default(conn)?;
-    let stack_items = StackRepo::get_items(conn, stack.id.unwrap())?;
-    let stack_top_task_id = stack_items.first().map(|item| item.task_id);
     let tasks_with_sessions = get_tasks_with_sessions(conn)?;
     let tasks_with_externals = get_tasks_with_externals(conn)?;
     let open_session_task_id = SessionRepo::get_open(conn)?.map(|s| s.task_id);
@@ -801,12 +815,11 @@ pub fn format_task_list_table(
         let stack_pos = stack_positions.get(&task_id).copied();
         let has_sessions = tasks_with_sessions.contains(&task_id);
         let has_externals = tasks_with_externals.contains(&task_id);
-        let kanban = calculate_kanban_status(
+        let stage = calculate_stage_status(
             task,
             stack_pos,
             has_sessions,
             open_session_task_id,
-            stack_top_task_id,
             has_externals,
         );
         
@@ -856,7 +869,7 @@ pub fn format_task_list_table(
             "0s".to_string()
         };
         
-        let priority = if task.status == TaskStatus::Pending {
+        let priority = if task.status == TaskStatus::Open {
             if let Ok(prio) = calculate_priority(task, conn) {
                 format!("{:.1}", prio)
             } else {
@@ -867,26 +880,26 @@ pub fn format_task_list_table(
         };
         
         // Queue position indicator
-        // Priority: queue position/▶ > @ (external) > ✓ (completed) > x (closed) > ! (stalled) > ? (proposed)
+        // Priority: queue position/▶ > @ (external) > ✓ (completed) > x (cancelled) > ! (suspended) > ? (proposed)
         let queue_pos_str = if stack_pos == Some(0) && open_session_task_id == task.id {
             // Active task at top of queue
             "▶".to_string()
         } else if let Some(p) = stack_pos {
             // In queue with numeric position
             p.to_string()
-        } else if kanban == "external" {
+        } else if stage == "external" {
             // Awaiting external response
             "@".to_string()
-        } else if task.status == TaskStatus::Completed {
-            // Completed
+        } else if stage == "completed" {
+            // Closed (intent fulfilled)
             "✓".to_string()
-        } else if task.status == TaskStatus::Closed {
-            // Closed
+        } else if stage == "cancelled" {
+            // Cancelled
             "x".to_string()
-        } else if kanban == "stalled" {
+        } else if stage == "suspended" {
             // Has sessions but not in queue
             "!".to_string()
-        } else if kanban == "proposed" {
+        } else if stage == "proposed" {
             // New task, not started
             "?".to_string()
         } else {
@@ -897,7 +910,7 @@ pub fn format_task_list_table(
         values.insert(TaskListColumn::Id, task.id.map(|id| id.to_string()).unwrap_or_else(|| "?".to_string()));
         values.insert(TaskListColumn::Queue, queue_pos_str.clone());
         values.insert(TaskListColumn::Description, task.description.clone());
-        values.insert(TaskListColumn::Kanban, kanban.to_string());
+        values.insert(TaskListColumn::Stage, stage.to_string());
         values.insert(TaskListColumn::Project, project.clone());
         values.insert(TaskListColumn::Created, format_date(task.created_ts));
         values.insert(TaskListColumn::Tags, tag_str.clone());
@@ -912,13 +925,13 @@ pub fn format_task_list_table(
         // Queue position for sorting: tasks not in queue sort to the end (use i64::MAX)
         sort_values.insert(TaskListColumn::Queue, Some(SortValue::Int(stack_pos.map(|p| p as i64).unwrap_or(i64::MAX))));
         sort_values.insert(TaskListColumn::Description, Some(SortValue::Str(task.description.clone())));
-        sort_values.insert(TaskListColumn::Kanban, Some(SortValue::Int(kanban_sort_order(&kanban))));
+        sort_values.insert(TaskListColumn::Stage, Some(SortValue::Int(stage_sort_order(stage))));
         sort_values.insert(TaskListColumn::Project, Some(SortValue::Str(project)));
         sort_values.insert(TaskListColumn::Created, Some(SortValue::Int(task.created_ts)));
         sort_values.insert(TaskListColumn::Tags, Some(SortValue::Str(tag_str)));
         sort_values.insert(TaskListColumn::Due, task.due_ts.map(SortValue::Int));
         sort_values.insert(TaskListColumn::Alloc, task.alloc_secs.map(SortValue::Int));
-        sort_values.insert(TaskListColumn::Priority, if task.status == TaskStatus::Pending {
+        sort_values.insert(TaskListColumn::Priority, if task.status == TaskStatus::Open {
             calculate_priority(task, conn).ok().map(SortValue::Float)
         } else {
             None
@@ -969,7 +982,7 @@ pub fn format_task_list_table(
         TaskListColumn::Clock,
         TaskListColumn::Created,
         TaskListColumn::Status,
-        TaskListColumn::Kanban,
+        TaskListColumn::Stage,
     ];
     for column in default_columns {
         if !columns.contains(&column) {
@@ -1056,7 +1069,7 @@ pub fn format_task_list_table(
         }
 
         // Step 3: Only after truncation is exhausted, hide columns by priority
-        // Hide order (first to last): Status -> Tags -> Priority -> Alloc -> Clock -> Kanban -> Due
+        // Hide order (first to last): Status -> Tags -> Priority -> Alloc -> Clock -> Stage -> Due
         let mut iterations = 0;
         const MAX_ITERATIONS: usize = 20; // Prevent infinite loops
         while calc_total_width(&columns, &column_widths) > target_width 
@@ -1420,7 +1433,7 @@ pub fn format_task_list_table(
 fn normalize_group_value(column: TaskListColumn, value: &str) -> String {
     let trimmed = value.trim();
     match column {
-        TaskListColumn::Status | TaskListColumn::Kanban => trimmed.to_lowercase(),
+        TaskListColumn::Status | TaskListColumn::Stage => trimmed.to_lowercase(),
         _ => trimmed.to_string(),
     }
 }
@@ -1700,8 +1713,8 @@ pub fn format_task_summary(
         output.push_str(&format!("  Position:    {} of {}\n\n", position + 1, total));
     }
 
-    // Priority Score (only for pending tasks)
-    if task.status == TaskStatus::Pending {
+    // Priority Score (only for open tasks)
+    if task.status == TaskStatus::Open {
         if let Ok(priority) = calculate_priority(task, conn) {
             output.push_str("Priority:\n");
             output.push_str(&format!("  Score:       {:.1}\n", priority));
@@ -1865,7 +1878,7 @@ pub fn format_dashboard(
     // Priority Tasks Section (top 3 NOT in clock stack)
     output.push_str("=== Priority Tasks (Top 3) ===\n");
     if priority_tasks.is_empty() {
-        output.push_str("No priority tasks (all tasks are in clock stack or completed).\n");
+        output.push_str("No priority tasks (all tasks are in queue or closed).\n");
     } else {
         for (task, tags, priority) in priority_tasks {
             let project_name = if let Some(project_id) = task.project_id {

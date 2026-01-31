@@ -171,20 +171,20 @@ fn test_enqueue_completed_task() {
     cmd.args(&["on"]).assert().success();
     
     let mut cmd = get_task_cmd();
-    cmd.args(&["finish"]).assert().success();
-    
-    // Verify task is completed
+    cmd.args(&["close"]).assert().success();
+
+    // Verify task is closed
     let mut cmd = get_task_cmd();
     let output = cmd.args(&["show", "1"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
-    assert!(stdout.contains("completed") || stdout.contains("Status: completed"));
+    assert!(stdout.contains("closed") || stdout.contains("Status: closed"));
     
     // Try to enqueue the completed task
     let mut cmd = get_task_cmd();
     cmd.args(&["enqueue", "1"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("not pending"))
+        .stderr(predicate::str::contains("not open"))
         .stderr(predicate::str::contains("Reopen"));
 }
 

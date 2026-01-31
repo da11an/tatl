@@ -2,7 +2,7 @@ use rusqlite::{Connection, Result};
 use std::collections::HashMap;
 
 /// Current database schema version
-const CURRENT_VERSION: u32 = 7;
+const CURRENT_VERSION: u32 = 8;
 
 /// Migration system for managing database schema versions
 pub struct MigrationManager;
@@ -89,6 +89,7 @@ fn get_migrations() -> HashMap<u32, fn(&rusqlite::Transaction) -> Result<(), rus
     migrations.insert(5, migration_v5);
     migrations.insert(6, migration_v6);
     migrations.insert(7, migration_v7);
+    migrations.insert(8, migration_v8);
     migrations
 }
 
@@ -512,6 +513,95 @@ fn migration_v7(tx: &rusqlite::Transaction) -> Result<(), rusqlite::Error> {
     Ok(())
 }
 
+/// Migration v8: Rename status values for Plan 41 state model
+///
+/// Status mapping:
+///   pending   → open
+///   completed → closed
+///   closed    → cancelled
+///   deleted   → deleted (unchanged)
+///
+/// Also:
+///   - Recreate tasks table with updated CHECK constraint
+///   - Clean up data to enforce new invariants
+fn migration_v8(tx: &rusqlite::Transaction) -> Result<(), rusqlite::Error> {
+    // Step 1: Recreate tasks table with new CHECK constraint and remap status
+    // values during INSERT (can't UPDATE in-place because old CHECK rejects new values)
+    //
+    // Status mapping:
+    //   pending   → open
+    //   completed → closed
+    //   closed    → cancelled
+    //   deleted   → deleted (unchanged)
+    tx.execute(
+        "CREATE TABLE tasks_new (
+            id INTEGER PRIMARY KEY,
+            uuid TEXT NOT NULL UNIQUE,
+            description TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('open','closed','cancelled','deleted')),
+            project_id INTEGER NULL REFERENCES projects(id),
+            due_ts INTEGER NULL,
+            scheduled_ts INTEGER NULL,
+            wait_ts INTEGER NULL,
+            alloc_secs INTEGER NULL,
+            template TEXT NULL,
+            respawn TEXT NULL,
+            udas_json TEXT NULL,
+            created_ts INTEGER NOT NULL,
+            modified_ts INTEGER NOT NULL
+        )",
+        [],
+    )?;
+    tx.execute(
+        "INSERT INTO tasks_new
+         SELECT id, uuid, description,
+                CASE status
+                    WHEN 'pending' THEN 'open'
+                    WHEN 'completed' THEN 'closed'
+                    WHEN 'closed' THEN 'cancelled'
+                    ELSE status
+                END,
+                project_id, due_ts, scheduled_ts, wait_ts, alloc_secs,
+                template, respawn, udas_json, created_ts, modified_ts
+         FROM tasks",
+        [],
+    )?;
+    tx.execute("DROP TABLE tasks", [])?;
+    tx.execute("ALTER TABLE tasks_new RENAME TO tasks", [])?;
+
+    // Step 3: Data cleanup - remove queue entries for terminal tasks
+    tx.execute(
+        "DELETE FROM stack_items WHERE task_id IN (
+            SELECT id FROM tasks WHERE status IN ('closed', 'cancelled', 'deleted')
+        )",
+        [],
+    )?;
+
+    // Data cleanup: clear active externals for terminal tasks
+    tx.execute(
+        "UPDATE externals SET returned_ts = CAST(strftime('%s', 'now') AS INTEGER)
+         WHERE returned_ts IS NULL AND task_id IN (
+            SELECT id FROM tasks WHERE status IN ('closed', 'cancelled', 'deleted')
+         )",
+        [],
+    )?;
+
+    // Data cleanup: remove queue entries for external-waiting tasks
+    // (only those without an open session - i.e., not currently being worked on)
+    tx.execute(
+        "DELETE FROM stack_items WHERE task_id IN (
+            SELECT e.task_id FROM externals e
+            WHERE e.returned_ts IS NULL
+            AND e.task_id NOT IN (
+                SELECT s.task_id FROM sessions s WHERE s.end_ts IS NULL
+            )
+        )",
+        [],
+    )?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -545,8 +635,8 @@ mod tests {
         
         // Try to insert a task with invalid project_id
         let result = conn.execute(
-            "INSERT INTO tasks (uuid, description, status, project_id, created_ts, modified_ts) 
-             VALUES ('test-uuid', 'Test', 'pending', 999, 1000, 1000)",
+            "INSERT INTO tasks (uuid, description, status, project_id, created_ts, modified_ts)
+             VALUES ('test-uuid', 'Test', 'open', 999, 1000, 1000)",
             [],
         );
         
@@ -561,8 +651,8 @@ mod tests {
         
         // Create a task first
         conn.execute(
-            "INSERT INTO tasks (uuid, description, status, created_ts, modified_ts) 
-             VALUES ('uuid1', 'Task 1', 'pending', 1000, 1000)",
+            "INSERT INTO tasks (uuid, description, status, created_ts, modified_ts)
+             VALUES ('uuid1', 'Task 1', 'open', 1000, 1000)",
             [],
         ).unwrap();
         

@@ -141,7 +141,7 @@ impl TaskRepo {
                 uuid: row.get(1)?,
                 description: row.get(2)?,
                 status: crate::models::TaskStatus::from_str(&row.get::<_, String>(3)?)
-                    .unwrap_or(crate::models::TaskStatus::Pending),
+                    .unwrap_or(crate::models::TaskStatus::Open),
                 project_id: row.get(4)?,
                 due_ts: row.get(5)?,
                 scheduled_ts: row.get(6)?,
@@ -195,7 +195,7 @@ impl TaskRepo {
                 uuid: row.get(1)?,
                 description: row.get(2)?,
                 status: crate::models::TaskStatus::from_str(&row.get::<_, String>(3)?)
-                    .unwrap_or(crate::models::TaskStatus::Pending),
+                    .unwrap_or(crate::models::TaskStatus::Open),
                 project_id: row.get(4)?,
                 due_ts: row.get(5)?,
                 scheduled_ts: row.get(6)?,
@@ -448,7 +448,7 @@ impl TaskRepo {
                 uuid: row.get(1)?,
                 description: row.get(2)?,
                 status: crate::models::TaskStatus::from_str(&row.get::<_, String>(3)?)
-                    .unwrap_or(crate::models::TaskStatus::Pending),
+                    .unwrap_or(crate::models::TaskStatus::Open),
                 project_id: row.get(4)?,
                 due_ts: row.get(5)?,
                 scheduled_ts: row.get(6)?,
@@ -470,7 +470,7 @@ impl TaskRepo {
     }
 
     /// Update task status
-    /// Also clears wait_ts when status changes to Completed or Closed
+    /// Also clears wait_ts when status changes to a terminal state
     pub fn set_status(conn: &Connection, task_id: i64, new_status: crate::models::TaskStatus) -> Result<()> {
         let old_task = Self::get_by_id(conn, task_id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", task_id))?;
@@ -479,11 +479,8 @@ impl TaskRepo {
 
         let now = chrono::Utc::now().timestamp();
 
-        // Clear wait_ts when completing or closing a task
-        let should_clear_wait = matches!(
-            new_status,
-            crate::models::TaskStatus::Completed | crate::models::TaskStatus::Closed
-        );
+        // Clear wait_ts when moving to terminal state
+        let should_clear_wait = new_status.is_terminal();
 
         let rows_affected = if should_clear_wait {
             conn.execute(
@@ -508,19 +505,19 @@ impl TaskRepo {
         Ok(())
     }
     
-    /// Mark a task as completed
-    pub fn complete(conn: &Connection, task_id: i64) -> Result<()> {
-        Self::set_status(conn, task_id, crate::models::TaskStatus::Completed)
-    }
-    
-    /// Mark a task as closed
+    /// Close a task (intent fulfilled - terminal)
     pub fn close(conn: &Connection, task_id: i64) -> Result<()> {
         Self::set_status(conn, task_id, crate::models::TaskStatus::Closed)
     }
 
-    /// Reopen a completed or closed task (set status back to pending)
+    /// Cancel a task (intent shifted / not fulfilled - terminal)
+    pub fn cancel(conn: &Connection, task_id: i64) -> Result<()> {
+        Self::set_status(conn, task_id, crate::models::TaskStatus::Cancelled)
+    }
+
+    /// Reopen a closed or cancelled task (set status back to open)
     pub fn reopen(conn: &Connection, task_id: i64) -> Result<()> {
-        Self::set_status(conn, task_id, crate::models::TaskStatus::Pending)
+        Self::set_status(conn, task_id, crate::models::TaskStatus::Open)
     }
 
     /// Permanently delete a task and all related data

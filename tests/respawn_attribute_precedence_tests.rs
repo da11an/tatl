@@ -45,7 +45,7 @@ fn test_respawn_carries_project() {
     
     // Finish the task to trigger respawn
     get_task_cmd()
-        .args(&["finish", &task_id.to_string(), "-y"])
+        .args(&["close", &task_id.to_string(), "-y"])
         .assert()
         .success();
     
@@ -81,7 +81,7 @@ fn test_respawn_carries_allocation() {
     
     // Finish the task
     get_task_cmd()
-        .args(&["finish", &task_id.to_string(), "-y"])
+        .args(&["close", &task_id.to_string(), "-y"])
         .assert()
         .success();
     
@@ -120,7 +120,7 @@ fn test_respawn_carries_tags() {
     
     // Finish the task
     get_task_cmd()
-        .args(&["finish", &task_id.to_string(), "-y"])
+        .args(&["close", &task_id.to_string(), "-y"])
         .assert()
         .success();
     
@@ -157,13 +157,13 @@ fn test_respawn_resets_status() {
     
     // Finish the task
     get_task_cmd()
-        .args(&["finish", &task_id.to_string(), "-y"])
+        .args(&["close", &task_id.to_string(), "-y"])
         .assert()
         .success();
     
     // Verify original is completed
     let original = TaskRepo::get_by_id(&conn, task_id).unwrap().unwrap();
-    assert_eq!(original.status, tatl::models::TaskStatus::Completed);
+    assert_eq!(original.status, tatl::models::TaskStatus::Closed);
     
     // Get respawned task
     let tasks_after = TaskRepo::list_all(&conn).unwrap();
@@ -172,7 +172,7 @@ fn test_respawn_resets_status() {
         .expect("Should have respawned task");
     
     // Respawned task should have pending status
-    assert_eq!(respawned.status, tatl::models::TaskStatus::Pending, "Respawned task should be pending");
+    assert_eq!(respawned.status, tatl::models::TaskStatus::Open, "Respawned task should be open");
     
     drop(temp_dir);
 }
@@ -197,7 +197,7 @@ fn test_respawn_preserves_respawn_rule() {
     
     // Finish the task
     get_task_cmd()
-        .args(&["finish", &task_id.to_string(), "-y"])
+        .args(&["close", &task_id.to_string(), "-y"])
         .assert()
         .success();
     

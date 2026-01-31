@@ -44,15 +44,15 @@ fn test_event_status_changed_on_completion() {
     
     let task = TaskRepo::create(&conn, "Test task", None).unwrap();
     let task_id = task.id.unwrap();
-    
-    TaskRepo::complete(&conn, task_id).unwrap();
-    
+
+    TaskRepo::close(&conn, task_id).unwrap();
+
     // Verify status_changed event was recorded
     let mut stmt = conn.prepare("SELECT payload_json FROM task_events WHERE task_id = ?1 AND event_type = 'status_changed'").unwrap();
     let payload: String = stmt.query_row([task_id], |row| row.get(0)).unwrap();
     let payload_value: serde_json::Value = serde_json::from_str(&payload).unwrap();
-    assert_eq!(payload_value["old_status"], "pending");
-    assert_eq!(payload_value["new_status"], "completed");
+    assert_eq!(payload_value["old_status"], "open");
+    assert_eq!(payload_value["new_status"], "closed");
 }
 
 #[test]

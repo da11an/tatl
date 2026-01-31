@@ -33,11 +33,11 @@ fn test_task_list_table_formatting() {
     get_task_cmd(&temp_dir).args(&["add", "Task 1", "project=work", "+urgent"]).assert().success();
     get_task_cmd(&temp_dir).args(&["add", "Task 2"]).assert().success();
     
-    // List tasks - should show table format with Kanban column (replaced Status)
+    // List tasks - should show table format with Stage column
     get_task_cmd(&temp_dir).args(&["list"]).assert().success()
         .stdout(predicates::str::contains("ID"))
         .stdout(predicates::str::contains("Description"))
-        .stdout(predicates::str::contains("Kanban"));
+        .stdout(predicates::str::contains("Stage"));
     
     drop(temp_dir);
 }
@@ -180,20 +180,20 @@ fn test_task_list_priority_empty_for_completed() {
     get_task_cmd(&temp_dir).args(&["add", "Task to complete"]).assert().success();
     get_task_cmd(&temp_dir).args(&["enqueue", "1"]).assert().success();
     get_task_cmd(&temp_dir).args(&["on", "1"]).assert().success();
-    get_task_cmd(&temp_dir).args(&["finish", "1", "--yes"]).assert().success();
-    
-    // List tasks - completed tasks should not show priority
+    get_task_cmd(&temp_dir).args(&["close", "1", "--yes"]).assert().success();
+
+    // List tasks - closed tasks should not show priority
     let output = get_task_cmd(&temp_dir).args(&["list"]).assert().success();
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
-    
-    // Find the completed task line
-    let completed_line = stdout.lines()
-        .find(|l| l.contains("Task to complete") && l.contains("completed"));
-    
-    if let Some(line) = completed_line {
-        // Priority column should be empty for completed tasks
+
+    // Find the closed task line
+    let closed_line = stdout.lines()
+        .find(|l| l.contains("Task to complete") && l.contains("closed"));
+
+    if let Some(line) = closed_line {
+        // Priority column should be empty for closed tasks
         // The line should have spaces where priority would be
-        assert!(!line.contains("1.0"), "Completed task should not show priority 1.0");
+        assert!(!line.contains("1.0"), "Closed task should not show priority 1.0");
     }
     
     drop(temp_dir);

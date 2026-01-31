@@ -119,7 +119,7 @@ pub enum FilterTerm {
     Scheduled(ComparisonOp, String),
     Wait(ComparisonOp, String),
     Waiting,
-    Kanban(ComparisonOp, Vec<String>), // Supports comma-separated values
+    Stage(ComparisonOp, Vec<String>), // Supports comma-separated values
     Desc(ComparisonOp, String), // Description substring search (case-insensitive)
     External(ComparisonOp, String), // External recipient filter
 }
@@ -163,7 +163,7 @@ fn split_on_operator(token: &str) -> Option<(String, ComparisonOp, String)> {
 /// Known filter keys (exact match only)
 const FILTER_KEYS: &[&str] = &[
     "id", "status", "project", "due", "scheduled", "wait",
-    "kanban", "desc", "description", "external",
+    "stage", "desc", "description", "external",
 ];
 
 /// Resolve a filter key, supporting unambiguous prefix abbreviations.
@@ -245,14 +245,14 @@ fn parse_filter_term(token: &str) -> Result<Option<FilterTerm>, String> {
             "due" => Ok(Some(FilterTerm::Due(op, value))),
             "scheduled" => Ok(Some(FilterTerm::Scheduled(op, value))),
             "wait" => Ok(Some(FilterTerm::Wait(op, value))),
-            "kanban" => {
+            "stage" => {
                 if op != ComparisonOp::Eq && op != ComparisonOp::Neq {
-                    return Err(format!("Kanban filter only supports '=' and '!=' operators, got '{}'", format_op(&op)));
+                    return Err(format!("Stage filter only supports '=' and '!=' operators, got '{}'", format_op(&op)));
                 }
                 let values: Vec<String> = value.split(',')
                     .map(|v| v.trim().to_lowercase())
                     .collect();
-                Ok(Some(FilterTerm::Kanban(op, values)))
+                Ok(Some(FilterTerm::Stage(op, values)))
             },
             "desc" | "description" => {
                 if op != ComparisonOp::Eq && op != ComparisonOp::Neq {
@@ -455,11 +455,11 @@ mod tests {
 
     #[test]
     fn test_filter_status() {
-        let expr = parse_filter(vec!["status=pending".to_string()]).unwrap();
+        let expr = parse_filter(vec!["status=open".to_string()]).unwrap();
         match expr {
             FilterExpr::Term(FilterTerm::Status(op, statuses)) => {
                 assert_eq!(op, ComparisonOp::Eq);
-                assert_eq!(statuses, vec!["pending".to_string()]);
+                assert_eq!(statuses, vec!["open".to_string()]);
             }
             _ => panic!("Expected Status term"),
         }
@@ -467,15 +467,24 @@ mod tests {
 
     #[test]
     fn test_filter_key_abbreviation_unambiguous() {
-        // st=... should expand to status=...
-        let expr = parse_filter(vec!["st=pending".to_string()]).unwrap();
+        // stat=... should expand to status=... (unambiguous prefix)
+        let expr = parse_filter(vec!["stat=open".to_string()]).unwrap();
         match expr {
             FilterExpr::Term(FilterTerm::Status(op, statuses)) => {
                 assert_eq!(op, ComparisonOp::Eq);
-                assert_eq!(statuses, vec!["pending".to_string()]);
+                assert_eq!(statuses, vec!["open".to_string()]);
             }
             _ => panic!("Expected Status term"),
         }
+    }
+
+    #[test]
+    fn test_filter_key_abbreviation_st_now_ambiguous() {
+        // st=... is now ambiguous between status and stage
+        let err = parse_filter(vec!["st=open".to_string()]).unwrap_err();
+        assert!(err.contains("Ambiguous filter field"));
+        assert!(err.contains("status"));
+        assert!(err.contains("stage"));
     }
 
     #[test]
@@ -540,7 +549,7 @@ mod tests {
 
     #[test]
     fn test_status_rejects_comparison() {
-        let result = parse_filter(vec!["status>pending".to_string()]);
+        let result = parse_filter(vec!["status>open".to_string()]);
         assert!(result.is_err());
     }
 }

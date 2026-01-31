@@ -67,7 +67,7 @@ fn test_fill_column_parsing() {
         .success();
     
     get_task_cmd(&temp_dir)
-        .args(&["add", "Completed task", ":", "finish"])
+        .args(&["add", "Completed task", ":", "close"])
         .assert()
         .success();
     
@@ -81,10 +81,10 @@ fn test_fill_column_parsing() {
 }
 
 #[test]
-fn test_color_kanban() {
+fn test_color_stage() {
     let (temp_dir, _guard) = setup_test_env();
-    
-    // Create tasks with different kanban stages
+
+    // Create tasks with different stages
     get_task_cmd(&temp_dir)
         .args(&["add", "Proposed task"])
         .assert()
@@ -95,9 +95,9 @@ fn test_color_kanban() {
         .assert()
         .success();
     
-    // List with color:kanban should succeed
+    // List with color:stage should succeed
     get_task_cmd(&temp_dir)
-        .args(&["list", "color:kanban"])
+        .args(&["list", "color:stage"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Proposed task"))
@@ -174,7 +174,7 @@ fn test_color_combined_with_filter() {
     
     // Filter and color together
     get_task_cmd(&temp_dir)
-        .args(&["list", "project=work", "color:kanban"])
+        .args(&["list", "project=work", "color:stage"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Work task"))
