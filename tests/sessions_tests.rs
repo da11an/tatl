@@ -652,10 +652,9 @@ fn test_sessions_report_nested_projects() {
     
     // Should show hierarchical structure
     assert!(stdout.contains("client"), "Should show client top-level");
-    assert!(stdout.contains("web"), "Should show web sub-project");
-    assert!(stdout.contains("frontend"), "Should show frontend");
-    assert!(stdout.contains("backend"), "Should show backend");
-    assert!(stdout.contains("mobile"), "Should show mobile");
+    assert!(stdout.contains("├─ web"), "Should show branch for web");
+    assert!(stdout.contains("│ └─ backend"), "Should show nested branch for backend");
+    assert!(stdout.contains("└─ mobile"), "Should show last branch for mobile");
     
     // Total should be 4 hours
     assert!(stdout.contains("4h 00m"), "Total should be 4 hours");

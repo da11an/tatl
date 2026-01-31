@@ -1677,22 +1677,114 @@ fn insert_into_children(parent: &mut ProjectNode, parts: &[&str], full_path: &st
     }
 }
 
-/// Print project tree recursively with indentation
+fn truncate_with_ellipsis(text: &str, max_width: usize) -> String {
+    if max_width == 0 {
+        return String::new();
+    }
+    let len = text.chars().count();
+    if len <= max_width {
+        return text.to_string();
+    }
+    if max_width <= 2 {
+        return text.chars().take(max_width).collect();
+    }
+    let mut truncated: String = text.chars().take(max_width - 2).collect();
+    truncated.push_str("..");
+    truncated
+}
+
+fn render_tree_label(
+    prefix_flags: &[bool],
+    is_last: bool,
+    name: &str,
+    project_width: usize,
+) -> String {
+    if prefix_flags.is_empty() {
+        return truncate_with_ellipsis(name, project_width);
+    }
+
+    // Ancestor prefix (all but current depth)
+    let ancestor_flags = if prefix_flags.len() > 0 {
+        &prefix_flags[..prefix_flags.len() - 1]
+    } else {
+        &[]
+    };
+    let mut prefix = String::new();
+    for cont in ancestor_flags {
+        if *cont {
+            prefix.push_str("│ ");
+        } else {
+            prefix.push_str("  ");
+        }
+    }
+
+    let connector = if is_last { "└─ " } else { "├─ " };
+
+    let prefix_len = prefix.chars().count();
+    let connector_len = connector.chars().count();
+    let available_name = project_width.saturating_sub(prefix_len + connector_len);
+    let name_display = truncate_with_ellipsis(name, available_name);
+
+    format!("{prefix}{connector}{name_display}")
+}
+
+fn measure_tree_width(node: &ProjectNode, prefix_flags: &[bool], is_last: bool, current_max: usize) -> usize {
+    // Use a very large width to avoid truncation during measurement
+    let label = render_tree_label(prefix_flags, is_last, &node.name, usize::MAX / 4);
+    let mut max_width = current_max.max(label.chars().count());
+
+    let mut children: Vec<&ProjectNode> = node.children.values().collect();
+    children.sort_by(|a, b| {
+        b.total_secs.cmp(&a.total_secs)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+
+    let child_count = children.len();
+    for (idx, child) in children.into_iter().enumerate() {
+        let is_child_last = idx == child_count - 1;
+        let mut child_prefix = prefix_flags.to_vec();
+        child_prefix.push(!is_child_last);
+        max_width = measure_tree_width(child, &child_prefix, is_child_last, max_width);
+    }
+
+    max_width
+}
+
+/// Print project tree recursively with box drawing connectors
 fn print_project_tree(
     node: &ProjectNode,
-    depth: usize,
     total_secs: i64,
     project_width: usize,
+    prefix_flags: &[bool],
+    is_last: bool,
+    tty_mode: bool,
 ) {
-    let indent = "  ".repeat(depth);
-    let name_display = format!("{}{}", indent, node.name);
+    let name_display = render_tree_label(prefix_flags, is_last, &node.name, project_width);
     let time_str = format_duration_hm(node.total_secs);
     let pct_str = format_percentage(node.total_secs, total_secs);
     
-    println!("{:<width$} {:>12} {:>8}", name_display, time_str, pct_str, width = project_width);
+    let padded = format!("{:<width$}", name_display, width = project_width);
+    let project_cell = if prefix_flags.is_empty() {
+        // Bold top-level aggregates in TTY mode
+        bold_if_tty(&padded, tty_mode)
+    } else {
+        padded
+    };
+
+    println!("{project_cell} {:>12} {:>8}", time_str, pct_str);
     
-    for child in node.children.values() {
-        print_project_tree(child, depth + 1, total_secs, project_width);
+    let child_count = node.children.len();
+    let mut children: Vec<&ProjectNode> = node.children.values().collect();
+    children.sort_by(|a, b| {
+        b.total_secs.cmp(&a.total_secs)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+
+    for (idx, child) in children.into_iter().enumerate() {
+        let is_child_last = idx == child_count - 1;
+        let mut child_prefix = prefix_flags.to_vec();
+        child_prefix.push(!is_child_last);
+        print_project_tree(child, total_secs, project_width, &child_prefix, is_child_last, tty_mode);
     }
 }
 
@@ -1778,14 +1870,21 @@ pub fn handle_sessions_report(args: Vec<String>) -> Result<()> {
     let period_days = ((period_end - period_start) / 86400).max(1) + 1;
     
     // Print report
-    let project_width = 25;
+    let mut project_width = "Project".len().max("(no project)".len());
+    let root_count = roots.len();
+    for (idx, node) in roots.values().enumerate() {
+        let is_last = idx == root_count - 1;
+        project_width = measure_tree_width(node, &[], is_last, project_width);
+    }
+    let tty_mode = is_tty();
     
     println!("{:<width$} {:>12} {:>8}", "Project", "Time", "%", width = project_width);
     println!("{} {} {}", "─".repeat(project_width), "─".repeat(12), "─".repeat(8));
     
     // Print project hierarchy
-    for node in roots.values() {
-        print_project_tree(node, 0, grand_total, project_width);
+    for (idx, node) in roots.values().enumerate() {
+        let is_last = idx == root_count - 1;
+        print_project_tree(node, grand_total, project_width, &[], is_last, tty_mode);
     }
     
     // Print no-project time if any
