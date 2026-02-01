@@ -988,7 +988,12 @@ pub fn format_task_list_table(
         let mut values = HashMap::new();
         values.insert(TaskListColumn::Id, task.id.map(|id| id.to_string()).unwrap_or_else(|| "?".to_string()));
         values.insert(TaskListColumn::Queue, queue_pos_str.clone());
-        values.insert(TaskListColumn::Description, task.description.clone());
+        let desc_display = if task.respawn.is_some() {
+            format!("{} ↻", task.description)
+        } else {
+            task.description.clone()
+        };
+        values.insert(TaskListColumn::Description, desc_display);
         values.insert(TaskListColumn::Stage, stage.clone());
         values.insert(TaskListColumn::Project, project.clone());
         values.insert(TaskListColumn::Created, format_date(task.created_ts));
@@ -1172,28 +1177,32 @@ pub fn format_task_list_table(
         }
     }
 
-    // Build header
-    let mut output = String::new();
+    // Build header and separator strings (reused at top and bottom of table)
+    let mut header_line = String::new();
     for (idx, column) in columns.iter().enumerate() {
         let width = *column_widths.get(column).unwrap_or(&4);
         if idx == columns.len() - 1 {
-            output.push_str(&format!("{:<width$}\n", column_label(*column), width = width));
+            header_line.push_str(&format!("{:<width$}", column_label(*column), width = width));
         } else {
-            output.push_str(&format!("{:<width$} ", column_label(*column), width = width));
+            header_line.push_str(&format!("{:<width$} ", column_label(*column), width = width));
         }
     }
-    
-    // Separator line with per-column underlines (gaps between columns)
+    let mut separator_line = String::new();
     for (idx, column) in columns.iter().enumerate() {
         let width = *column_widths.get(column).unwrap_or(&4);
-        // Use Unicode box-drawing character for solid underline
         let underline = "─".repeat(width);
         if idx == columns.len() - 1 {
-            output.push_str(&format!("{}\n", underline));
+            separator_line.push_str(&underline);
         } else {
-            output.push_str(&format!("{} ", underline));
+            separator_line.push_str(&format!("{} ", underline));
         }
     }
+
+    let mut output = String::new();
+    output.push_str(&header_line);
+    output.push('\n');
+    output.push_str(&separator_line);
+    output.push('\n');
     
     // Apply sorting (ensure grouped rows are contiguous by sorting on group columns first)
     // Parse sort specs with negation support
@@ -1506,6 +1515,12 @@ pub fn format_task_list_table(
         }
     }
     
+    // Repeat separator + header at bottom of table
+    output.push_str(&separator_line);
+    output.push('\n');
+    output.push_str(&header_line);
+    output.push('\n');
+
     Ok(output)
 }
 

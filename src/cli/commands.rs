@@ -35,7 +35,7 @@ PIPE OPERATOR ' : ' (space-colon-space):
     tatl add \"Task\" : onoff 09:00..10:00 : close  # Create task, backfill 9-10 am session, close
 
   Supported piped commands include: add, modify, close, enqueue, cancel, reopen,
-  annotate, send, collect, on, dequeue, onoff, offon, off.")]
+  annotate, send, collect, on, dequeue, onoff, offon, off, clone.")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 pub struct Cli {
     #[command(subcommand)]
@@ -469,6 +469,37 @@ EXAMPLES:
         /// Task ID
         task_id: String,
     },
+    /// Clone (duplicate) a task
+    #[command(long_about = "Create a duplicate of an existing task with optional field overrides.
+
+Copies: description, project, due, scheduled, wait, allocation, template, tags, UDAs.
+Does NOT copy: sessions, annotations, externals, queue position, respawn rule.
+The new task is always created with open status.
+
+OVERRIDE SYNTAX (same as 'add' and 'modify'):
+  project=<name>     - Override project
+  due=<expr>         - Override due date
+  +<tag>             - Add tag
+  -<tag>             - Remove tag
+  uda.<key>=<value>  - Override UDA
+
+PIPE OPERATOR:
+  tatl close 10 : clone   # Close a task and create a fresh copy
+
+EXAMPLES:
+  tatl clone 10
+  tatl clone 10 project=other due=+7d
+  tatl clone 10 +urgent")]
+    Clone {
+        /// Source task ID
+        task_id: String,
+        /// Optional field overrides (same syntax as 'add')
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+        /// Auto-confirm prompts (create new projects)
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
     /// List external tasks
     #[command(long_about = "List all tasks that are currently with external parties. Shows task ID, description, recipient, and when it was sent.
 
@@ -808,13 +839,14 @@ fn execute_piped_command(task_id: i64, segment: &[String]) -> Result<i64> {
                     let end_ts = std::cmp::max(end_ts, session.start_ts + 1);
                     
                     if let Err(e) = SessionRepo::close_open(&conn, end_ts) {
-                        // If closing fails (e.g., session was already closed/purged), 
+                        // If closing fails (e.g., session was already closed/purged),
                         // just continue - idempotent behavior
                         eprintln!("Warning: Could not close session: {}", e);
                     } else {
                         let task = TaskRepo::get_by_id(&conn, task_id)?;
                         let desc = task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
-                        println!("Stopped timing task {}: {}", task_id, desc);
+                        let duration = end_ts - session.start_ts;
+                        println!("Stopped timing task {}: {} ({}, {})", task_id, desc, format_time(end_ts), format_duration_human(duration));
                     }
                 }
                 // If open session is for a different task, do nothing (idempotent)
@@ -828,9 +860,14 @@ fn execute_piped_command(task_id: i64, segment: &[String]) -> Result<i64> {
             handle_dequeue(Some(task_id.to_string()))?;
             Ok(task_id)
         }
+        "clone" => {
+            // Clone the task from previous command, with optional overrides
+            let new_id = handle_clone(task_id.to_string(), rest.to_vec(), false)?;
+            Ok(new_id)
+        }
         _ => {
             anyhow::bail!(
-                "Unknown pipe command: '{}'. Valid: on, onoff, enqueue, close, cancel, annotate, send, collect, off, dequeue",
+                "Unknown pipe command: '{}'. Valid: on, onoff, enqueue, close, cancel, annotate, send, collect, off, dequeue, clone",
                 cmd
             );
         }
@@ -1152,6 +1189,10 @@ fn handle_command(cli: Cli) -> Result<()> {
         },
         Commands::Collect { task_id } => {
             handle_collect(task_id)
+        },
+        Commands::Clone { task_id, args, yes } => {
+            handle_clone(task_id, args, yes)?;
+            Ok(())
         },
         Commands::Externals { filter } => {
             handle_externals(filter)
@@ -1941,6 +1982,20 @@ fn handle_send(task_id_str: String, recipient: String, request: Vec<String>) -> 
         return Err(anyhow::anyhow!("Task {} is already sent to {}", task_id, recipient));
     }
     
+    // Stop active timer if this task is being timed
+    let open_session = SessionRepo::get_open(&conn)?;
+    if let Some(session) = open_session {
+        if session.task_id == task_id {
+            let end_ts = chrono::Utc::now().timestamp();
+            let end_ts = std::cmp::max(end_ts, session.start_ts + 1);
+            SessionRepo::close_open(&conn, end_ts)
+                .context("Failed to close session")?;
+            let duration = end_ts - session.start_ts;
+            println!("Stopped timing task {}: {} ({}, {})",
+                task_id, task.description, format_time(end_ts), format_duration_human(duration));
+        }
+    }
+
     // Remove from queue if present
     let stack = StackRepo::get_or_create_default(&conn)?;
     if let Some(stack_id) = stack.id {
@@ -1949,16 +2004,16 @@ fn handle_send(task_id_str: String, recipient: String, request: Vec<String>) -> 
             StackRepo::remove_task(&conn, stack_id, task_id)?;
         }
     }
-    
+
     // Create external record
     let request_str = if request.is_empty() {
         None
     } else {
         Some(request.join(" "))
     };
-    
+
     ExternalRepo::create(&conn, task_id, recipient.clone(), request_str)?;
-    
+
     println!("Sent task {} to {}: {}", task_id, recipient, task.description);
     Ok(())
 }
@@ -2202,6 +2257,178 @@ fn handle_task_add(args: Vec<String>, auto_yes: bool) -> Result<i64> {
     println!("Created task {}: {}", task_id, description);
     
     Ok(task_id)
+}
+
+fn handle_clone(task_id_str: String, args: Vec<String>, auto_yes: bool) -> Result<i64> {
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+
+    let source_id = validate_task_id(&task_id_str)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let source = TaskRepo::get_by_id(&conn, source_id)?
+        .ok_or_else(|| anyhow::anyhow!("Task {} not found", source_id))?;
+    let source_tags = TaskRepo::get_tags(&conn, source_id)?;
+
+    // Parse override arguments (if any)
+    let overrides = if !args.is_empty() {
+        let parsed = match parse_task_args(args) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        };
+        Some(parsed)
+    } else {
+        None
+    };
+
+    // Start with source values, apply overrides
+    let description = if let Some(ref o) = overrides {
+        if !o.description.is_empty() {
+            join_description(&o.description)
+        } else {
+            source.description.clone()
+        }
+    } else {
+        source.description.clone()
+    };
+
+    // Resolve project: override > source
+    let project_id = if let Some(ref o) = overrides {
+        if let Some(ref project_name) = o.project {
+            if project_name == "none" || project_name.is_empty() {
+                None
+            } else {
+                let project = ProjectRepo::get_by_name(&conn, project_name)?;
+                if let Some(p) = project {
+                    Some(p.id.unwrap())
+                } else if auto_yes {
+                    if let Err(e) = validate_project_name(project_name) {
+                        user_error(&e);
+                    }
+                    let project = ProjectRepo::create(&conn, project_name)?;
+                    println!("Created project '{}' (id: {})", project.name, project.id.unwrap());
+                    Some(project.id.unwrap())
+                } else {
+                    match prompt_create_project(project_name, &conn)? {
+                        Some(true) => {
+                            if let Err(e) = validate_project_name(project_name) {
+                                user_error(&e);
+                            }
+                            let project = ProjectRepo::create(&conn, project_name)?;
+                            println!("Created project '{}' (id: {})", project.name, project.id.unwrap());
+                            Some(project.id.unwrap())
+                        }
+                        Some(false) => None,
+                        None => {
+                            println!("Cancelled.");
+                            std::process::exit(0);
+                        }
+                    }
+                }
+            }
+        } else {
+            source.project_id
+        }
+    } else {
+        source.project_id
+    };
+
+    let due_ts = if let Some(ref o) = overrides {
+        if let Some(ref due) = o.due {
+            Some(parse_date_expr(due).context("Failed to parse due date")?)
+        } else {
+            source.due_ts
+        }
+    } else {
+        source.due_ts
+    };
+
+    let scheduled_ts = if let Some(ref o) = overrides {
+        if let Some(ref scheduled) = o.scheduled {
+            Some(parse_date_expr(scheduled).context("Failed to parse scheduled date")?)
+        } else {
+            source.scheduled_ts
+        }
+    } else {
+        source.scheduled_ts
+    };
+
+    let wait_ts = if let Some(ref o) = overrides {
+        if let Some(ref wait) = o.wait {
+            Some(parse_date_expr(wait).context("Failed to parse wait date")?)
+        } else {
+            source.wait_ts
+        }
+    } else {
+        source.wait_ts
+    };
+
+    let alloc_secs = if let Some(ref o) = overrides {
+        if let Some(ref allocation) = o.allocation {
+            Some(parse_duration(allocation).context("Failed to parse allocation duration")?)
+        } else {
+            source.alloc_secs
+        }
+    } else {
+        source.alloc_secs
+    };
+
+    // Merge UDAs: start with source, apply overrides
+    let mut udas = source.udas.clone();
+    if let Some(ref o) = overrides {
+        for (k, v) in &o.udas {
+            if v.is_empty() {
+                udas.remove(k);
+            } else {
+                udas.insert(k.clone(), v.clone());
+            }
+        }
+    }
+
+    // Merge tags: start with source, apply adds/removes
+    let mut tags: Vec<String> = source_tags;
+    if let Some(ref o) = overrides {
+        for tag in &o.tags_remove {
+            tags.retain(|t| t != tag);
+        }
+        for tag in &o.tags_add {
+            if !tags.contains(tag) {
+                tags.push(tag.clone());
+            }
+        }
+    }
+
+    // Template: override > source
+    let template = if let Some(ref o) = overrides {
+        if o.template.is_some() { o.template.clone() } else { source.template.clone() }
+    } else {
+        source.template.clone()
+    };
+
+    // Always clear respawn on clone (one-shot operation)
+    let respawn: Option<String> = None;
+
+    let new_task = TaskRepo::create_full(
+        &conn,
+        &description,
+        project_id,
+        due_ts,
+        scheduled_ts,
+        wait_ts,
+        alloc_secs,
+        template,
+        respawn,
+        &udas,
+        &tags,
+    )
+    .context("Failed to create cloned task")?;
+
+    let new_id = new_task.id.unwrap();
+    println!("Cloned task {} → new task {}: {}", source_id, new_id, description);
+
+    Ok(new_id)
 }
 
 struct ListRequest {
@@ -2769,7 +2996,8 @@ fn handle_off(time_args: Vec<String>) -> Result<()> {
         // Get task description for better message
         let task = TaskRepo::get_by_id(&conn, task_id)?;
         let desc = task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
-        println!("Stopped timing task {}: {}", task_id, desc);
+        let duration = end_ts - session.start_ts;
+        println!("Stopped timing task {}: {} ({}, {})", task_id, desc, format_time(end_ts), format_duration_human(duration));
 
         // Invariant 3: external-waiting tasks are removed from queue when timer stops
         if ExternalRepo::has_active_externals(&conn, task_id)? {
@@ -3455,13 +3683,13 @@ fn handle_on_queue_top(conn: &Connection, args: Vec<String>) -> Result<()> {
         // Create open session
         SessionRepo::create(conn, task_id, start_ts)
             .context("Failed to start session")?;
-        
+
         // Get task description for better message
         let task = TaskRepo::get_by_id(conn, task_id)?;
         let desc = task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
-        println!("Started timing task {}: {}", task_id, desc);
+        println!("Started timing task {}: {} ({})", task_id, desc, format_time(start_ts));
     }
-    
+
     Ok(())
 }
 
@@ -3571,7 +3799,7 @@ fn handle_task_on(task_id_str: String, args: Vec<String>) -> Result<()> {
         SessionRepo::create(&tx, task_id, effective_start_ts)
             .context("Failed to start session")?;
         tx.commit()?;
-        println!("Started timing task {}: {}", task_id, task_desc);
+        println!("Started timing task {}: {} ({})", task_id, task_desc, format_time(effective_start_ts));
     }
     
     Ok(())
@@ -4067,6 +4295,12 @@ fn handle_task_close(
                 effective_end_ts = std::cmp::max(end_ts, session.start_ts + 1);
                 SessionRepo::close_open(&conn, effective_end_ts)
                     .context("Failed to close session")?;
+                let duration = effective_end_ts - session.start_ts;
+                let task_desc = TaskRepo::get_by_id(&conn, *task_id)?
+                    .map(|t| t.description)
+                    .unwrap_or_default();
+                println!("Stopped timing task {}: {} ({}, {})",
+                    task_id, task_desc, format_time(effective_end_ts), format_duration_human(duration));
             }
         }
         // Note: We allow closing tasks even if no session is running
@@ -4108,15 +4342,15 @@ fn handle_task_close(
 
         println!("Closed task {}", task_id);
     }
-    
+
     Ok(())
 }
 
 fn handle_close_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64) -> Result<()> {
     use std::io::{self, Write};
-    
+
     let open_session = SessionRepo::get_open(conn)?;
-    
+
     for task_id in task_ids {
         // Get task description for display
         let task = TaskRepo::get_by_id(conn, *task_id)?;
@@ -4125,20 +4359,20 @@ fn handle_close_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64) ->
             continue; // Continue processing other tasks
         }
         let task = task.unwrap();
-        
+
         // Prompt for confirmation
         print!("Close task {} ({})? (y/n): ", task_id, task.description);
         io::stdout().flush()?;
-        
+
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
         let input = input.trim().to_lowercase();
-        
+
         if input != "y" && input != "yes" {
             println!("Skipped task {}.", task_id);
             continue;
         }
-        
+
         // Close the session if this is the running task
         let mut effective_end_ts = end_ts;
         if let Some(session) = &open_session {
@@ -4146,9 +4380,12 @@ fn handle_close_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64) ->
                 effective_end_ts = std::cmp::max(end_ts, session.start_ts + 1);
                 SessionRepo::close_open(conn, effective_end_ts)
                     .context("Failed to close session")?;
+                let duration = effective_end_ts - session.start_ts;
+                println!("Stopped timing task {}: {} ({}, {})",
+                    task_id, task.description, format_time(effective_end_ts), format_duration_human(duration));
             }
         }
-        
+
         // Mark task as closed (intent fulfilled)
         TaskRepo::close(conn, *task_id)
             .context("Failed to close task")?;
@@ -4182,7 +4419,7 @@ fn handle_close_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64) ->
 
         println!("Closed task {}", task_id);
     }
-    
+
     Ok(())
 }
 
