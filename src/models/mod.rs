@@ -7,6 +7,7 @@ pub mod session;
 pub mod stack;
 pub mod annotation;
 pub mod external;
+pub mod stage;
 
 pub use task::*;
 pub use project::*;
@@ -14,3 +15,4 @@ pub use session::*;
 pub use stack::*;
 pub use annotation::*;
 pub use external::*;
+pub use stage::*;

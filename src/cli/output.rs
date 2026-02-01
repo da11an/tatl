@@ -1,7 +1,7 @@
 // Output formatting utilities
 
-use crate::models::{Task, TaskStatus};
-use crate::repo::{ProjectRepo, SessionRepo, StackRepo, TaskRepo, ExternalRepo};
+use crate::models::{Task, TaskStatus, StageMapping};
+use crate::repo::{ProjectRepo, SessionRepo, StackRepo, TaskRepo, ExternalRepo, StageRepo};
 use crate::cli::priority::calculate_priority;
 use chrono::Local;
 use rusqlite::Connection;
@@ -62,31 +62,102 @@ const CATEGORICAL_BG_PALETTE: &[&str] = &[
     ANSI_BG_BRIGHT_BLACK,
 ];
 
+/// Map a color name string to its ANSI foreground constant
+fn color_name_to_fg(name: &str) -> Option<&'static str> {
+    match name {
+        "black" => Some(ANSI_FG_BLACK),
+        "red" => Some(ANSI_FG_RED),
+        "green" => Some(ANSI_FG_GREEN),
+        "yellow" => Some(ANSI_FG_YELLOW),
+        "blue" => Some(ANSI_FG_BLUE),
+        "magenta" => Some(ANSI_FG_MAGENTA),
+        "cyan" => Some(ANSI_FG_CYAN),
+        "white" => Some(ANSI_FG_WHITE),
+        "bright_black" => Some(ANSI_FG_BRIGHT_BLACK),
+        "bright_red" => Some("\x1b[91m"),
+        "bright_green" => Some(ANSI_FG_BRIGHT_GREEN),
+        "bright_yellow" => Some(ANSI_FG_BRIGHT_YELLOW),
+        "bright_blue" => Some(ANSI_FG_BRIGHT_BLUE),
+        "bright_magenta" => Some(ANSI_FG_BRIGHT_MAGENTA),
+        "bright_cyan" => Some(ANSI_FG_BRIGHT_CYAN),
+        "bright_white" => Some("\x1b[97m"),
+        _ => None,
+    }
+}
+
+/// Map a color name string to its ANSI background constant
+fn color_name_to_bg(name: &str) -> Option<&'static str> {
+    match name {
+        "black" => Some("\x1b[40m"),
+        "red" => Some(ANSI_BG_RED),
+        "green" => Some(ANSI_BG_GREEN),
+        "yellow" => Some(ANSI_BG_YELLOW),
+        "blue" => Some(ANSI_BG_BLUE),
+        "magenta" => Some(ANSI_BG_MAGENTA),
+        "cyan" => Some(ANSI_BG_CYAN),
+        "white" => Some("\x1b[47m"),
+        "bright_black" => Some(ANSI_BG_BRIGHT_BLACK),
+        "bright_red" => Some("\x1b[101m"),
+        "bright_green" => Some("\x1b[102m"),
+        "bright_yellow" => Some("\x1b[103m"),
+        "bright_blue" => Some("\x1b[104m"),
+        "bright_magenta" => Some("\x1b[105m"),
+        "bright_cyan" => Some("\x1b[106m"),
+        "bright_white" => Some("\x1b[107m"),
+        _ => None,
+    }
+}
+
 /// Semantic colors for known column values
+/// For the "stage" column, looks up colors from the stage map if available.
 fn get_semantic_fg_color(column: &str, value: &str) -> Option<&'static str> {
+    get_semantic_fg_color_with_stage_map(column, value, None)
+}
+
+/// Semantic colors with optional stage map lookup
+fn get_semantic_fg_color_with_stage_map(column: &str, value: &str, stage_map: Option<&[StageMapping]>) -> Option<&'static str> {
     match column {
         "status" => match value {
-            "open" => None, // Default color
+            "open" => None,
             "closed" => Some(ANSI_FG_GREEN),
             "cancelled" => Some(ANSI_FG_BRIGHT_BLACK),
             _ => None,
         },
-        "stage" => match value {
-            "proposed" => Some(ANSI_FG_BRIGHT_BLACK),
-            "planned" => Some(ANSI_FG_BLUE),
-            "in progress" => Some(ANSI_FG_CYAN),
-            "active" => Some(ANSI_FG_GREEN),
-            "suspended" => Some(ANSI_FG_YELLOW),
-            "external" => Some(ANSI_FG_MAGENTA),
-            "completed" => Some(ANSI_FG_BRIGHT_BLACK),
-            "cancelled" => Some(ANSI_FG_BRIGHT_BLACK),
-            _ => None,
+        "stage" => {
+            // Try stage map first
+            if let Some(mappings) = stage_map {
+                if let Some(mapping) = mappings.iter().find(|m| m.stage.eq_ignore_ascii_case(value)) {
+                    if let Some(ref color) = mapping.color {
+                        if color == "none" {
+                            return None;
+                        }
+                        return color_name_to_fg(color);
+                    }
+                    return None;
+                }
+            }
+            // Fallback to hardcoded defaults
+            match value {
+                "proposed" => Some(ANSI_FG_BRIGHT_BLACK),
+                "planned" => Some(ANSI_FG_BLUE),
+                "in progress" => Some(ANSI_FG_CYAN),
+                "active" => Some(ANSI_FG_GREEN),
+                "suspended" => Some(ANSI_FG_YELLOW),
+                "external" => Some(ANSI_FG_MAGENTA),
+                "completed" => Some(ANSI_FG_BRIGHT_BLACK),
+                "cancelled" => Some(ANSI_FG_BRIGHT_BLACK),
+                _ => None,
+            }
         },
         _ => None,
     }
 }
 
 fn get_semantic_bg_color(column: &str, value: &str) -> Option<&'static str> {
+    get_semantic_bg_color_with_stage_map(column, value, None)
+}
+
+fn get_semantic_bg_color_with_stage_map(column: &str, value: &str, stage_map: Option<&[StageMapping]>) -> Option<&'static str> {
     match column {
         "status" => match value {
             "open" => None,
@@ -94,16 +165,29 @@ fn get_semantic_bg_color(column: &str, value: &str) -> Option<&'static str> {
             "cancelled" => Some(ANSI_BG_BRIGHT_BLACK),
             _ => None,
         },
-        "stage" => match value {
-            "proposed" => Some(ANSI_BG_BRIGHT_BLACK),
-            "planned" => Some(ANSI_BG_BLUE),
-            "in progress" => Some(ANSI_BG_CYAN),
-            "active" => Some(ANSI_BG_GREEN),
-            "suspended" => Some(ANSI_BG_YELLOW),
-            "external" => Some(ANSI_BG_MAGENTA),
-            "completed" => Some(ANSI_BG_BRIGHT_BLACK),
-            "cancelled" => Some(ANSI_BG_BRIGHT_BLACK),
-            _ => None,
+        "stage" => {
+            if let Some(mappings) = stage_map {
+                if let Some(mapping) = mappings.iter().find(|m| m.stage.eq_ignore_ascii_case(value)) {
+                    if let Some(ref color) = mapping.color {
+                        if color == "none" {
+                            return None;
+                        }
+                        return color_name_to_bg(color);
+                    }
+                    return None;
+                }
+            }
+            match value {
+                "proposed" => Some(ANSI_BG_BRIGHT_BLACK),
+                "planned" => Some(ANSI_BG_BLUE),
+                "in progress" => Some(ANSI_BG_CYAN),
+                "active" => Some(ANSI_BG_GREEN),
+                "suspended" => Some(ANSI_BG_YELLOW),
+                "external" => Some(ANSI_BG_MAGENTA),
+                "completed" => Some(ANSI_BG_BRIGHT_BLACK),
+                "cancelled" => Some(ANSI_BG_BRIGHT_BLACK),
+                _ => None,
+            }
         },
         _ => None,
     }
@@ -338,18 +422,11 @@ fn bold_if_tty(text: &str, is_tty: bool) -> String {
     }
 }
 
-/// Stage status values (derived from task state - Plan 41 classification)
+/// Stage status values (derived from task state via stage_map table)
 ///
-/// | Stage       | Condition                                                    |
-/// | ----------- | ------------------------------------------------------------ |
-/// | completed   | task.status == Closed                                        |
-/// | cancelled   | task.status == Cancelled                                     |
-/// | active      | Open session for this task (actively being timed)            |
-/// | external    | Has active externals (waiting on external party)             |
-/// | in progress | In queue AND has sessions (work started, in queue)           |
-/// | planned     | In queue but no sessions yet (queued, not started)           |
-/// | suspended   | Not in queue but has sessions (work started, pulled out)     |
-/// | proposed    | Not in queue, no sessions (new task, not started)            |
+/// Uses the stage_map table to look up the stage label for a given combination
+/// of task state booleans. Falls back to hardcoded defaults if no stage map
+/// is provided.
 ///
 /// Note: Q column shows exact queue position (0, 1, 2, etc. or @ for external)
 pub fn calculate_stage_status(
@@ -358,43 +435,38 @@ pub fn calculate_stage_status(
     has_sessions: bool,
     open_session_task_id: Option<i64>,
     has_externals: bool,
-) -> &'static str {
-    // Terminal states first
+    stage_map: Option<&[StageMapping]>,
+) -> String {
+    let status = task.status.as_str();
+    let in_queue = stack_position.is_some();
+    let has_open_session = open_session_task_id.map_or(false, |tid| task.id == Some(tid));
+
+    if let Some(mappings) = stage_map {
+        if let Some(mapping) = StageRepo::lookup_from_cache(
+            mappings, status, in_queue, has_sessions, has_open_session, has_externals,
+        ) {
+            return mapping.stage.clone();
+        }
+    }
+
+    // Fallback to hardcoded defaults if no mapping found
     if task.status == TaskStatus::Closed {
-        return "completed";
+        return "completed".to_string();
     }
     if task.status == TaskStatus::Cancelled {
-        return "cancelled";
+        return "cancelled".to_string();
     }
-
-    // Active timer (open session for this task)
-    if let Some(open_tid) = open_session_task_id {
-        if task.id == Some(open_tid) {
-            return "active";
-        }
+    if has_open_session {
+        return "active".to_string();
     }
-
-    // External waiting
     if has_externals {
-        return "external";
+        return "external".to_string();
     }
-
-    // Internal open states based on queue position and session history
-    match stack_position {
-        Some(_pos) => {
-            if has_sessions {
-                "in progress"  // In queue with prior work
-            } else {
-                "planned"      // In queue but not started
-            }
-        }
-        None => {
-            if has_sessions {
-                "suspended"    // Has sessions but not in queue
-            } else {
-                "proposed"     // New task, not started
-            }
-        }
+    match (in_queue, has_sessions) {
+        (true, true) => "in progress".to_string(),
+        (true, false) => "planned".to_string(),
+        (false, true) => "suspended".to_string(),
+        (false, false) => "proposed".to_string(),
     }
 }
 
@@ -523,8 +595,13 @@ fn parse_sort_spec(spec: &str) -> SortSpec {
 }
 
 /// Ordinal value for stage status (workflow progression)
-/// Order: proposed → planned → suspended → external → in progress → active → completed → cancelled
-fn stage_sort_order(stage: &str) -> i64 {
+/// Looks up sort_order from stage map if available, falls back to hardcoded defaults.
+fn stage_sort_order(stage: &str, stage_map: Option<&[StageMapping]>) -> i64 {
+    if let Some(mappings) = stage_map {
+        if let Some(mapping) = mappings.iter().find(|m| m.stage.eq_ignore_ascii_case(stage)) {
+            return mapping.sort_order;
+        }
+    }
     match stage.to_lowercase().as_str() {
         "proposed" => 0,
         "planned" => 1,
@@ -808,6 +885,7 @@ pub fn format_task_list_table(
     let tasks_with_sessions = get_tasks_with_sessions(conn)?;
     let tasks_with_externals = get_tasks_with_externals(conn)?;
     let open_session_task_id = SessionRepo::get_open(conn)?.map(|s| s.task_id);
+    let stage_map = StageRepo::load_map(conn).unwrap_or_default();
     
     let mut rows: Vec<TaskRow> = Vec::new();
     for (task, tags) in tasks {
@@ -821,6 +899,7 @@ pub fn format_task_list_table(
             has_sessions,
             open_session_task_id,
             has_externals,
+            Some(&stage_map),
         );
         
         let project = if let Some(project_id) = task.project_id {
@@ -910,7 +989,7 @@ pub fn format_task_list_table(
         values.insert(TaskListColumn::Id, task.id.map(|id| id.to_string()).unwrap_or_else(|| "?".to_string()));
         values.insert(TaskListColumn::Queue, queue_pos_str.clone());
         values.insert(TaskListColumn::Description, task.description.clone());
-        values.insert(TaskListColumn::Stage, stage.to_string());
+        values.insert(TaskListColumn::Stage, stage.clone());
         values.insert(TaskListColumn::Project, project.clone());
         values.insert(TaskListColumn::Created, format_date(task.created_ts));
         values.insert(TaskListColumn::Tags, tag_str.clone());
@@ -925,7 +1004,7 @@ pub fn format_task_list_table(
         // Queue position for sorting: tasks not in queue sort to the end (use i64::MAX)
         sort_values.insert(TaskListColumn::Queue, Some(SortValue::Int(stack_pos.map(|p| p as i64).unwrap_or(i64::MAX))));
         sort_values.insert(TaskListColumn::Description, Some(SortValue::Str(task.description.clone())));
-        sort_values.insert(TaskListColumn::Stage, Some(SortValue::Int(stage_sort_order(stage))));
+        sort_values.insert(TaskListColumn::Stage, Some(SortValue::Int(stage_sort_order(&stage, Some(&stage_map)))));
         sort_values.insert(TaskListColumn::Project, Some(SortValue::Str(project)));
         sort_values.insert(TaskListColumn::Created, Some(SortValue::Int(task.created_ts)));
         sort_values.insert(TaskListColumn::Tags, Some(SortValue::Str(tag_str)));

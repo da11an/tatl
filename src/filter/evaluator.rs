@@ -21,7 +21,7 @@
 //! - `stage=<stage>` - Derived: matches tasks by stage (proposed, planned, in progress, suspended, active, external, completed, cancelled)
 
 use crate::models::{Task, TaskStatus};
-use crate::repo::{TaskRepo, SessionRepo, StackRepo, ExternalRepo};
+use crate::repo::{TaskRepo, SessionRepo, StackRepo, ExternalRepo, StageRepo};
 use crate::filter::parser::{FilterTerm, ComparisonOp};
 use rusqlite::Connection;
 use anyhow::Result;
@@ -318,47 +318,27 @@ impl FilterTerm {
     }
 }
 
-/// Calculate the derived stage for a task (Plan 41 classification)
+/// Calculate the derived stage for a task using the stage_map table.
 ///
-/// Precedence (highest wins):
-/// 1. Closed (status=closed) → "completed"
-/// 2. Cancelled (status=cancelled) → "cancelled"
-/// 3. Active (timer on) → "active"
-/// 4. External (waiting on external party) → "external"
-/// 5. Internal open state mapping:
-///    | Queue | Work History | Stage      |
-///    | No    | No           | proposed   |
-///    | Yes   | No           | planned    |
-///    | Yes   | Yes          | in progress|
-///    | No    | Yes          | suspended  |
+/// Computes five booleans (status, in_queue, has_sessions, has_open_session,
+/// has_externals) and looks up the matching row in stage_map.
 pub fn calculate_task_stage(task: &Task, conn: &Connection) -> Result<String> {
-    // 1. Closed → completed
-    if task.status == TaskStatus::Closed {
-        return Ok("completed".to_string());
-    }
+    let status = task.status.as_str();
 
-    // 2. Cancelled → cancelled
-    if task.status == TaskStatus::Cancelled {
-        return Ok("cancelled".to_string());
+    // Terminal statuses: lookup directly
+    if task.status == TaskStatus::Closed || task.status == TaskStatus::Cancelled {
+        let mapping = StageRepo::lookup(conn, status, false, false, false, false)?;
+        return Ok(mapping.stage);
     }
 
     let task_id = task.id.unwrap_or(0);
 
-    // 3. Active (timer on) → active
+    // Compute booleans
     let open_session = SessionRepo::get_open(conn)?;
-    if let Some(ref session) = open_session {
-        if session.task_id == task_id {
-            return Ok("active".to_string());
-        }
-    }
+    let has_open_session = open_session.as_ref().map_or(false, |s| s.task_id == task_id);
 
-    // 4. External waiting → external
     let has_externals = ExternalRepo::has_active_externals(conn, task_id)?;
-    if has_externals {
-        return Ok("external".to_string());
-    }
 
-    // 5. Internal open state mapping
     let stack = StackRepo::get_or_create_default(conn)?;
     let items = StackRepo::get_items(conn, stack.id.unwrap())?;
     let in_queue = items.iter().any(|item| item.task_id == task_id);
@@ -366,12 +346,8 @@ pub fn calculate_task_stage(task: &Task, conn: &Connection) -> Result<String> {
     let all_sessions = SessionRepo::list_all(conn)?;
     let has_sessions = all_sessions.iter().any(|s| s.task_id == task_id);
 
-    Ok(match (in_queue, has_sessions) {
-        (false, false) => "proposed".to_string(),
-        (true, false) => "planned".to_string(),
-        (true, true) => "in progress".to_string(),
-        (false, true) => "suspended".to_string(),
-    })
+    let mapping = StageRepo::lookup(conn, status, in_queue, has_sessions, has_open_session, has_externals)?;
+    Ok(mapping.stage)
 }
 
 /// Get tasks matching a filter expression

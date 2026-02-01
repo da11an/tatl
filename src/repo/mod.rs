@@ -7,6 +7,7 @@ pub mod event;
 pub mod template;
 pub mod view;
 pub mod external;
+pub mod stage;
 
 pub use project::*;
 pub use task::*;
@@ -17,3 +18,4 @@ pub use event::*;
 pub use template::*;
 pub use view::*;
 pub use external::*;
+pub use stage::*;

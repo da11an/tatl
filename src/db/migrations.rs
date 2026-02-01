@@ -2,7 +2,7 @@ use rusqlite::{Connection, Result};
 use std::collections::HashMap;
 
 /// Current database schema version
-const CURRENT_VERSION: u32 = 8;
+const CURRENT_VERSION: u32 = 9;
 
 /// Migration system for managing database schema versions
 pub struct MigrationManager;
@@ -90,6 +90,7 @@ fn get_migrations() -> HashMap<u32, fn(&rusqlite::Transaction) -> Result<(), rus
     migrations.insert(6, migration_v6);
     migrations.insert(7, migration_v7);
     migrations.insert(8, migration_v8);
+    migrations.insert(9, migration_v9);
     migrations
 }
 
@@ -598,6 +599,69 @@ fn migration_v8(tx: &rusqlite::Transaction) -> Result<(), rusqlite::Error> {
         )",
         [],
     )?;
+
+    Ok(())
+}
+
+/// Migration v9: Add stage_map table for configurable stage derivation
+///
+/// Creates a stage_map table that maps task state booleans (status, in_queue,
+/// has_sessions, has_open_session, has_externals) to stage labels with sort
+/// order and color. Replaces hardcoded stage derivation logic.
+fn migration_v9(tx: &rusqlite::Transaction) -> Result<(), rusqlite::Error> {
+    tx.execute(
+        "CREATE TABLE stage_map (
+            id               INTEGER PRIMARY KEY,
+            status           TEXT NOT NULL,
+            in_queue         INTEGER NOT NULL,
+            has_sessions     INTEGER NOT NULL,
+            has_open_session INTEGER NOT NULL,
+            has_externals    INTEGER NOT NULL,
+            stage            TEXT NOT NULL,
+            sort_order       INTEGER NOT NULL,
+            color            TEXT
+        )",
+        [],
+    )?;
+
+    // Seed 12 rows matching the current default stage derivation logic.
+    // For terminal statuses (closed, cancelled), -1 means wildcard (match any value).
+    // id  status     queue  sess  timer  ext   stage        sort  color
+    //  1  open       0      0     0      0     proposed     0     bright_black
+    //  2  open       0      0     0      1     external     3     magenta
+    //  3  open       0      1     0      0     suspended    2     yellow
+    //  4  open       0      1     0      1     external     3     magenta
+    //  5  open       1      0     0      0     planned      1     blue
+    //  6  open       1      0     0      1     external     3     magenta
+    //  7  open       1      1     0      0     in progress  4     cyan
+    //  8  open       1      1     0      1     external     3     magenta
+    //  9  open       1      1     1      0     active       5     green
+    // 10  open       1      1     1      1     active       5     green
+    // 11  closed     -1     -1    -1     -1    completed    6     bright_black
+    // 12  cancelled  -1     -1    -1     -1    cancelled    7     bright_black
+
+    let rows: &[(&str, i8, i8, i8, i8, &str, i64, &str)] = &[
+        ("open",      0,  0,  0,  0, "proposed",    0, "bright_black"),
+        ("open",      0,  0,  0,  1, "external",    3, "magenta"),
+        ("open",      0,  1,  0,  0, "suspended",   2, "yellow"),
+        ("open",      0,  1,  0,  1, "external",    3, "magenta"),
+        ("open",      1,  0,  0,  0, "planned",     1, "blue"),
+        ("open",      1,  0,  0,  1, "external",    3, "magenta"),
+        ("open",      1,  1,  0,  0, "in progress", 4, "cyan"),
+        ("open",      1,  1,  0,  1, "external",    3, "magenta"),
+        ("open",      1,  1,  1,  0, "active",      5, "green"),
+        ("open",      1,  1,  1,  1, "active",      5, "green"),
+        ("closed",   -1, -1, -1, -1, "completed",   6, "bright_black"),
+        ("cancelled",-1, -1, -1, -1, "cancelled",   7, "bright_black"),
+    ];
+
+    for (status, in_queue, has_sessions, has_open_session, has_externals, stage, sort_order, color) in rows {
+        tx.execute(
+            "INSERT INTO stage_map (status, in_queue, has_sessions, has_open_session, has_externals, stage, sort_order, color)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![status, in_queue, has_sessions, has_open_session, has_externals, stage, sort_order, color],
+        )?;
+    }
 
     Ok(())
 }

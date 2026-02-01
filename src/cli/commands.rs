@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use rusqlite::Connection;
 use chrono::{Local, TimeZone};
 use crate::db::DbConnection;
-use crate::repo::{ProjectRepo, TaskRepo, StackRepo, SessionRepo, AnnotationRepo, TemplateRepo, ViewRepo, ExternalRepo};
+use crate::repo::{ProjectRepo, TaskRepo, StackRepo, SessionRepo, AnnotationRepo, TemplateRepo, ViewRepo, ExternalRepo, StageRepo};
 use crate::models::TaskStatus;
 use crate::cli::parser::{parse_task_args, join_description};
 use crate::cli::commands_sessions::{handle_task_sessions_list_with_filter, handle_task_sessions_show_with_filter, handle_sessions_modify, handle_sessions_delete, handle_sessions_report};
@@ -513,6 +513,52 @@ EXAMPLES:
         /// Time period for statistics (week, month, year)
         #[arg(long, default_value = "week")]
         period: String,
+    },
+    /// View or configure stage mappings
+    #[command(long_about = "View or configure the stage mapping table. Stages are derived from task state
+(status, queue membership, session history, active timer, external status) and mapped
+to configurable labels with sort order and color.
+
+SUBCOMMANDS:
+  tatl stages              Show the current stage mapping table
+  tatl stages list         Same as above
+  tatl stages set <id> ... Update a mapping row
+
+EXAMPLES:
+  tatl stages
+  tatl stages set 3 backlog
+  tatl stages set 3 color=cyan sort_order=1
+  tatl stages set 7 \"working\" sort_order=4 color=green")]
+    Stages {
+        #[command(subcommand)]
+        subcommand: Option<StagesCommands>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum StagesCommands {
+    /// List stage mappings
+    List,
+    /// Update a stage mapping row
+    #[command(long_about = "Update a stage mapping row by ID.
+
+The first positional argument is the row ID. Subsequent arguments can be:
+  - A plain string: sets the stage name (e.g., \"backlog\")
+  - sort_order=N: sets the sort order
+  - color=name: sets the color (valid: black, red, green, yellow, blue, magenta, cyan, white,
+    bright_black, bright_red, bright_green, bright_yellow, bright_blue, bright_magenta,
+    bright_cyan, bright_white, none)
+
+EXAMPLES:
+  tatl stages set 3 backlog
+  tatl stages set 3 color=cyan sort_order=1
+  tatl stages set 7 \"working\" sort_order=4 color=green")]
+    Set {
+        /// Row ID to update
+        id: i64,
+        /// Stage name and/or field=value pairs (sort_order=N, color=name)
+        #[arg(trailing_var_arg = true)]
+        args: Vec<String>,
     },
 }
 
@@ -1140,6 +1186,7 @@ fn handle_command(cli: Cli) -> Result<()> {
         Commands::Report { period } => {
             handle_report(period)
         }
+        Commands::Stages { subcommand } => handle_stages(subcommand),
     }
 }
 
@@ -1625,122 +1672,131 @@ fn handle_projects_report(conn: &Connection) -> Result<()> {
     use std::collections::BTreeMap;
     use crate::filter::calculate_task_stage;
 
-    // Get all tasks
-    let all_tasks = TaskRepo::list_all(conn)?;
-
-    // Build project hierarchy with counts by stage
-    #[derive(Default)]
-    struct ProjectStats {
-        proposed: i64,
-        planned: i64,
-        in_progress: i64,
-        suspended: i64,
-        active: i64,
-        external: i64,
-        completed: i64,
-        cancelled: i64,
-    }
-
-    impl ProjectStats {
-        fn total(&self) -> i64 {
-            self.proposed + self.planned + self.in_progress + self.suspended
-                + self.active + self.external + self.completed + self.cancelled
+    // Load stage map to get distinct stage names ordered by sort_order
+    let stage_map = StageRepo::load_map(conn).unwrap_or_default();
+    let mut stage_columns: Vec<String> = Vec::new();
+    {
+        let mut seen = std::collections::HashSet::new();
+        let mut sorted = stage_map.clone();
+        sorted.sort_by_key(|m| m.sort_order);
+        for m in &sorted {
+            if seen.insert(m.stage.clone()) {
+                stage_columns.push(m.stage.clone());
+            }
         }
     }
 
-    let mut project_stats: BTreeMap<String, ProjectStats> = BTreeMap::new();
-    let mut no_project_stats = ProjectStats::default();
+    // Get all tasks
+    let all_tasks = TaskRepo::list_all(conn)?;
 
-    // Calculate stage for each task
+    // Build project hierarchy with counts by stage (dynamic)
+    let mut project_stats: BTreeMap<String, HashMap<String, i64>> = BTreeMap::new();
+    let mut no_project_stats: HashMap<String, i64> = HashMap::new();
+
     for (task, _tags) in &all_tasks {
         let stage = calculate_task_stage(task, conn)?;
 
-        // Get project name and extract top-level project (aggregate children)
         let project_name = if let Some(pid) = task.project_id {
             let mut stmt = conn.prepare("SELECT name FROM projects WHERE id = ?1")?;
             let full_name: Option<String> = stmt.query_row([pid], |row| row.get::<_, String>(0)).ok();
-            // Extract top-level project (e.g., "work.email" -> "work")
             full_name.map(|n| n.split('.').next().unwrap_or(&n).to_string())
         } else {
             None
         };
 
-        // Update stats
         let stats = if let Some(name) = project_name {
             project_stats.entry(name).or_default()
         } else {
             &mut no_project_stats
         };
 
-        match stage.as_str() {
-            "proposed" => stats.proposed += 1,
-            "planned" => stats.planned += 1,
-            "in progress" => stats.in_progress += 1,
-            "suspended" => stats.suspended += 1,
-            "active" => stats.active += 1,
-            "external" => stats.external += 1,
-            "completed" => stats.completed += 1,
-            "cancelled" => stats.cancelled += 1,
-            _ => {}
-        }
+        *stats.entry(stage).or_insert(0) += 1;
     }
 
     // Calculate totals
-    let mut total_stats = ProjectStats::default();
+    let mut total_stats: HashMap<String, i64> = HashMap::new();
     for stats in project_stats.values() {
-        total_stats.proposed += stats.proposed;
-        total_stats.planned += stats.planned;
-        total_stats.in_progress += stats.in_progress;
-        total_stats.suspended += stats.suspended;
-        total_stats.active += stats.active;
-        total_stats.external += stats.external;
-        total_stats.completed += stats.completed;
-        total_stats.cancelled += stats.cancelled;
+        for (stage, count) in stats {
+            *total_stats.entry(stage.clone()).or_insert(0) += count;
+        }
     }
-    total_stats.proposed += no_project_stats.proposed;
-    total_stats.planned += no_project_stats.planned;
-    total_stats.in_progress += no_project_stats.in_progress;
-    total_stats.suspended += no_project_stats.suspended;
-    total_stats.active += no_project_stats.active;
-    total_stats.external += no_project_stats.external;
-    total_stats.completed += no_project_stats.completed;
-    total_stats.cancelled += no_project_stats.cancelled;
+    for (stage, count) in &no_project_stats {
+        *total_stats.entry(stage.clone()).or_insert(0) += count;
+    }
 
-    // Print report
-    let pw = 20; // project width
-    println!("{:<pw$} {:>8} {:>7} {:>7} {:>9} {:>6} {:>8} {:>9} {:>9} {:>6}",
-        "Project", "Proposed", "Planned", "In Prog", "Suspended", "Active", "External", "Completed", "Cancelled", "Total", pw = pw);
-    println!("{} {} {} {} {} {} {} {} {} {}",
-        "─".repeat(pw), "─".repeat(8), "─".repeat(7), "─".repeat(7),
-        "─".repeat(9), "─".repeat(6), "─".repeat(8), "─".repeat(9), "─".repeat(9), "─".repeat(6));
+    // Capitalize stage names for display headers
+    let capitalize = |s: &str| -> String {
+        let mut chars = s.chars();
+        match chars.next() {
+            None => String::new(),
+            Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+        }
+    };
+    let display_names: Vec<String> = stage_columns.iter().map(|n| capitalize(n)).collect();
 
+    // Column widths: minimum 7, or length of header
+    let pw = 20;
+    let col_widths: Vec<usize> = display_names.iter()
+        .map(|name| name.len().max(7))
+        .collect();
+
+    // Print header
+    print!("{:<pw$}", "Project", pw = pw);
+    for (i, name) in display_names.iter().enumerate() {
+        let header = if name.len() > col_widths[i] {
+            truncate_str(name, col_widths[i])
+        } else {
+            name.clone()
+        };
+        print!(" {:>width$}", header, width = col_widths[i]);
+    }
+    println!(" {:>6}", "Total");
+
+    // Separator
+    print!("{}", "─".repeat(pw));
+    for w in &col_widths {
+        print!(" {}", "─".repeat(*w));
+    }
+    println!(" {}", "─".repeat(6));
+
+    // Helper to compute total for a stats map
+    let stats_total = |stats: &HashMap<String, i64>| -> i64 {
+        stats.values().sum()
+    };
+
+    // Print project rows
     for (name, stats) in &project_stats {
-        println!("{:<pw$} {:>8} {:>7} {:>7} {:>9} {:>6} {:>8} {:>9} {:>9} {:>6}",
-            truncate_str(name, pw),
-            stats.proposed, stats.planned, stats.in_progress,
-            stats.suspended, stats.active, stats.external,
-            stats.completed, stats.cancelled, stats.total(),
-            pw = pw);
+        print!("{:<pw$}", truncate_str(name, pw), pw = pw);
+        for (i, stage) in stage_columns.iter().enumerate() {
+            let count = stats.get(stage).copied().unwrap_or(0);
+            print!(" {:>width$}", count, width = col_widths[i]);
+        }
+        println!(" {:>6}", stats_total(stats));
     }
 
-    if no_project_stats.total() > 0 {
-        println!("{:<pw$} {:>8} {:>7} {:>7} {:>9} {:>6} {:>8} {:>9} {:>9} {:>6}",
-            "(no project)",
-            no_project_stats.proposed, no_project_stats.planned, no_project_stats.in_progress,
-            no_project_stats.suspended, no_project_stats.active, no_project_stats.external,
-            no_project_stats.completed, no_project_stats.cancelled, no_project_stats.total(),
-            pw = pw);
+    if stats_total(&no_project_stats) > 0 {
+        print!("{:<pw$}", "(no project)", pw = pw);
+        for (i, stage) in stage_columns.iter().enumerate() {
+            let count = no_project_stats.get(stage).copied().unwrap_or(0);
+            print!(" {:>width$}", count, width = col_widths[i]);
+        }
+        println!(" {:>6}", stats_total(&no_project_stats));
     }
 
-    println!("{} {} {} {} {} {} {} {} {} {}",
-        "─".repeat(pw), "─".repeat(8), "─".repeat(7), "─".repeat(7),
-        "─".repeat(9), "─".repeat(6), "─".repeat(8), "─".repeat(9), "─".repeat(9), "─".repeat(6));
-    println!("{:<pw$} {:>8} {:>7} {:>7} {:>9} {:>6} {:>8} {:>9} {:>9} {:>6}",
-        "TOTAL",
-        total_stats.proposed, total_stats.planned, total_stats.in_progress,
-        total_stats.suspended, total_stats.active, total_stats.external,
-        total_stats.completed, total_stats.cancelled, total_stats.total(),
-        pw = pw);
+    // Footer separator
+    print!("{}", "─".repeat(pw));
+    for w in &col_widths {
+        print!(" {}", "─".repeat(*w));
+    }
+    println!(" {}", "─".repeat(6));
+
+    // Totals
+    print!("{:<pw$}", "TOTAL", pw = pw);
+    for (i, stage) in stage_columns.iter().enumerate() {
+        let count = total_stats.get(stage).copied().unwrap_or(0);
+        print!(" {:>width$}", count, width = col_widths[i]);
+    }
+    println!(" {:>6}", stats_total(&total_stats));
 
     Ok(())
 }
@@ -1751,6 +1807,119 @@ fn truncate_str(s: &str, max_len: usize) -> String {
     } else {
         format!("{}…", &s[..max_len - 1])
     }
+}
+
+fn handle_stages(subcommand: Option<StagesCommands>) -> Result<()> {
+    let conn = DbConnection::connect()?;
+    match subcommand {
+        None | Some(StagesCommands::List) => handle_stages_list(&conn),
+        Some(StagesCommands::Set { id, args }) => handle_stages_set(&conn, id, args),
+    }
+}
+
+fn handle_stages_list(conn: &Connection) -> Result<()> {
+    let mappings = StageRepo::list_all(conn)?;
+
+    // Column widths
+    let id_w = 4;
+    let status_w = 10;
+    let queue_w = 5;
+    let sess_w = 8;
+    let timer_w = 5;
+    let ext_w = 8;
+    let stage_w = 12;
+    let sort_w = 4;
+    let color_w = 14;
+
+    println!(
+        "{:>id_w$}  {:<status_w$} {:<queue_w$} {:<sess_w$} {:<timer_w$} {:<ext_w$} {:<stage_w$} {:>sort_w$}  {:<color_w$}",
+        "#", "Status", "Queue", "Sessions", "Timer", "External", "Stage", "Sort", "Color",
+        id_w = id_w, status_w = status_w, queue_w = queue_w, sess_w = sess_w,
+        timer_w = timer_w, ext_w = ext_w, stage_w = stage_w, sort_w = sort_w, color_w = color_w,
+    );
+    println!(
+        "{}  {} {} {} {} {} {} {}  {}",
+        "─".repeat(id_w), "─".repeat(status_w), "─".repeat(queue_w), "─".repeat(sess_w),
+        "─".repeat(timer_w), "─".repeat(ext_w), "─".repeat(stage_w), "─".repeat(sort_w), "─".repeat(color_w),
+    );
+
+    for m in &mappings {
+        let queue = if m.in_queue == -1 { "*".to_string() } else if m.in_queue == 1 { "yes".to_string() } else { "no".to_string() };
+        let sess = if m.has_sessions == -1 { "*".to_string() } else if m.has_sessions == 1 { "yes".to_string() } else { "no".to_string() };
+        let timer = if m.has_open_session == -1 { "*".to_string() } else if m.has_open_session == 1 { "yes".to_string() } else { "no".to_string() };
+        let ext = if m.has_externals == -1 { "*".to_string() } else if m.has_externals == 1 { "yes".to_string() } else { "no".to_string() };
+        let color = m.color.as_deref().unwrap_or("").to_string();
+
+        println!(
+            "{:>id_w$}  {:<status_w$} {:<queue_w$} {:<sess_w$} {:<timer_w$} {:<ext_w$} {:<stage_w$} {:>sort_w$}  {:<color_w$}",
+            m.id, m.status, queue, sess, timer, ext, m.stage, m.sort_order, color,
+            id_w = id_w, status_w = status_w, queue_w = queue_w, sess_w = sess_w,
+            timer_w = timer_w, ext_w = ext_w, stage_w = stage_w, sort_w = sort_w, color_w = color_w,
+        );
+    }
+
+    Ok(())
+}
+
+fn handle_stages_set(conn: &Connection, id: i64, args: Vec<String>) -> Result<()> {
+    let mut stage_name: Option<String> = None;
+    let mut sort_order: Option<i64> = None;
+    let mut color: Option<Option<String>> = None;
+
+    for arg in &args {
+        if let Some(val) = arg.strip_prefix("sort_order=") {
+            sort_order = Some(val.parse::<i64>()
+                .map_err(|_| anyhow::anyhow!("Invalid sort_order value: {}", val))?);
+        } else if let Some(val) = arg.strip_prefix("color=") {
+            if val == "none" || val.is_empty() {
+                color = Some(None);
+            } else {
+                // Validate color name
+                let valid_colors = [
+                    "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+                    "bright_black", "bright_red", "bright_green", "bright_yellow",
+                    "bright_blue", "bright_magenta", "bright_cyan", "bright_white",
+                ];
+                if !valid_colors.contains(&val) {
+                    anyhow::bail!("Invalid color '{}'. Valid colors: {}", val, valid_colors.join(", "));
+                }
+                color = Some(Some(val.to_string()));
+            }
+        } else {
+            // Plain text = stage name
+            stage_name = Some(arg.clone());
+        }
+    }
+
+    if stage_name.is_none() && sort_order.is_none() && color.is_none() {
+        anyhow::bail!("Nothing to update. Provide a stage name, sort_order=N, or color=name.");
+    }
+
+    StageRepo::update(
+        conn,
+        id,
+        stage_name.as_deref(),
+        sort_order,
+        color.as_ref().map(|c| c.as_deref()),
+    )?;
+
+    // Print what was updated
+    let mut changes = Vec::new();
+    if let Some(ref name) = stage_name {
+        changes.push(format!("stage → \"{}\"", name));
+    }
+    if let Some(so) = sort_order {
+        changes.push(format!("sort_order → {}", so));
+    }
+    if let Some(ref c) = color {
+        match c {
+            Some(name) => changes.push(format!("color → {}", name)),
+            None => changes.push("color → none".to_string()),
+        }
+    }
+
+    println!("Updated row {}: {}", id, changes.join(", "));
+    Ok(())
 }
 
 fn handle_send(task_id_str: String, recipient: String, request: Vec<String>) -> Result<()> {
