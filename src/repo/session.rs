@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OptionalExtension};
 use crate::models::Session;
-use crate::repo::EventRepo;
+use crate::repo::{EventRepo, TaskRepo};
 use anyhow::{Context, Result};
 
 /// Micro-session threshold (30 seconds)
@@ -92,6 +92,9 @@ impl SessionRepo {
                         task_id,
                         micro_session.start_ts);
                     
+                    // Touch activity_ts on the task
+                    TaskRepo::touch_activity(conn, task_id)?;
+
                     return Ok(Session {
                         id: Some(new_session_id),
                         task_id,
@@ -129,7 +132,10 @@ impl SessionRepo {
         
         // Record session_started event
         EventRepo::record_session_started(conn, task_id, id, start_ts)?;
-        
+
+        // Touch activity_ts on the task
+        TaskRepo::touch_activity(conn, task_id)?;
+
         Ok(Session {
             id: Some(id),
             task_id,
@@ -159,6 +165,10 @@ impl SessionRepo {
         )?;
         
         let id = conn.last_insert_rowid();
+
+        // Touch activity_ts on the task
+        TaskRepo::touch_activity(conn, task_id)?;
+
         Ok(Session {
             id: Some(id),
             task_id,
@@ -226,7 +236,10 @@ impl SessionRepo {
             if duration < MICRO_SECONDS {
                 eprintln!("Warning: Micro-session detected ({}s). This session may be merged or purged if another session starts within {} seconds.", duration, MICRO_SECONDS);
             }
-            
+
+            // Touch activity_ts on the task
+            TaskRepo::touch_activity(conn, session.task_id)?;
+
             // Return the closed session
             Ok(Some(closed_session))
         } else {

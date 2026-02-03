@@ -753,7 +753,9 @@ enum TaskListColumn {
     Due,
     Alloc,
     Priority,
-    Clock,
+    Timer,
+    Modified,
+    Activity,
     Status,
 }
 
@@ -762,7 +764,7 @@ enum TaskListColumn {
 /// Priority 2-3: Important (truncate only)
 /// Priority 4+: Secondary/Optional (hide first)
 /// 
-/// Hide order (first to last): Status -> Tags -> Priority -> Alloc -> Clock -> Stage -> Due
+/// Hide order (first to last): Status -> Modified -> Tags -> Priority -> Alloc -> Timer -> Activity -> Created -> Stage -> Due
 fn column_priority(column: TaskListColumn) -> u8 {
     match column {
         TaskListColumn::Id => 1,          // Never hide
@@ -771,12 +773,14 @@ fn column_priority(column: TaskListColumn) -> u8 {
         TaskListColumn::Project => 3,     // Truncate only
         TaskListColumn::Due => 4,         // Hidden last
         TaskListColumn::Stage => 5,
-        TaskListColumn::Clock => 6,
-        TaskListColumn::Alloc => 7,
-        TaskListColumn::Priority => 8,
-        TaskListColumn::Tags => 9,
-        TaskListColumn::Created => 10,
-        TaskListColumn::Status => 11,     // Hidden first
+        TaskListColumn::Created => 6,
+        TaskListColumn::Activity => 7,
+        TaskListColumn::Timer => 8,
+        TaskListColumn::Alloc => 9,
+        TaskListColumn::Priority => 10,
+        TaskListColumn::Tags => 11,
+        TaskListColumn::Modified => 12,   // Hidden before Created
+        TaskListColumn::Status => 13,     // Hidden first
     }
 }
 
@@ -793,8 +797,10 @@ fn column_min_width(column: TaskListColumn) -> usize {
         TaskListColumn::Priority => 8,
         TaskListColumn::Tags => 6,
         TaskListColumn::Alloc => 5,
-        TaskListColumn::Clock => 5,
+        TaskListColumn::Timer => 5,
         TaskListColumn::Created => 10,
+        TaskListColumn::Modified => 10,
+        TaskListColumn::Activity => 10,
     }
 }
 
@@ -823,7 +829,9 @@ fn parse_task_column(name: &str) -> Option<TaskListColumn> {
         "due" => Some(TaskListColumn::Due),
         "alloc" | "allocation" => Some(TaskListColumn::Alloc),
         "priority" | "prio" | "pri" => Some(TaskListColumn::Priority),
-        "clock" => Some(TaskListColumn::Clock),
+        "clock" | "timer" => Some(TaskListColumn::Timer),
+        "modified" | "mod" => Some(TaskListColumn::Modified),
+        "activity" | "active" => Some(TaskListColumn::Activity),
         "status" => Some(TaskListColumn::Status),
         _ => None,
     }
@@ -838,8 +846,10 @@ fn column_label(column: TaskListColumn) -> &'static str {
         TaskListColumn::Tags => "Tags",
         TaskListColumn::Due => "Due",
         TaskListColumn::Alloc => "Alloc",
-        TaskListColumn::Clock => "Timer",
+        TaskListColumn::Timer => "Timer",
         TaskListColumn::Created => "Created",
+        TaskListColumn::Modified => "Modified",
+        TaskListColumn::Activity => "Activity",
         TaskListColumn::Status => "Status",
         TaskListColumn::Stage => "Stage",
         TaskListColumn::Priority => "Priority",
@@ -997,11 +1007,13 @@ pub fn format_task_list_table(
         values.insert(TaskListColumn::Stage, stage.clone());
         values.insert(TaskListColumn::Project, project.clone());
         values.insert(TaskListColumn::Created, format_date(task.created_ts));
+        values.insert(TaskListColumn::Modified, format_date(task.modified_ts));
+        values.insert(TaskListColumn::Activity, format_date(task.activity_ts));
         values.insert(TaskListColumn::Tags, tag_str.clone());
         values.insert(TaskListColumn::Due, due.clone());
         values.insert(TaskListColumn::Alloc, alloc.clone());
         values.insert(TaskListColumn::Priority, priority.clone());
-        values.insert(TaskListColumn::Clock, clock.clone());
+        values.insert(TaskListColumn::Timer, clock.clone());
         values.insert(TaskListColumn::Status, task.status.as_str().to_string());
         
         let mut sort_values = HashMap::new();
@@ -1012,6 +1024,8 @@ pub fn format_task_list_table(
         sort_values.insert(TaskListColumn::Stage, Some(SortValue::Int(stage_sort_order(&stage, Some(&stage_map)))));
         sort_values.insert(TaskListColumn::Project, Some(SortValue::Str(project)));
         sort_values.insert(TaskListColumn::Created, Some(SortValue::Int(task.created_ts)));
+        sort_values.insert(TaskListColumn::Modified, Some(SortValue::Int(task.modified_ts)));
+        sort_values.insert(TaskListColumn::Activity, Some(SortValue::Int(task.activity_ts)));
         sort_values.insert(TaskListColumn::Tags, Some(SortValue::Str(tag_str)));
         sort_values.insert(TaskListColumn::Due, task.due_ts.map(SortValue::Int));
         sort_values.insert(TaskListColumn::Alloc, task.alloc_secs.map(SortValue::Int));
@@ -1020,7 +1034,7 @@ pub fn format_task_list_table(
         } else {
             None
         });
-        sort_values.insert(TaskListColumn::Clock, if let Some(task_id) = task.id {
+        sort_values.insert(TaskListColumn::Timer, if let Some(task_id) = task.id {
             TaskRepo::get_total_logged_time(conn, task_id).ok().map(SortValue::Int)
         } else {
             None
@@ -1063,8 +1077,10 @@ pub fn format_task_list_table(
         TaskListColumn::Priority,
         TaskListColumn::Due,
         TaskListColumn::Alloc,
-        TaskListColumn::Clock,
+        TaskListColumn::Timer,
         TaskListColumn::Created,
+        TaskListColumn::Modified,
+        TaskListColumn::Activity,
         TaskListColumn::Status,
         TaskListColumn::Stage,
     ];
@@ -1153,7 +1169,7 @@ pub fn format_task_list_table(
         }
 
         // Step 3: Only after truncation is exhausted, hide columns by priority
-        // Hide order (first to last): Status -> Tags -> Priority -> Alloc -> Clock -> Stage -> Due
+        // Hide order (first to last): Status -> Tags -> Priority -> Alloc -> Timer -> Stage -> Due
         let mut iterations = 0;
         const MAX_ITERATIONS: usize = 20; // Prevent infinite loops
         while calc_total_width(&columns, &column_widths) > target_width 
@@ -1722,7 +1738,8 @@ pub fn format_task_summary(
     output.push_str(task.status.as_str());
     output.push_str("\n");
     output.push_str(&format!("Created: {}\n", format_timestamp(task.created_ts)));
-    output.push_str(&format!("Modified: {}\n\n", format_timestamp(task.modified_ts)));
+    output.push_str(&format!("Modified: {}\n", format_timestamp(task.modified_ts)));
+    output.push_str(&format!("Activity: {}\n\n", format_timestamp(task.activity_ts)));
     
     // Attributes
     output.push_str("Attributes:\n");

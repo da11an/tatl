@@ -186,8 +186,8 @@ EXAMPLES:
   tatl show 1-5
   tatl show project=work +urgent")]
     Show {
-        /// Task ID, ID range (e.g., \"1-5\"), ID list (e.g., \"1,3,5\"), or filter expression. Examples: \"10\", \"1-5\", \"1,3,5\", \"project=work +urgent\"
-        target: String,
+        /// Task ID, ID range, ID list, or filter expression. If omitted, shows the currently active task.
+        target: Option<String>,
     },
     /// Modify tasks
     #[command(long_about = "Modify one or more tasks. Target can be a task ID, ID range (e.g., \"1-5\"), ID list (e.g., \"1,3,5\"), or filter expression.
@@ -233,8 +233,8 @@ EXAMPLES:
   tatl modify 5 respawn=daily due=09:00
   tatl modify 1-5 project=work --yes")]
     Modify {
-        /// Task ID, ID range (e.g., \"1-5\"), ID list (e.g., \"1,3,5\"), or filter expression. Examples: \"10\", \"1-5\", \"1,3,5\", \"project=work +urgent\"
-        target: String,
+        /// Task ID, ID range, ID list, or filter expression. If omitted, modifies the currently active task.
+        target: Option<String>,
         /// Modification arguments. Field syntax: project=<name>, due=<expr>, +tag, -tag, etc. Any text not matching field patterns becomes the new description.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -969,9 +969,10 @@ pub fn run() -> Result<()> {
                 handle_task_add(add_args, yes)?
             }
             Commands::Modify { target, args: mod_args, yes, interactive } => {
-                handle_task_modify(target.clone(), mod_args, yes, interactive)?;
+                let t = target.ok_or_else(|| anyhow::anyhow!("Pipe operator with modify requires a target"))?;
+                handle_task_modify(t.clone(), mod_args, yes, interactive)?;
                 // Extract task ID from target (only works with single task ID)
-                validate_task_id(&target)
+                validate_task_id(&t)
                     .map_err(|_| anyhow::anyhow!("Pipe operator with modify requires a single task ID as target"))?
             }
             Commands::Close { target, time_args, yes, interactive } => {
@@ -1117,9 +1118,13 @@ fn handle_command(cli: Cli) -> Result<()> {
         Commands::List { filter, json, relative, full } => {
             handle_task_list(filter, json, relative, full)
         },
-        Commands::Show { target } => handle_task_summary(target),
+        Commands::Show { target } => {
+            let resolved = resolve_target_or_active(target, "show")?;
+            handle_task_summary(resolved)
+        },
         Commands::Modify { target, args, yes, interactive } => {
-            handle_task_modify(target, args, yes, interactive)
+            let resolved = resolve_target_or_active(target, "modify")?;
+            handle_task_modify(resolved, args, yes, interactive)
         }
         Commands::On { task_id, time_args } => handle_on(task_id, time_args),
         Commands::Off { time_args } => handle_off(time_args),
@@ -2096,6 +2101,21 @@ fn handle_externals(filter: Option<String>) -> Result<()> {
     }
     
     Ok(())
+}
+
+/// Resolve an optional target to a task ID string, falling back to the active session's task.
+fn resolve_target_or_active(target: Option<String>, command_name: &str) -> Result<String> {
+    if let Some(t) = target {
+        return Ok(t);
+    }
+    let conn = DbConnection::connect()
+        .context("Failed to connect to database")?;
+    let session = SessionRepo::get_open(&conn)?;
+    if let Some(s) = session {
+        Ok(s.task_id.to_string())
+    } else {
+        anyhow::bail!("No task ID provided and no session is running. Usage: tatl {} <id>", command_name)
+    }
 }
 
 fn handle_task_add(args: Vec<String>, auto_yes: bool) -> Result<i64> {
@@ -4340,7 +4360,7 @@ fn handle_task_close(
             StackRepo::drop(&conn, stack_id, item.ordinal as i32)?;
         }
 
-        println!("Closed task {}", task_id);
+        println!("Closed task {}: {}", task_id, task.description);
     }
 
     Ok(())
@@ -4417,7 +4437,7 @@ fn handle_close_interactive(conn: &Connection, task_ids: &[i64], end_ts: i64) ->
             StackRepo::drop(conn, stack_id, item.ordinal as i32)?;
         }
 
-        println!("Closed task {}", task_id);
+        println!("Closed task {}: {}", task_id, task.description);
     }
 
     Ok(())
@@ -4557,7 +4577,7 @@ fn handle_task_cancel(id_or_filter: String, yes: bool, interactive: bool) -> Res
             StackRepo::drop(&conn, stack_id, item.ordinal as i32)?;
         }
 
-        println!("Cancelled task {}", task_id);
+        println!("Cancelled task {}: {}", task_id, task.description);
     }
     
     Ok(())
@@ -4629,7 +4649,7 @@ fn handle_cancel_interactive(conn: &Connection, task_ids: &[i64]) -> Result<()> 
             StackRepo::drop(conn, stack_id, item.ordinal as i32)?;
         }
 
-        println!("Cancelled task {}", task_id);
+        println!("Cancelled task {}: {}", task_id, task.description);
     }
     
     Ok(())

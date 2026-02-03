@@ -61,8 +61,8 @@ impl TaskRepo {
         
         conn.execute(
             "INSERT INTO tasks (uuid, description, status, project_id, due_ts, scheduled_ts, 
-                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts) 
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts, activity_ts)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             rusqlite::params![
                 task.uuid,
                 task.description,
@@ -75,6 +75,7 @@ impl TaskRepo {
                 task.template,
                 task.respawn,
                 udas_json,
+                now,
                 now,
                 now
             ],
@@ -123,7 +124,7 @@ impl TaskRepo {
     pub fn get_by_id(conn: &Connection, id: i64) -> Result<Option<Task>> {
         let mut stmt = conn.prepare(
             "SELECT id, uuid, description, status, project_id, due_ts, scheduled_ts, 
-                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts 
+                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts, activity_ts 
              FROM tasks WHERE id = ?1"
         )?;
         
@@ -152,6 +153,7 @@ impl TaskRepo {
                 udas,
                 created_ts: row.get(12)?,
                 modified_ts: row.get(13)?,
+                activity_ts: row.get::<_, Option<i64>>(14)?.unwrap_or(row.get(13)?),
             })
         }).optional()?;
         
@@ -176,7 +178,7 @@ impl TaskRepo {
     pub fn list_all(conn: &Connection) -> Result<Vec<(Task, Vec<String>)>> {
         let mut stmt = conn.prepare(
             "SELECT id, uuid, description, status, project_id, due_ts, scheduled_ts, 
-                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts 
+                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts, activity_ts 
              FROM tasks WHERE status != 'deleted' ORDER BY id"
         )?;
         
@@ -206,6 +208,7 @@ impl TaskRepo {
                 udas,
                 created_ts: row.get(12)?,
                 modified_ts: row.get(13)?,
+                activity_ts: row.get::<_, Option<i64>>(14)?.unwrap_or(row.get(13)?),
             })
         })?;
         
@@ -364,7 +367,7 @@ impl TaskRepo {
         conn.execute(
             "UPDATE tasks SET description = ?1, project_id = ?2, due_ts = ?3, scheduled_ts = ?4,
                     wait_ts = ?5, alloc_secs = ?6, template = ?7, respawn = ?8, udas_json = ?9,
-                    modified_ts = ?10 WHERE id = ?11",
+                    modified_ts = ?10, activity_ts = ?10 WHERE id = ?11",
             rusqlite::params![
                 task.description,
                 task.project_id,
@@ -428,7 +431,7 @@ impl TaskRepo {
         let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let query = format!(
             "SELECT id, uuid, description, status, project_id, due_ts, scheduled_ts, 
-                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts 
+                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts, activity_ts 
              FROM tasks WHERE id IN ({})",
             placeholders
         );
@@ -459,6 +462,7 @@ impl TaskRepo {
                 udas,
                 created_ts: row.get(12)?,
                 modified_ts: row.get(13)?,
+                activity_ts: row.get::<_, Option<i64>>(14)?.unwrap_or(row.get(13)?),
             })
         })?;
         
@@ -484,12 +488,12 @@ impl TaskRepo {
 
         let rows_affected = if should_clear_wait {
             conn.execute(
-                "UPDATE tasks SET status = ?1, modified_ts = ?2, wait_ts = NULL WHERE id = ?3",
+                "UPDATE tasks SET status = ?1, modified_ts = ?2, activity_ts = ?2, wait_ts = NULL WHERE id = ?3",
                 rusqlite::params![new_status_str, now, task_id],
             )?
         } else {
             conn.execute(
-                "UPDATE tasks SET status = ?1, modified_ts = ?2 WHERE id = ?3",
+                "UPDATE tasks SET status = ?1, modified_ts = ?2, activity_ts = ?2 WHERE id = ?3",
                 rusqlite::params![new_status_str, now, task_id],
             )?
         };
@@ -523,6 +527,16 @@ impl TaskRepo {
     /// Permanently delete a task and all related data
     /// 
     /// This operation is atomic - all related data is deleted in a transaction.
+    /// Touch activity_ts to record meaningful interaction (annotation, session, external)
+    pub fn touch_activity(conn: &Connection, task_id: i64) -> Result<()> {
+        let now = chrono::Utc::now().timestamp();
+        conn.execute(
+            "UPDATE tasks SET activity_ts = ?1 WHERE id = ?2",
+            rusqlite::params![now, task_id],
+        )?;
+        Ok(())
+    }
+
     /// Related data includes:
     /// - Task tags (CASCADE)
     /// - Task annotations (CASCADE)

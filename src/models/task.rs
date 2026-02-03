@@ -58,6 +58,7 @@ pub struct Task {
     pub udas: HashMap<String, String>, // User-defined attributes (without "uda." prefix)
     pub created_ts: i64,
     pub modified_ts: i64,
+    pub activity_ts: i64,
 }
 
 impl Task {
@@ -79,6 +80,7 @@ impl Task {
             udas: HashMap::new(),
             created_ts: now,
             modified_ts: now,
+            activity_ts: now,
         }
     }
 

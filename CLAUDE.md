@@ -39,7 +39,7 @@ src/
 │   └── output.rs           # Table/JSON output formatting, stage derivation, colors
 ├── models/        # Data structures (Task, Project, Session, Stack, Annotation, External)
 ├── repo/          # Database access layer - one repo per model (static methods on &Connection)
-├── db/            # Connection management and migrations (currently v9)
+├── db/            # Connection management and migrations (currently v10)
 ├── filter/        # Filter expression parser (boolean algebra) and evaluator
 ├── respawn/       # Respawn rule parser and next-date generator
 └── utils/         # Date/duration parsing, fuzzy matching

@@ -1,5 +1,6 @@
 use rusqlite::{Connection, OptionalExtension};
 use crate::models::External;
+use crate::repo::TaskRepo;
 use anyhow::{Context, Result};
 
 pub struct ExternalRepo;
@@ -35,6 +36,10 @@ impl ExternalRepo {
         .with_context(|| format!("Failed to create external record for task {} to {}", task_id, recipient))?;
         
         let id = conn.last_insert_rowid();
+
+        // Touch activity_ts on the task
+        TaskRepo::touch_activity(conn, task_id)?;
+
         let mut result = external;
         result.id = Some(id);
         Ok(result)
@@ -151,10 +156,13 @@ impl ExternalRepo {
             rusqlite::params![now, now, task_id],
         )
         .with_context(|| format!("Failed to mark externals for task {} as returned", task_id))?;
-        
+
+        // Touch activity_ts on the task
+        TaskRepo::touch_activity(conn, task_id)?;
+
         Ok(())
     }
-    
+
     /// Check if a task has any active externals
     pub fn has_active_externals(conn: &Connection, task_id: i64) -> Result<bool> {
         let count: i64 = conn.query_row(

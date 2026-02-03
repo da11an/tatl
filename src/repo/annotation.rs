@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OptionalExtension};
 use crate::models::Annotation;
-use crate::repo::EventRepo;
+use crate::repo::{EventRepo, TaskRepo};
 use anyhow::{Context, Result};
 
 /// Annotation repository for database operations
@@ -48,7 +48,10 @@ impl AnnotationRepo {
         
         // Record annotation_added event
         EventRepo::record_annotation_added(conn, task_id, id, session_id)?;
-        
+
+        // Touch activity_ts on the task
+        TaskRepo::touch_activity(conn, task_id)?;
+
         Ok(Annotation {
             id: Some(id),
             task_id,
@@ -167,7 +170,10 @@ impl AnnotationRepo {
                 anyhow::bail!("Annotation {} not found", annotation_id);
             }
         }
-        
+
+        // Touch activity_ts on the task
+        TaskRepo::touch_activity(conn, task_id)?;
+
         Ok(())
     }
 }

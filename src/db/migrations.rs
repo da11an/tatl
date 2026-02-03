@@ -2,7 +2,7 @@ use rusqlite::{Connection, Result};
 use std::collections::HashMap;
 
 /// Current database schema version
-const CURRENT_VERSION: u32 = 9;
+const CURRENT_VERSION: u32 = 10;
 
 /// Migration system for managing database schema versions
 pub struct MigrationManager;
@@ -91,6 +91,7 @@ fn get_migrations() -> HashMap<u32, fn(&rusqlite::Transaction) -> Result<(), rus
     migrations.insert(7, migration_v7);
     migrations.insert(8, migration_v8);
     migrations.insert(9, migration_v9);
+    migrations.insert(10, migration_v10);
     migrations
 }
 
@@ -663,6 +664,22 @@ fn migration_v9(tx: &rusqlite::Transaction) -> Result<(), rusqlite::Error> {
         )?;
     }
 
+    Ok(())
+}
+
+/// Migration v10: Add activity_ts column to tasks
+/// activity_ts tracks the last meaningful interaction (annotations, sessions, externals)
+/// while modified_ts continues to track field edits and status changes only.
+fn migration_v10(tx: &rusqlite::Transaction) -> Result<(), rusqlite::Error> {
+    // Add activity_ts column, default to modified_ts for existing rows
+    tx.execute(
+        "ALTER TABLE tasks ADD COLUMN activity_ts INTEGER",
+        [],
+    )?;
+    tx.execute(
+        "UPDATE tasks SET activity_ts = modified_ts",
+        [],
+    )?;
     Ok(())
 }
 
