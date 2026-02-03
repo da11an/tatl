@@ -3143,7 +3143,12 @@ fn handle_offon_current_session(conn: &Connection, time_args: Vec<String>) -> Re
     let resume_task = TaskRepo::get_by_id(conn, resume_task_id)?;
     let resume_desc = resume_task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
     println!("Started timing task {}: {}", resume_task_id, resume_desc);
-    
+    let alloc = resume_task.as_ref().and_then(|t| t.alloc_secs);
+    let context = crate::cli::output::format_on_context(conn, resume_task_id, alloc)?;
+    if !context.is_empty() {
+        print!("{}", context);
+    }
+
     Ok(())
 }
 
@@ -3708,6 +3713,11 @@ fn handle_on_queue_top(conn: &Connection, args: Vec<String>) -> Result<()> {
         let task = TaskRepo::get_by_id(conn, task_id)?;
         let desc = task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
         println!("Started timing task {}: {} ({})", task_id, desc, format_time(start_ts));
+        let alloc = task.as_ref().and_then(|t| t.alloc_secs);
+        let context = crate::cli::output::format_on_context(conn, task_id, alloc)?;
+        if !context.is_empty() {
+            print!("{}", context);
+        }
     }
 
     Ok(())
@@ -3820,8 +3830,12 @@ fn handle_task_on(task_id_str: String, args: Vec<String>) -> Result<()> {
             .context("Failed to start session")?;
         tx.commit()?;
         println!("Started timing task {}: {} ({})", task_id, task_desc, format_time(effective_start_ts));
+        let context = crate::cli::output::format_on_context(&conn, task_id, task.alloc_secs)?;
+        if !context.is_empty() {
+            print!("{}", context);
+        }
     }
-    
+
     Ok(())
 }
 

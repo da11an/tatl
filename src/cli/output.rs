@@ -1,7 +1,7 @@
 // Output formatting utilities
 
 use crate::models::{Task, TaskStatus, StageMapping};
-use crate::repo::{ProjectRepo, SessionRepo, StackRepo, TaskRepo, ExternalRepo, StageRepo};
+use crate::repo::{AnnotationRepo, ProjectRepo, SessionRepo, StackRepo, TaskRepo, ExternalRepo, StageRepo};
 use crate::cli::priority::calculate_priority;
 use chrono::Local;
 use rusqlite::Connection;
@@ -1707,6 +1707,50 @@ pub fn format_clock_transition(
         }
         _ => format!("Clock {}", action)
     }
+}
+
+/// Format brief context shown when starting timing (`tatl on`).
+/// Shows annotations (bulleted, no timestamps) and a timer progress bar.
+pub fn format_on_context(
+    conn: &Connection,
+    task_id: i64,
+    alloc_secs: Option<i64>,
+) -> Result<String> {
+    let mut output = String::new();
+
+    // Annotations
+    let annotations = AnnotationRepo::get_by_task(conn, task_id)?;
+    for ann in &annotations {
+        output.push_str(&format!("  - {}\n", ann.note));
+    }
+
+    // Timer / progress bar
+    let logged = TaskRepo::get_total_logged_time(conn, task_id)?;
+
+    match alloc_secs {
+        Some(alloc) if alloc > 0 => {
+            let pct = (logged as f64 / alloc as f64 * 100.0).round() as i64;
+            let bar_width = 20;
+            let filled = ((logged as f64 / alloc as f64) * bar_width as f64).round() as usize;
+            let filled = filled.min(bar_width);
+            let empty = bar_width - filled;
+            let bar: String = "=".repeat(filled) + &"-".repeat(empty);
+            output.push_str(&format!(
+                "  Timer: {} / {} [{}] {}%\n",
+                format_duration(logged),
+                format_duration(alloc),
+                bar,
+                pct,
+            ));
+        }
+        _ => {
+            if logged > 0 {
+                output.push_str(&format!("  Timer: {}\n", format_duration(logged)));
+            }
+        }
+    }
+
+    Ok(output)
 }
 
 /// Format task summary report
