@@ -59,6 +59,12 @@ pub const TASK_SUBCOMMANDS: &[&str] = &[
     "enqueue", "dequeue", "modify", "finish", "close", "delete", "annotate", "show", "on"
 ];
 
+/// Pipe commands (used after ` : ` operator)
+pub const PIPE_COMMANDS: &[&str] = &[
+    "on", "onoff", "enqueue", "close", "cancel", "annotate", "send", "collect",
+    "off", "dequeue", "clone",
+];
+
 /// Get subcommands for a given top-level command
 pub fn get_subcommands(command: &str) -> Option<&'static [&'static str]> {
     match command {

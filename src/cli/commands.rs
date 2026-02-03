@@ -764,7 +764,15 @@ fn execute_piped_command(task_id: i64, segment: &[String]) -> Result<i64> {
         anyhow::bail!("Empty pipe segment");
     }
 
-    let cmd = segment[0].to_lowercase();
+    let raw_cmd = segment[0].to_lowercase();
+    let cmd = match abbrev::find_unique_command(&raw_cmd, abbrev::PIPE_COMMANDS) {
+        Ok(full) => full.to_string(),
+        Err(matches) if matches.len() > 1 => {
+            let match_list = matches.join(", ");
+            anyhow::bail!("Ambiguous pipe command: '{}'. Did you mean one of: {}?", raw_cmd, match_list);
+        }
+        _ => raw_cmd,
+    };
     let rest = &segment[1..];
 
     match cmd.as_str() {
@@ -867,8 +875,9 @@ fn execute_piped_command(task_id: i64, segment: &[String]) -> Result<i64> {
         }
         _ => {
             anyhow::bail!(
-                "Unknown pipe command: '{}'. Valid: on, onoff, enqueue, close, cancel, annotate, send, collect, off, dequeue, clone",
-                cmd
+                "Unknown pipe command: '{}'. Valid: {}",
+                cmd,
+                abbrev::PIPE_COMMANDS.join(", ")
             );
         }
     }
