@@ -122,6 +122,9 @@ pub enum FilterTerm {
     Stage(ComparisonOp, Vec<String>), // Supports comma-separated values
     Desc(ComparisonOp, String), // Description substring search (case-insensitive)
     External(ComparisonOp, String), // External recipient filter
+    Created(ComparisonOp, String),
+    Modified(ComparisonOp, String),
+    Activity(ComparisonOp, String),
 }
 
 /// Split a token into (key, operator, value) using operator detection.
@@ -164,6 +167,7 @@ fn split_on_operator(token: &str) -> Option<(String, ComparisonOp, String)> {
 const FILTER_KEYS: &[&str] = &[
     "id", "status", "project", "due", "scheduled", "wait",
     "stage", "desc", "description", "external",
+    "created", "modified", "activity",
 ];
 
 /// Resolve a filter key, supporting unambiguous prefix abbreviations.
@@ -266,6 +270,9 @@ fn parse_filter_term(token: &str) -> Result<Option<FilterTerm>, String> {
                 }
                 Ok(Some(FilterTerm::External(op, value)))
             },
+            "created" => Ok(Some(FilterTerm::Created(op, value))),
+            "modified" => Ok(Some(FilterTerm::Modified(op, value))),
+            "activity" => Ok(Some(FilterTerm::Activity(op, value))),
             _ => Ok(None),
         };
     }

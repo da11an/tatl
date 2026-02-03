@@ -314,6 +314,15 @@ impl FilterTerm {
                     _ => Err(anyhow::anyhow!("External filter supports only '=' and '!='")),
                 }
             }
+            FilterTerm::Created(op, expr) => {
+                match_date_field(Some(task.created_ts), op, expr)
+            }
+            FilterTerm::Modified(op, expr) => {
+                match_date_field(Some(task.modified_ts), op, expr)
+            }
+            FilterTerm::Activity(op, expr) => {
+                match_date_field(Some(task.activity_ts), op, expr)
+            }
         }
     }
 }
