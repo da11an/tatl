@@ -13,28 +13,23 @@ TATL is designed around a simple insight: **most task management is procrastinat
 
 ## Features
 
-### Implemented
-
-- **Task Management**: Create, modify, list, complete, close, and delete tasks
+- **Task Management**: Create, modify, close, cancel, clone, reopen, and delete tasks
 - **Projects**: Hierarchical project organization (e.g., `work`, `work.email`)
 - **Tags**: Flexible tagging with `+tag` / `-tag` syntax
 - **Scheduling**: Due dates, scheduled dates, and wait times with natural date expressions
 - **Time Tracking**: Simple `on`/`off` timing with break capture (`offon`) and historical sessions (`onoff`)
 - **Task Queue**: Work queue semantics - `queue[0]` is always "what's next"
 - **Respawning**: Tasks with respawn rules create a new instance when completed
+- **Templates**: Standardized task creation via `template=<name>`
 - **UDAs**: User-defined attributes for custom task properties
 - **Annotations**: Timestamped notes linked to tasks and sessions
-- **Filters**: Powerful filter expressions with AND, OR, NOT operators
-- **Kanban Status**: Derived statuses (proposed, stalled, queued, external, done)
+- **Filters**: Powerful filter expressions with AND, OR, NOT operators and comparison operators
+- **Stages**: Derived task stages (proposed, planned, in progress, active, suspended, external, completed, cancelled) with customizable labels, sort order, and colors
 - **Externals**: Send tasks to external parties and track their return
+- **Sessions Report**: Time reports with project breakdowns and date range filtering
+- **Pipe Operator**: Chain commands with ` : ` (e.g., `tatl add "Task" : enqueue : on`)
+- **Command Abbreviations**: Unambiguous prefixes work everywhere (e.g., `enq` for `enqueue`)
 - **Immutable History**: Complete audit trail of all task changes via event log
-
-### Potential Future Work
-
-- Templates for standardized task creation
-- Time reports and analytics
-- Import/export functionality
-- Sync between devices
 
 ## Installation
 
@@ -85,7 +80,7 @@ tatl on             # Start timing queue[0]
 tatl offon 14:30    # I was interrupted at 14:30, resuming now
 
 # Done with the task
-tatl finish         # Complete queue[0], stop timing
+tatl close          # Complete queue[0], stop timing
 
 # Log time you forgot to track
 tatl onoff 09:00..12:00 2    # Add 3-hour session to task 2
@@ -107,6 +102,7 @@ tatl list           # Shows queue with positions
 tatl on             # Start timing queue[0]
 tatl on 5           # Move task 5 to queue[0] and start
 tatl enqueue 3      # Add task 3 to bottom of queue
+tatl enqueue 1,3,5  # Add multiple tasks
 tatl dequeue        # Remove queue[0] from queue
 ```
 
@@ -128,6 +124,15 @@ tatl onoff 09:00..12:00       # Log session for queue[0]
 tatl onoff 09:00..12:00 5     # Log session for task 5
 ```
 
+When you start timing a task, TATL shows context to help you get oriented:
+
+```
+Started timing task 5: Fix the auth bug (14:30)
+  - Check if the token refresh is being called before expiry
+  - Look at the retry logic in auth_middleware.rs
+  Timer: 2h15m0s / 4h0m0s [====================-----] 56%
+```
+
 ### Respawning (Not Recurrence)
 
 Traditional recurrence creates multiple task instances upfront. TATL uses **respawning** instead:
@@ -143,38 +148,53 @@ tatl add "Daily standup" respawn=daily due=09:00
 tatl add "Weekly review" respawn=weekly due=friday
 tatl add "Timesheet" respawn=14,30 due=17:00
 
-# When you finish it...
-tatl finish
+# When you close it...
+tatl close
 # Output:
-# Finished task 1
-# ↻ Respawned as task 2, due: 2026-01-23 09:00
+# Closed task 1: Daily standup
+# Respawned as task 2, due: 2026-01-23 09:00
 
 # Respawn patterns:
 # respawn=daily              - Every day
 # respawn=weekly             - Every week
 # respawn=monthly            - Every month
+# respawn=yearly             - Every year
 # respawn=3d                 - Every 3 days
+# respawn=2w                 - Every 2 weeks
 # respawn=mon,wed,fri        - Specific weekdays
-# respawn=1,15                - Specific days of month
-# respawn=2nd-tue             - 2nd Tuesday of month
+# respawn=1,15               - Specific days of month
+# respawn=2nd-tue            - 2nd Tuesday of month
 ```
 
-### Kanban Status
+### Task Stages
 
-Tasks have derived Kanban statuses based on their state:
+Tasks have derived stages based on their orthogonal state. Stages are never stored directly - they are computed from a combination of status, queue position, session history, and external state.
 
-| Status | Meaning |
-|--------|---------|
-| `proposed` | Not in queue, no work done yet |
-| `stalled` | Has sessions but not currently in queue |
-| `queued` | In queue (Q column shows position: 1, 2, 3... or ▶ if active) |
-| `external` | Sent to external party for review/approval |
-| `done` | Completed or closed |
+| Stage | Condition |
+|-------|-----------|
+| `proposed` | Open, not in queue, no sessions |
+| `planned` | Open, in queue, no sessions |
+| `suspended` | Open, not in queue, has past sessions |
+| `in progress` | Open, in queue, has sessions |
+| `active` | Open, in queue, session running now |
+| `external` | Open, has active external |
+| `completed` | Closed |
+| `cancelled` | Cancelled |
 
 ```bash
-tatl list kanban=queued      # Show queued tasks
-tatl list kanban=stalled     # Show tasks needing attention
-tatl list kanban=external    # Show tasks with external parties
+tatl list stage=planned             # Show planned tasks
+tatl list stage=suspended           # Show tasks needing attention
+tatl list stage=external            # Show tasks with external parties
+tatl list stage=planned,suspended   # Comma-separated OR
+```
+
+Stage labels, sort order, and colors are customizable via the `stages` command:
+
+```bash
+tatl stages                         # View stage mapping table
+tatl stages set 7 "working"        # Rename "in progress" to "working"
+tatl stages set 7 color=green      # Change stage color
+tatl stages set 7 sort_order=3     # Change sort position
 ```
 
 ## Command Reference
@@ -187,24 +207,25 @@ tatl add "Description" project=name +tag due=tomorrow
 tatl add "Quick task" : on          # Create and start timing
 tatl add "Meeting" : on 14:00       # Create and start timing at 14:00
 tatl add "Past work" : onoff 09:00..12:00  # Create with historical session
-tatl add "Already done" : finish    # Create already completed
-tatl add "Cancelled" : close        # Create already closed
-tatl add "Past meeting" : onoff 14:00..15:00 : finish  # Historical session + complete
 
 # Read
-tatl list                           # All pending tasks
+tatl list                           # All open tasks
 tatl list project=work +urgent      # With filters
 tatl show 5                         # Detailed view
+tatl show                           # Show currently active task
 
 # Update
 tatl modify 5 +urgent due=+2d       # Add tag, change due date
+tatl modify project=work            # Modify currently active task
 tatl annotate 5 "Found the issue"   # Add note
+tatl clone 5                        # Clone task with all attributes
+tatl clone 5 project=other +new     # Clone with overrides
 
 # Complete
-tatl finish                         # Complete queue[0]
-tatl finish 5                       # Complete specific task
-tatl close 5                        # Close without completing
-tatl reopen 5                       # Reopen a closed task
+tatl close                          # Close queue[0], stop timing
+tatl close 5                        # Close specific task
+tatl cancel 5                       # Cancel (intent shifted)
+tatl reopen 5                       # Reopen a closed/cancelled task
 tatl delete 5                       # Permanently delete
 ```
 
@@ -229,10 +250,10 @@ tatl onoff 09:00..12:00 5   # Add session for task 5
 ### Queue Management
 
 ```bash
-tatl list                   # View queue
+tatl list                   # View queue (Q column shows position)
 tatl enqueue 5              # Add task to queue
 tatl enqueue 1,3,5          # Add multiple tasks
-tatl dequeue                # Remove queue[0]
+tatl dequeue                # Remove queue[0] from queue
 tatl dequeue 5              # Remove specific task
 ```
 
@@ -244,8 +265,8 @@ tatl projects add work.email        # Nested project
 tatl projects list
 tatl projects rename old new
 tatl projects archive old-project
-tatl projects unarchive old-project # Restore archived project
-tatl projects report                # Task counts by project and status
+tatl projects unarchive old-project
+tatl projects report                # Task counts by project and stage
 ```
 
 ### Externals
@@ -295,17 +316,49 @@ The report shows:
 - Period statistics with project breakdown
 - Tasks needing attention (overdue, stalled, external)
 
+### Pipe Operator
+
+Chain commands using ` : ` (space-colon-space). The first command produces a task ID, subsequent commands inherit it:
+
+```bash
+tatl add "Task" : enqueue : on      # Create, queue, start timing
+tatl add "Done" : close             # Create already closed
+tatl add "Meeting" : onoff 14:00..15:00 : close  # Historical + close
+tatl add "Clone source" : clone     # Create and clone
+```
+
+Supported pipe commands: `on`, `off`, `onoff`, `enqueue`, `dequeue`, `close`, `cancel`, `annotate`, `send`, `collect`, `clone`.
+
+### Command Abbreviations
+
+Unambiguous prefixes are expanded automatically:
+
+```bash
+tatl l                  # → tatl list
+tatl mod 5 +urgent      # → tatl modify 5 +urgent
+tatl ann 5 "Note"       # → tatl annotate 5 "Note"
+tatl enq 5              # → tatl enqueue 5
+tatl add "Task" : enq   # Abbreviations work in pipes too
+```
+
 ## Filter Syntax
 
 ```bash
-# Equality filters (use = for matching)
+# Equality filters
 tatl list project=work +urgent
-tatl list status=pending
+tatl list status=open
 
-# Comparison operators (for dates)
+# Comparison operators (for dates and numeric fields)
 tatl list due>tomorrow           # Tasks due after tomorrow
 tatl list due<=eod               # Tasks due by end of day
 tatl list due!=none              # Tasks that have a due date
+tatl list activity>-7d           # Active in the last 7 days
+tatl list modified>2026-01-01    # Modified after a date
+tatl list created>-30d           # Created in the last 30 days
+
+# Stage filter
+tatl list stage=planned
+tatl list stage=suspended,external   # Comma-separated OR
 
 # OR (explicit)
 tatl list +urgent or +important
@@ -317,14 +370,32 @@ tatl list not +waiting
 tatl list desc=meeting           # Tasks with "meeting" in description
 tatl list desc="code review"     # Phrase search
 
-# Complex
-tatl list project=work status=pending not +blocked
+# External filter
+tatl list external=colleague     # Tasks sent to specific recipient
 
-# Kanban status
-tatl list kanban=queued
-tatl list kanban=stalled
-tatl list kanban=external
+# Complex combinations
+tatl list project=work status=open not +blocked
 ```
+
+### Filter Fields
+
+| Field | Operators | Example |
+|-------|-----------|---------|
+| `id` | `=`, `!=`, `>`, `<`, `>=`, `<=` | `id>10` |
+| `status` | `=`, `!=` | `status=open` |
+| `stage` | `=`, `!=` | `stage=active` |
+| `project` | `=`, `!=` | `project=work` |
+| `due` | `=`, `!=`, `>`, `<`, `>=`, `<=` | `due<=eod` |
+| `scheduled` | `=`, `!=`, `>`, `<`, `>=`, `<=` | `scheduled>tomorrow` |
+| `wait` | `=`, `!=`, `>`, `<`, `>=`, `<=` | `wait=none` |
+| `created` | `=`, `!=`, `>`, `<`, `>=`, `<=` | `created>-7d` |
+| `modified` | `=`, `!=`, `>`, `<`, `>=`, `<=` | `modified>-1d` |
+| `activity` | `=`, `!=`, `>`, `<`, `>=`, `<=` | `activity>-7d` |
+| `desc` | `=`, `!=` | `desc=meeting` |
+| `external` | `=`, `!=` | `external=bob` |
+| `+tag` / `-tag` | presence/absence | `+urgent` |
+
+Date fields support `any` and `none` with `=`/`!=` (e.g., `due=any`, `due=none`).
 
 ### Display Options
 
@@ -335,16 +406,16 @@ tatl list sort:-priority    # Descending
 
 # Group by column
 tatl list group:project
-tatl list group:kanban
+tatl list group:stage
 
 # Hide columns
 tatl list hide:tags
-tatl list hide:status,kanban
+tatl list hide:status,stage
 
 # Color output (text color by column value)
 tatl list color:project     # Hash-based colors per project
-tatl list color:kanban      # Semantic colors for kanban stages
-tatl list color:priority    # Gradient (green→yellow→red)
+tatl list color:stage       # Semantic colors for stages
+tatl list color:priority    # Gradient (green to red)
 
 # Fill output (background color by column value)
 tatl list fill:status       # Semantic colors for status
@@ -352,7 +423,12 @@ tatl list fill:project      # Hash-based colors per project
 
 # Combine display options
 tatl list group:project color:project    # Colored group headers
-tatl list sort:priority color:kanban     # Sorted with colored rows
+tatl list sort:priority color:stage      # Sorted with colored rows
+
+# Output formats
+tatl list --json            # JSON output
+tatl list --relative        # Relative timestamps
+tatl list --full            # Show all columns
 ```
 
 **Note:** Colors only appear in terminal (TTY) output. Piped output has no ANSI codes.
@@ -386,8 +462,9 @@ All data is stored in a single SQLite database (`~/.tatl/ledger.db`):
 - **Projects**: Project hierarchy
 - **Annotations**: Timestamped notes
 - **Externals**: Tasks sent to external parties
+- **Stage Map**: Customizable stage derivation rules
 
-The database is created automatically on first use and migrations are applied automatically on upgrade.
+The database is created automatically on first use and migrations are applied automatically on upgrade (currently at schema version 10).
 
 ## Development
 
@@ -408,29 +485,7 @@ cargo clippy
 
 ### Design Documentation
 
-The `design/` directory contains implementation plans and decisions:
-
-- `Plan_21_Rename_to_Tatl.md` - Migration from task-ninja to tatl
-- `Plan_22_CLI_Syntax_Review.md` - CLI design decisions
-- `Plan_23_Break_Capture_Workflow.md` - offon/onoff implementation
-- `Plan_24_Respawn_Model.md` - Respawn vs recurrence
-
-## Troubleshooting
-
-### Common Errors
-
-| Error | Solution |
-|-------|----------|
-| "Queue is empty" | Add a task with `tatl enqueue <id>` |
-| "No session running" | Start with `tatl on` or `tatl on <id>` |
-| "Task not found" | Check ID with `tatl list` |
-| "Project not found" | Create with `tatl projects add <name>` |
-
-### Database
-
-- **Location**: `~/.tatl/ledger.db`
-- **Override**: Set `data.location` in `~/.tatl/rc`
-- **Backup**: Copy the `.db` file periodically
+The `design/` directory contains implementation plans and design decisions for each feature iteration.
 
 ## License
 
