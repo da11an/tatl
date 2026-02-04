@@ -637,9 +637,36 @@ pub enum ProjectCommands {
         /// Project name to unarchive
         name: String,
     },
-    /// Show task counts by stage per project
-    #[command(long_about = "Generate a report showing task counts grouped by project and stage (proposed, planned, in progress, suspended, active, external, completed, cancelled).")]
-    Report,
+    /// Show burndown chart for projects
+    #[command(long_about = "Display a burndown chart showing completed work (above baseline) and remaining work (below baseline) over time.
+
+The chart uses time bins (day/week/month) and can show either task counts or hours.
+
+ARGUMENTS:
+  Optional project name to filter to a specific project.
+  Optional date range using interval syntax (-30d, -30d..now, 2024-01-01..2024-06-30).
+
+OPTIONS:
+  --bin day|week|month    Time bin size (default: week)
+  --metric tasks|time     Measurement: task counts or hours (default: tasks)
+
+EXAMPLES:
+  tatl projects report
+  tatl projects report work
+  tatl projects report -90d --bin month
+  tatl projects report --metric time
+  tatl projects report work -30d --bin day")]
+    Report {
+        /// Project name and/or date range
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+        /// Time bin size (day, week, month)
+        #[arg(long, default_value = "week")]
+        bin: String,
+        /// Metric to display (tasks, time)
+        #[arg(long, default_value = "tasks")]
+        metric: String,
+    },
 }
 
 
@@ -1415,8 +1442,8 @@ fn handle_projects(cmd: ProjectCommands) -> Result<()> {
             println!("Unarchived project '{}'", name);
             Ok(())
         }
-        ProjectCommands::Report => {
-            handle_projects_report(&conn)
+        ProjectCommands::Report { args, bin, metric } => {
+            handle_projects_report(&conn, args, &bin, &metric)
         }
     }
 }
@@ -1726,144 +1753,499 @@ fn format_duration_short(secs: i64) -> String {
     }
 }
 
-fn handle_projects_report(conn: &Connection) -> Result<()> {
-    use std::collections::BTreeMap;
-    use crate::filter::calculate_task_stage;
+fn handle_projects_report(conn: &Connection, args: Vec<String>, bin_size: &str, metric: &str) -> Result<()> {
+    use crate::cli::output::{is_tty, get_terminal_width, get_terminal_height};
+    use std::collections::HashSet;
 
-    // Load stage map to get distinct stage names ordered by sort_order
-    let stage_map = StageRepo::load_map(conn).unwrap_or_default();
-    let mut stage_columns: Vec<String> = Vec::new();
+    let now = chrono::Utc::now().timestamp();
+
+    // Parse args: separate project name from date range tokens
+    let mut project_filter: Option<String> = None;
+    let mut date_tokens: Vec<String> = Vec::new();
+
+    for arg in &args {
+        // If it looks like a date expression (contains .., starts with -, or is a date)
+        if arg.contains("..") || (arg.starts_with('-') && arg.len() > 1 && arg[1..].chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)) {
+            date_tokens.push(arg.clone());
+        } else if arg.contains('-') && arg.len() >= 8 {
+            // Looks like a date (2024-01-01)
+            date_tokens.push(arg.clone());
+        } else if project_filter.is_none() {
+            project_filter = Some(arg.clone());
+        } else {
+            date_tokens.push(arg.clone());
+        }
+    }
+
+    // Parse date range
+    let (period_start, period_end) = if date_tokens.is_empty() {
+        // Default: all time (from earliest task creation to now)
+        let all_tasks = TaskRepo::list_all(conn)?;
+        let earliest = all_tasks.iter().map(|(t, _)| t.created_ts).min().unwrap_or(now);
+        (earliest, now)
+    } else {
+        let first = &date_tokens[0];
+        if first.contains("..") {
+            let parts: Vec<&str> = first.splitn(2, "..").collect();
+            let start_str = parts[0].trim();
+            let end_str = parts.get(1).map(|s| s.trim()).unwrap_or("");
+            let ps = if start_str.is_empty() {
+                let all_tasks = TaskRepo::list_all(conn)?;
+                all_tasks.iter().map(|(t, _)| t.created_ts).min().unwrap_or(now)
+            } else {
+                parse_date_expr(start_str).context(format!("Invalid start date: {}", start_str))?
+            };
+            let pe = if end_str.is_empty() || end_str == "now" {
+                now
+            } else {
+                parse_date_expr(end_str).context(format!("Invalid end date: {}", end_str))? + 86400 - 1
+            };
+            (ps, pe)
+        } else {
+            let ps = parse_date_expr(first).context(format!("Invalid date: {}", first))?;
+            let pe = if date_tokens.len() > 1 {
+                parse_date_expr(&date_tokens[1]).context(format!("Invalid end date: {}", date_tokens[1]))? + 86400 - 1
+            } else {
+                now
+            };
+            (ps, pe)
+        }
+    };
+
+    // Get tasks, filtered by project if specified
+    let all_tasks = TaskRepo::list_all(conn)?;
+    let project_ids: Option<HashSet<i64>> = if let Some(ref proj_name) = project_filter {
+        let mut ids = HashSet::new();
+        let mut stmt = conn.prepare("SELECT id, name FROM projects")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (id, name) = row?;
+            // Match exact or subproject (project "work" matches "work", "work.email", etc.)
+            if name == *proj_name || name.starts_with(&format!("{}.", proj_name)) {
+                ids.insert(id);
+            }
+        }
+        Some(ids)
+    } else {
+        None
+    };
+
+    let tasks: Vec<_> = all_tasks.into_iter()
+        .filter(|(t, _)| {
+            if t.status == TaskStatus::Deleted { return false; }
+            if let Some(ref pids) = project_ids {
+                t.project_id.map(|pid| pids.contains(&pid)).unwrap_or(false)
+            } else {
+                true
+            }
+        })
+        .collect();
+
+    let task_ids: HashSet<i64> = tasks.iter().filter_map(|(t, _)| t.id).collect();
+
+    if tasks.is_empty() {
+        println!("No tasks found.");
+        return Ok(());
+    }
+
+    // Query status change events for these tasks
+    // Build map: task_id -> Vec<(timestamp, new_status)>
+    let mut status_events: HashMap<i64, Vec<(i64, String)>> = HashMap::new();
     {
-        let mut seen = std::collections::HashSet::new();
-        let mut sorted = stage_map.clone();
-        sorted.sort_by_key(|m| m.sort_order);
-        for m in &sorted {
-            if seen.insert(m.stage.clone()) {
-                stage_columns.push(m.stage.clone());
+        let mut stmt = conn.prepare(
+            "SELECT task_id, ts, payload_json FROM task_events WHERE event_type = 'status_changed' ORDER BY ts"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?))
+        })?;
+        for row in rows {
+            let (task_id, ts, payload_json) = row?;
+            if !task_ids.contains(&task_id) { continue; }
+            if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&payload_json) {
+                if let Some(new_status) = payload.get("new_status").and_then(|v| v.as_str()) {
+                    status_events.entry(task_id).or_default().push((ts, new_status.to_string()));
+                }
             }
         }
     }
 
-    // Get all tasks
-    let all_tasks = TaskRepo::list_all(conn)?;
+    // Generate time bins
+    let bins = generate_time_bins(period_start, period_end, bin_size);
 
-    // Build project hierarchy with counts by stage (dynamic)
-    let mut project_stats: BTreeMap<String, HashMap<String, i64>> = BTreeMap::new();
-    let mut no_project_stats: HashMap<String, i64> = HashMap::new();
-
-    for (task, _tags) in &all_tasks {
-        let stage = calculate_task_stage(task, conn)?;
-
-        let project_name = if let Some(pid) = task.project_id {
-            let mut stmt = conn.prepare("SELECT name FROM projects WHERE id = ?1")?;
-            let full_name: Option<String> = stmt.query_row([pid], |row| row.get::<_, String>(0)).ok();
-            full_name.map(|n| n.split('.').next().unwrap_or(&n).to_string())
-        } else {
-            None
-        };
-
-        let stats = if let Some(name) = project_name {
-            project_stats.entry(name).or_default()
-        } else {
-            &mut no_project_stats
-        };
-
-        *stats.entry(stage).or_insert(0) += 1;
+    if bins.is_empty() {
+        println!("No time bins in the specified range.");
+        return Ok(());
     }
 
-    // Calculate totals
-    let mut total_stats: HashMap<String, i64> = HashMap::new();
-    for stats in project_stats.values() {
-        for (stage, count) in stats {
-            *total_stats.entry(stage.clone()).or_insert(0) += count;
-        }
-    }
-    for (stage, count) in &no_project_stats {
-        *total_stats.entry(stage.clone()).or_insert(0) += count;
-    }
+    // Compute above/below for each bin
+    let use_time_metric = metric == "time";
+    let mut bin_data: Vec<(String, f64, f64)> = Vec::new(); // (label, above, below)
 
-    // Capitalize stage names for display headers
-    let capitalize = |s: &str| -> String {
-        let mut chars = s.chars();
-        match chars.next() {
-            None => String::new(),
-            Some(c) => c.to_uppercase().to_string() + chars.as_str(),
-        }
-    };
-    let display_names: Vec<String> = stage_columns.iter().map(|n| capitalize(n)).collect();
-
-    // Column widths: minimum 7, or length of header
-    let pw = 20;
-    let col_widths: Vec<usize> = display_names.iter()
-        .map(|name| name.len().max(7))
-        .collect();
-
-    // Print header
-    print!("{:<pw$}", "Project", pw = pw);
-    for (i, name) in display_names.iter().enumerate() {
-        let header = if name.len() > col_widths[i] {
-            truncate_str(name, col_widths[i])
-        } else {
-            name.clone()
-        };
-        print!(" {:>width$}", header, width = col_widths[i]);
-    }
-    println!(" {:>6}", "Total");
-
-    // Separator
-    print!("{}", "─".repeat(pw));
-    for w in &col_widths {
-        print!(" {}", "─".repeat(*w));
-    }
-    println!(" {}", "─".repeat(6));
-
-    // Helper to compute total for a stats map
-    let stats_total = |stats: &HashMap<String, i64>| -> i64 {
-        stats.values().sum()
+    // For time metric, get all sessions
+    let sessions = if use_time_metric {
+        SessionRepo::list_all(conn)?
+            .into_iter()
+            .filter(|s| task_ids.contains(&s.task_id))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
     };
 
-    // Print project rows
-    for (name, stats) in &project_stats {
-        print!("{:<pw$}", truncate_str(name, pw), pw = pw);
-        for (i, stage) in stage_columns.iter().enumerate() {
-            let count = stats.get(stage).copied().unwrap_or(0);
-            print!(" {:>width$}", count, width = col_widths[i]);
+    // Track totals for summary
+    let mut total_completed_count: usize = 0;
+    let mut total_remaining_count: usize = 0;
+    let mut total_completed_secs: i64 = 0;
+    let mut total_remaining_alloc: i64 = 0;
+
+    for (bin_start, bin_end, label) in &bins {
+        if use_time_metric {
+            // Above: session time overlapping this bin
+            let mut above_secs: i64 = 0;
+            for session in &sessions {
+                let s_end = session.end_ts.unwrap_or(now);
+                // Clip session to bin boundaries
+                let overlap_start = session.start_ts.max(*bin_start);
+                let overlap_end = s_end.min(*bin_end);
+                if overlap_start < overlap_end {
+                    above_secs += overlap_end - overlap_start;
+                }
+            }
+
+            // Below: sum of alloc_secs for tasks open in this bin
+            let mut below_secs: i64 = 0;
+            for (task, _) in &tasks {
+                let tid = task.id.unwrap_or(0);
+                if task.created_ts >= *bin_end { continue; }
+                // Determine task status at bin_start
+                let task_status_at_bin = get_task_status_at(&status_events, tid, *bin_start);
+                if task_status_at_bin == "closed" || task_status_at_bin == "cancelled" { continue; }
+                below_secs += task.alloc_secs.unwrap_or(0);
+            }
+
+            let above = above_secs as f64 / 3600.0;
+            let below = below_secs as f64 / 3600.0;
+            bin_data.push((label.clone(), above, below));
+        } else {
+            // Task count metric
+            let mut above: usize = 0; // completed in this bin
+            let mut below: usize = 0; // open during this bin
+
+            for (task, _) in &tasks {
+                let tid = task.id.unwrap_or(0);
+                if task.created_ts >= *bin_end { continue; }
+
+                // Check if task was closed in this bin
+                if let Some(events) = status_events.get(&tid) {
+                    let mut closed_in_bin = false;
+                    let mut cancelled_before_bin = false;
+                    let mut closed_before_bin = false;
+
+                    for (ts, new_status) in events {
+                        if new_status == "closed" && *ts >= *bin_start && *ts < *bin_end {
+                            closed_in_bin = true;
+                        }
+                        if new_status == "cancelled" && *ts < *bin_start {
+                            cancelled_before_bin = true;
+                        }
+                        if new_status == "closed" && *ts < *bin_start {
+                            closed_before_bin = true;
+                        }
+                        // Handle reopened tasks
+                        if new_status == "open" && *ts >= *bin_start && *ts < *bin_end {
+                            // Reopened in this bin — reset closed/cancelled flags for events before reopen
+                        }
+                    }
+
+                    // Get status at bin_start
+                    let status_at_bin_start = get_task_status_at(&status_events, tid, *bin_start);
+
+                    if closed_in_bin && status_at_bin_start != "closed" {
+                        above += 1;
+                    }
+                    if !cancelled_before_bin && !closed_before_bin {
+                        below += 1;
+                    } else if status_at_bin_start == "open" {
+                        // Was reopened before this bin
+                        below += 1;
+                    }
+                } else {
+                    // No status events — task is still open since creation
+                    below += 1;
+                }
+            }
+
+            bin_data.push((label.clone(), above as f64, below as f64));
         }
-        println!(" {:>6}", stats_total(stats));
     }
 
-    if stats_total(&no_project_stats) > 0 {
-        print!("{:<pw$}", "(no project)", pw = pw);
-        for (i, stage) in stage_columns.iter().enumerate() {
-            let count = no_project_stats.get(stage).copied().unwrap_or(0);
-            print!(" {:>width$}", count, width = col_widths[i]);
+    // Compute summary totals from current state
+    for (task, _) in &tasks {
+        if task.status == TaskStatus::Closed {
+            total_completed_count += 1;
+        } else if task.status == TaskStatus::Open {
+            total_remaining_count += 1;
+            total_remaining_alloc += task.alloc_secs.unwrap_or(0);
         }
-        println!(" {:>6}", stats_total(&no_project_stats));
     }
 
-    // Footer separator
-    print!("{}", "─".repeat(pw));
-    for w in &col_widths {
-        print!(" {}", "─".repeat(*w));
+    // Get total session time for completed summary
+    if use_time_metric {
+        total_completed_secs = sessions.iter()
+            .map(|s| {
+                let s_end = s.end_ts.unwrap_or(now);
+                (s_end - s.start_ts).max(0)
+            })
+            .sum();
     }
-    println!(" {}", "─".repeat(6));
 
-    // Totals
-    print!("{:<pw$}", "TOTAL", pw = pw);
-    for (i, stage) in stage_columns.iter().enumerate() {
-        let count = total_stats.get(stage).copied().unwrap_or(0);
-        print!(" {:>width$}", count, width = col_widths[i]);
+    // Render
+    let tty = is_tty();
+    let terminal_width = get_terminal_width();
+    let terminal_height = get_terminal_height();
+
+    // Constrain bins to terminal width
+    let y_axis_width = 6; // " NNNN "
+    let available_width = terminal_width.saturating_sub(y_axis_width + 2);
+    let max_bins = available_width / 3; // 2 chars per bar + 1 space
+    let bin_data = if bin_data.len() > max_bins {
+        // Show most recent bins
+        bin_data[bin_data.len() - max_bins..].to_vec()
+    } else {
+        bin_data
+    };
+
+    if tty {
+        render_burndown_chart(&bin_data, y_axis_width, terminal_height);
+    } else {
+        render_burndown_text(&bin_data, use_time_metric);
     }
-    println!(" {:>6}", stats_total(&total_stats));
+
+    // Print summary
+    let start_date = Local.timestamp_opt(period_start, 0).single()
+        .map(|dt| dt.format("%Y-%m-%d").to_string()).unwrap_or_default();
+    let end_date = Local.timestamp_opt(period_end, 0).single()
+        .map(|dt| dt.format("%Y-%m-%d").to_string()).unwrap_or_default();
+
+    if use_time_metric {
+        println!("Completed: {} ({})  |  Remaining: {} alloc ({})  |  {}..{}",
+            total_completed_count,
+            format_duration_short(total_completed_secs),
+            total_remaining_count,
+            format_duration_short(total_remaining_alloc),
+            start_date, end_date);
+    } else {
+        println!("Completed: {}  |  Remaining: {}  |  {}..{}",
+            total_completed_count, total_remaining_count,
+            start_date, end_date);
+    }
+
+    if let Some(ref proj) = project_filter {
+        println!("Project: {}", proj);
+    }
 
     Ok(())
 }
 
-fn truncate_str(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
+/// Get the status of a task at a given timestamp by walking its status events
+fn get_task_status_at(events: &HashMap<i64, Vec<(i64, String)>>, task_id: i64, at_ts: i64) -> String {
+    if let Some(task_events) = events.get(&task_id) {
+        let mut status = "open".to_string();
+        for (ts, new_status) in task_events {
+            if *ts <= at_ts {
+                status = new_status.clone();
+            }
+        }
+        status
     } else {
-        format!("{}…", &s[..max_len - 1])
+        "open".to_string()
+    }
+}
+
+/// Generate time bins for the burndown chart
+fn generate_time_bins(start: i64, end: i64, bin_size: &str) -> Vec<(i64, i64, String)> {
+    use chrono::{Datelike, NaiveDate, Duration};
+
+    let mut bins = Vec::new();
+    let start_dt = Local.timestamp_opt(start, 0).single()
+        .unwrap_or_else(|| Local.timestamp_opt(0, 0).single().unwrap());
+    let end_dt = Local.timestamp_opt(end, 0).single()
+        .unwrap_or_else(|| Local.timestamp_opt(0, 0).single().unwrap());
+
+    match bin_size {
+        "day" => {
+            let mut current = start_dt.date_naive();
+            let end_date = end_dt.date_naive();
+            while current <= end_date {
+                let bin_start = Local.from_local_datetime(&current.and_hms_opt(0, 0, 0).unwrap())
+                    .single().map(|dt| dt.timestamp()).unwrap_or(0);
+                let next = current + Duration::days(1);
+                let bin_end = Local.from_local_datetime(&next.and_hms_opt(0, 0, 0).unwrap())
+                    .single().map(|dt| dt.timestamp()).unwrap_or(0);
+                let label = current.format("%m/%d").to_string();
+                bins.push((bin_start, bin_end, label));
+                current = next;
+            }
+        }
+        "month" => {
+            let mut year = start_dt.year();
+            let mut month = start_dt.month();
+            loop {
+                let current = NaiveDate::from_ymd_opt(year, month, 1).unwrap();
+                let (next_year, next_month) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
+                let next = NaiveDate::from_ymd_opt(next_year, next_month, 1).unwrap();
+
+                let bin_start = Local.from_local_datetime(&current.and_hms_opt(0, 0, 0).unwrap())
+                    .single().map(|dt| dt.timestamp()).unwrap_or(0);
+                let bin_end = Local.from_local_datetime(&next.and_hms_opt(0, 0, 0).unwrap())
+                    .single().map(|dt| dt.timestamp()).unwrap_or(0);
+
+                if bin_start > end {
+                    break;
+                }
+
+                let label = current.format("%b").to_string();
+                bins.push((bin_start, bin_end, label));
+
+                year = next_year;
+                month = next_month;
+            }
+        }
+        _ => {
+            // Default: week
+            // Find Monday of the start week
+            let start_date = start_dt.date_naive();
+            let days_since_monday = start_date.weekday().num_days_from_monday();
+            let mut current = start_date - Duration::days(days_since_monday as i64);
+
+            loop {
+                let bin_start = Local.from_local_datetime(&current.and_hms_opt(0, 0, 0).unwrap())
+                    .single().map(|dt| dt.timestamp()).unwrap_or(0);
+                let next = current + Duration::days(7);
+                let bin_end = Local.from_local_datetime(&next.and_hms_opt(0, 0, 0).unwrap())
+                    .single().map(|dt| dt.timestamp()).unwrap_or(0);
+
+                if bin_start > end {
+                    break;
+                }
+
+                let label = current.format("%m/%d").to_string();
+                bins.push((bin_start, bin_end, label));
+                current = next;
+            }
+        }
+    }
+
+    bins
+}
+
+/// Render burndown chart with ANSI colors and block characters
+fn render_burndown_chart(bins: &[(String, f64, f64)], y_axis_width: usize, terminal_height: usize) {
+    if bins.is_empty() { return; }
+
+    let max_above = bins.iter().map(|(_, a, _)| *a).fold(0.0_f64, f64::max);
+    let max_below = bins.iter().map(|(_, _, b)| *b).fold(0.0_f64, f64::max);
+
+    // Calculate chart height (rows above + rows below baseline)
+    let max_half_rows = (terminal_height.saturating_sub(6)) / 2; // Leave room for axis labels, baseline, summary
+    let max_half_rows = max_half_rows.clamp(3, 15);
+
+    // Scale: each row represents this many units
+    let above_scale = if max_above > 0.0 { max_above / max_half_rows as f64 } else { 1.0 };
+    let below_scale = if max_below > 0.0 { max_below / max_half_rows as f64 } else { 1.0 };
+    let scale = above_scale.max(below_scale); // Use unified scale for consistent comparison
+
+    let rows_above = if max_above > 0.0 { (max_above / scale).ceil() as usize } else { 0 };
+    let rows_below = if max_below > 0.0 { (max_below / scale).ceil() as usize } else { 0 };
+
+    let green = "\x1b[32m";
+    let blue = "\x1b[34m";
+    let dim = "\x1b[2m";
+    let reset = "\x1b[0m";
+
+    let full_green = format!(" {}██{}", green, reset);
+    let half_green = format!(" {}▄▄{}", green, reset);
+    let full_blue = format!(" {}██{}", blue, reset);
+    let half_blue = format!(" {}▀▀{}", blue, reset);
+
+    // Print above-baseline rows (top to bottom)
+    for row in (1..=rows_above).rev() {
+        let threshold = row as f64 * scale;
+        let y_label = format!("{:>width$}", format_chart_value(threshold), width = y_axis_width - 1);
+        print!("{dim}{y_label}{reset} {dim}│{reset}");
+        for (_, above, _) in bins {
+            if *above >= threshold {
+                print!("{full_green}");
+            } else if *above >= threshold - scale && *above > (row - 1) as f64 * scale {
+                print!("{half_green}");
+            } else {
+                print!("   ");
+            }
+        }
+        println!();
+    }
+
+    // Baseline
+    let bar_width = bins.len() * 3;
+    print!("{:>width$}", "", width = y_axis_width);
+    print!("┼{}", "─".repeat(bar_width));
+    println!();
+
+    // Print below-baseline rows (top = row 1 nearest baseline)
+    for row in 1..=rows_below {
+        let threshold = row as f64 * scale;
+        let y_label = format!("{:>width$}", format_chart_value(threshold), width = y_axis_width - 1);
+        print!("{dim}{y_label}{reset} {dim}│{reset}");
+        for (_, _, below) in bins {
+            if *below >= threshold {
+                print!("{full_blue}");
+            } else if *below >= threshold - scale && *below > (row - 1) as f64 * scale {
+                print!("{half_blue}");
+            } else {
+                print!("   ");
+            }
+        }
+        println!();
+    }
+
+    // X-axis
+    print!("{:>width$}", "", width = y_axis_width);
+    print!("└{}", "─".repeat(bar_width));
+    println!();
+
+    // X-axis labels
+    print!("{:>width$}", "", width = y_axis_width + 1);
+    for (label, _, _) in bins {
+        // Truncate label to 2 chars, left-padded in 3-char slot
+        let short: String = label.chars().take(3).collect();
+        print!("{:>3}", short);
+    }
+    println!();
+}
+
+/// Format a chart axis value compactly
+fn format_chart_value(v: f64) -> String {
+    if v >= 1000.0 {
+        format!("{:.0}k", v / 1000.0)
+    } else if v == v.floor() {
+        format!("{:.0}", v)
+    } else {
+        format!("{:.1}", v)
+    }
+}
+
+/// Render burndown as plain text (non-TTY fallback)
+fn render_burndown_text(bins: &[(String, f64, f64)], is_time: bool) {
+    let unit = if is_time { "hours" } else { "tasks" };
+    println!("{:<10} {:>12} {:>12}", "Bin", format!("Completed({})", unit), format!("Remaining({})", unit));
+    println!("{}", "─".repeat(36));
+    for (label, above, below) in bins {
+        if is_time {
+            println!("{:<10} {:>12.1} {:>12.1}", label, above, below);
+        } else {
+            println!("{:<10} {:>12.0} {:>12.0}", label, above, below);
+        }
     }
 }
 

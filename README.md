@@ -26,6 +26,8 @@ TATL is designed around a simple insight: **most task management is procrastinat
 - **Filters**: Powerful filter expressions with AND, OR, NOT operators and comparison operators
 - **Stages**: Derived task stages (proposed, planned, in progress, active, suspended, external, completed, cancelled) with customizable labels, sort order, and colors
 - **Externals**: Send tasks to external parties and track their return
+- **Task Nesting**: Parent-child relationships with tree display in list view
+- **Burndown Chart**: Visual project burndown with configurable time bins and metrics
 - **Sessions Report**: Time reports with project breakdowns and date range filtering
 - **Pipe Operator**: Chain commands with ` : ` (e.g., `tatl add "Task" : enqueue : on`)
 - **Command Abbreviations**: Unambiguous prefixes work everywhere (e.g., `enq` for `enqueue`)
@@ -197,6 +199,26 @@ tatl stages set 7 color=green      # Change stage color
 tatl stages set 7 sort_order=3     # Change sort position
 ```
 
+### Task Nesting
+
+Tasks can have parent-child relationships, forming hierarchies displayed as trees in list view:
+
+```bash
+tatl add "Build release pipeline"
+tatl add "Set up CI config" parent=1
+tatl add "Write deploy script" parent=1
+tatl add "Test rollback" parent=3
+
+tatl list
+# Q  ID  Description              Project  Stage
+# 1  1   Build release pipeline   devops   active
+#    2   ├─ Set up CI config               planned
+#    3   ├─ Write deploy script            in progress
+#    4   │  └─ Test rollback               proposed
+```
+
+Children are independent — closing a parent does not close its children. Deleting a parent orphans its children (they become root tasks). Cycle detection prevents circular relationships.
+
 ## Command Reference
 
 ### Tasks
@@ -207,16 +229,21 @@ tatl add "Description" project=name +tag due=tomorrow
 tatl add "Quick task" : on          # Create and start timing
 tatl add "Meeting" : on 14:00       # Create and start timing at 14:00
 tatl add "Past work" : onoff 09:00..12:00  # Create with historical session
+tatl add "Subtask" parent=5         # Create as child of task 5
 
 # Read
-tatl list                           # All open tasks
+tatl list                           # All open tasks (tree display for nested tasks)
 tatl list project=work +urgent      # With filters
-tatl show 5                         # Detailed view
+tatl list parent=5                  # Children of task 5
+tatl list parent=none               # Root tasks only
+tatl show 5                         # Detailed view (shows parent and children)
 tatl show                           # Show currently active task
 
 # Update
 tatl modify 5 +urgent due=+2d       # Add tag, change due date
 tatl modify project=work            # Modify currently active task
+tatl modify 3 parent=5              # Move task under a new parent
+tatl modify 3 parent=none           # Make task a root task
 tatl annotate 5 "Found the issue"   # Add note
 tatl clone 5                        # Clone task with all attributes
 tatl clone 5 project=other +new     # Clone with overrides
@@ -266,7 +293,11 @@ tatl projects list
 tatl projects rename old new
 tatl projects archive old-project
 tatl projects unarchive old-project
-tatl projects report                # Task counts by project and stage
+tatl projects report                # Burndown chart (all projects, weekly)
+tatl projects report work           # Filter to one project
+tatl projects report -90d --bin month   # Last 90 days, monthly bins
+tatl projects report --metric time      # Hours instead of task counts
+tatl projects report work -30d --bin day  # Daily bars for one project
 ```
 
 ### Externals
@@ -392,6 +423,7 @@ tatl list project=work status=open not +blocked
 | `modified` | `=`, `!=`, `>`, `<`, `>=`, `<=` | `modified>-1d` |
 | `activity` | `=`, `!=`, `>`, `<`, `>=`, `<=` | `activity>-7d` |
 | `desc` | `=`, `!=` | `desc=meeting` |
+| `parent` | `=`, `!=` | `parent=5`, `parent=none`, `parent=any` |
 | `external` | `=`, `!=` | `external=bob` |
 | `+tag` / `-tag` | presence/absence | `+urgent` |
 

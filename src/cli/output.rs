@@ -413,6 +413,16 @@ pub fn get_terminal_width() -> usize {
     120
 }
 
+/// Get terminal height in rows.
+pub fn get_terminal_height() -> usize {
+    if let Some((_, terminal_size::Height(h))) = terminal_size::terminal_size() {
+        if h > 0 {
+            return h as usize;
+        }
+    }
+    24
+}
+
 /// Apply bold formatting if in TTY mode
 fn bold_if_tty(text: &str, is_tty: bool) -> String {
     if is_tty {
