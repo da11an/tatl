@@ -14,6 +14,7 @@ pub struct ParsedTaskArgs {
     pub allocation: Option<String>,
     pub template: Option<String>,
     pub respawn: Option<String>,
+    pub parent: Option<String>,
     pub tags_add: Vec<String>,
     pub tags_remove: Vec<String>,
     pub udas: HashMap<String, String>,
@@ -74,6 +75,7 @@ const FIELD_NAMES: &[&str] = &[
     "allocation",
     "template",
     "respawn",
+    "parent",
 ];
 
 /// Fields that are read-only (cannot be modified via modify command)
@@ -239,6 +241,7 @@ pub fn parse_task_args(args: Vec<String>) -> Result<ParsedTaskArgs, FieldParseEr
                     "allocation" => parsed.allocation = Some(value),
                     "template" => parsed.template = Some(value),
                     "respawn" => parsed.respawn = Some(value),
+                    "parent" => parsed.parent = Some(value),
                     _ => {
                         // Check if it's a UDA (uda.<key>=<value>)
                         if field.starts_with("uda.") {

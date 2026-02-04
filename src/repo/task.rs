@@ -39,6 +39,7 @@ impl TaskRepo {
         respawn: Option<String>,
         udas: &HashMap<String, String>,
         tags: &[String],
+        parent_id: Option<i64>,
     ) -> Result<Task> {
         let mut task = Task::new(description.to_string());
         task.project_id = project_id;
@@ -48,6 +49,7 @@ impl TaskRepo {
         task.alloc_secs = alloc_secs;
         task.template = template.clone();
         task.respawn = respawn.clone();
+        task.parent_id = parent_id;
         task.udas = udas.clone();
         
         let now = chrono::Utc::now().timestamp();
@@ -60,9 +62,9 @@ impl TaskRepo {
         };
         
         conn.execute(
-            "INSERT INTO tasks (uuid, description, status, project_id, due_ts, scheduled_ts, 
-                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts, activity_ts)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            "INSERT INTO tasks (uuid, description, status, project_id, due_ts, scheduled_ts,
+                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts, activity_ts, parent_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             rusqlite::params![
                 task.uuid,
                 task.description,
@@ -77,7 +79,8 @@ impl TaskRepo {
                 udas_json,
                 now,
                 now,
-                now
+                now,
+                task.parent_id
             ],
         )
         .with_context(|| format!("Failed to create task: {}", description))?;
@@ -117,17 +120,18 @@ impl TaskRepo {
             None,
             &HashMap::new(),
             &[],
+            None,
         )
     }
 
     /// Get task by ID
     pub fn get_by_id(conn: &Connection, id: i64) -> Result<Option<Task>> {
         let mut stmt = conn.prepare(
-            "SELECT id, uuid, description, status, project_id, due_ts, scheduled_ts, 
-                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts, activity_ts 
+            "SELECT id, uuid, description, status, project_id, due_ts, scheduled_ts,
+                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts, activity_ts, parent_id
              FROM tasks WHERE id = ?1"
         )?;
-        
+
         let task = stmt.query_row([id], |row| {
             let udas_json: Option<String> = row.get(11)?;
             let mut udas = HashMap::new();
@@ -136,7 +140,7 @@ impl TaskRepo {
                     udas = parsed;
                 }
             }
-            
+
             Ok(Task {
                 id: Some(row.get(0)?),
                 uuid: row.get(1)?,
@@ -150,6 +154,7 @@ impl TaskRepo {
                 alloc_secs: row.get(8)?,
                 template: row.get(9)?,
                 respawn: row.get(10)?,
+                parent_id: row.get(15)?,
                 udas,
                 created_ts: row.get(12)?,
                 modified_ts: row.get(13)?,
@@ -177,11 +182,11 @@ impl TaskRepo {
     /// List all tasks (basic - no filtering yet)
     pub fn list_all(conn: &Connection) -> Result<Vec<(Task, Vec<String>)>> {
         let mut stmt = conn.prepare(
-            "SELECT id, uuid, description, status, project_id, due_ts, scheduled_ts, 
-                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts, activity_ts 
+            "SELECT id, uuid, description, status, project_id, due_ts, scheduled_ts,
+                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts, activity_ts, parent_id
              FROM tasks WHERE status != 'deleted' ORDER BY id"
         )?;
-        
+
         let rows = stmt.query_map([], |row| {
             let id: i64 = row.get(0)?;
             let udas_json: Option<String> = row.get(11)?;
@@ -191,7 +196,7 @@ impl TaskRepo {
                     udas = parsed;
                 }
             }
-            
+
             Ok(Task {
                 id: Some(id),
                 uuid: row.get(1)?,
@@ -205,6 +210,7 @@ impl TaskRepo {
                 alloc_secs: row.get(8)?,
                 template: row.get(9)?,
                 respawn: row.get(10)?,
+                parent_id: row.get(15)?,
                 udas,
                 created_ts: row.get(12)?,
                 modified_ts: row.get(13)?,
@@ -238,6 +244,7 @@ impl TaskRepo {
         udas_to_remove: &[String],
         tags_to_add: &[String],
         tags_to_remove: &[String],
+        parent_id: Option<Option<i64>>, // Some(None) means clear, None means don't change
     ) -> Result<()> {
         // Get current task (for event recording)
         let old_task = Self::get_by_id(conn, task_id)?
@@ -347,7 +354,19 @@ impl TaskRepo {
             }
             task.respawn = resp;
         }
-        
+        if let Some(new_parent) = parent_id {
+            if new_parent != task.parent_id {
+                EventRepo::record_modified(
+                    conn,
+                    task_id,
+                    "parent_id",
+                    task.parent_id.map(|id| serde_json::Value::Number(id.into())),
+                    new_parent.map(|id| serde_json::Value::Number(id.into())),
+                )?;
+            }
+            task.parent_id = new_parent;
+        }
+
         // Update UDAs
         for (key, value) in udas_to_add {
             task.udas.insert(key.clone(), value.clone());
@@ -367,7 +386,7 @@ impl TaskRepo {
         conn.execute(
             "UPDATE tasks SET description = ?1, project_id = ?2, due_ts = ?3, scheduled_ts = ?4,
                     wait_ts = ?5, alloc_secs = ?6, template = ?7, respawn = ?8, udas_json = ?9,
-                    modified_ts = ?10, activity_ts = ?10 WHERE id = ?11",
+                    modified_ts = ?10, activity_ts = ?10, parent_id = ?12 WHERE id = ?11",
             rusqlite::params![
                 task.description,
                 task.project_id,
@@ -379,7 +398,8 @@ impl TaskRepo {
                 task.respawn,
                 udas_json,
                 now,
-                task_id
+                task_id,
+                task.parent_id
             ],
         )?;
         
@@ -427,15 +447,15 @@ impl TaskRepo {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        
+
         let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let query = format!(
-            "SELECT id, uuid, description, status, project_id, due_ts, scheduled_ts, 
-                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts, activity_ts 
+            "SELECT id, uuid, description, status, project_id, due_ts, scheduled_ts,
+                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts, activity_ts, parent_id
              FROM tasks WHERE id IN ({})",
             placeholders
         );
-        
+
         let mut stmt = conn.prepare(&query)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |row| {
             let udas_json: Option<String> = row.get(11)?;
@@ -445,7 +465,7 @@ impl TaskRepo {
                     udas = parsed;
                 }
             }
-            
+
             Ok(Task {
                 id: Some(row.get(0)?),
                 uuid: row.get(1)?,
@@ -459,6 +479,7 @@ impl TaskRepo {
                 alloc_secs: row.get(8)?,
                 template: row.get(9)?,
                 respawn: row.get(10)?,
+                parent_id: row.get(15)?,
                 udas,
                 created_ts: row.get(12)?,
                 modified_ts: row.get(13)?,
@@ -579,6 +600,78 @@ impl TaskRepo {
         Ok(())
     }
     
+    /// Get direct children of a task
+    pub fn get_children(conn: &Connection, parent_id: i64) -> Result<Vec<Task>> {
+        let mut stmt = conn.prepare(
+            "SELECT id, uuid, description, status, project_id, due_ts, scheduled_ts,
+                    wait_ts, alloc_secs, template, respawn, udas_json, created_ts, modified_ts, activity_ts, parent_id
+             FROM tasks WHERE parent_id = ?1 AND status != 'deleted' ORDER BY id"
+        )?;
+
+        let rows = stmt.query_map([parent_id], |row| {
+            let udas_json: Option<String> = row.get(11)?;
+            let mut udas = HashMap::new();
+            if let Some(json) = udas_json {
+                if let Ok(parsed) = serde_json::from_str::<HashMap<String, String>>(&json) {
+                    udas = parsed;
+                }
+            }
+
+            Ok(Task {
+                id: Some(row.get(0)?),
+                uuid: row.get(1)?,
+                description: row.get(2)?,
+                status: crate::models::TaskStatus::from_str(&row.get::<_, String>(3)?)
+                    .unwrap_or(crate::models::TaskStatus::Open),
+                project_id: row.get(4)?,
+                due_ts: row.get(5)?,
+                scheduled_ts: row.get(6)?,
+                wait_ts: row.get(7)?,
+                alloc_secs: row.get(8)?,
+                template: row.get(9)?,
+                respawn: row.get(10)?,
+                parent_id: row.get(15)?,
+                udas,
+                created_ts: row.get(12)?,
+                modified_ts: row.get(13)?,
+                activity_ts: row.get::<_, Option<i64>>(14)?.unwrap_or(row.get(13)?),
+            })
+        })?;
+
+        let mut tasks = Vec::new();
+        for row in rows {
+            tasks.push(row?);
+        }
+        Ok(tasks)
+    }
+
+    /// Validate that setting proposed_parent_id as parent of task_id won't create a cycle.
+    /// Walks up the parent chain from proposed_parent_id; if task_id is encountered, it's a cycle.
+    pub fn validate_no_cycle(conn: &Connection, task_id: i64, proposed_parent_id: i64) -> Result<()> {
+        let mut current = Some(proposed_parent_id);
+        while let Some(id) = current {
+            if id == task_id {
+                anyhow::bail!("Circular parent relationship: task {} cannot be its own ancestor", task_id);
+            }
+            let parent: Option<Option<i64>> = conn.query_row(
+                "SELECT parent_id FROM tasks WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            ).ok();
+            current = parent.flatten();
+        }
+        Ok(())
+    }
+
+    /// Orphan all children of a task (set their parent_id to NULL)
+    pub fn orphan_children(conn: &Connection, parent_id: i64) -> Result<()> {
+        conn.execute(
+            "UPDATE tasks SET parent_id = NULL WHERE parent_id = ?1",
+            [parent_id],
+        )?;
+        Ok(())
+    }
+
     /// Get total logged time for a task (sum of all session durations)
     pub fn get_total_logged_time(conn: &Connection, task_id: i64) -> Result<i64> {
         use crate::repo::SessionRepo;

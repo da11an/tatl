@@ -2,7 +2,7 @@ use rusqlite::{Connection, Result};
 use std::collections::HashMap;
 
 /// Current database schema version
-const CURRENT_VERSION: u32 = 10;
+const CURRENT_VERSION: u32 = 11;
 
 /// Migration system for managing database schema versions
 pub struct MigrationManager;
@@ -92,6 +92,7 @@ fn get_migrations() -> HashMap<u32, fn(&rusqlite::Transaction) -> Result<(), rus
     migrations.insert(8, migration_v8);
     migrations.insert(9, migration_v9);
     migrations.insert(10, migration_v10);
+    migrations.insert(11, migration_v11);
     migrations
 }
 
@@ -678,6 +679,19 @@ fn migration_v10(tx: &rusqlite::Transaction) -> Result<(), rusqlite::Error> {
     )?;
     tx.execute(
         "UPDATE tasks SET activity_ts = modified_ts",
+        [],
+    )?;
+    Ok(())
+}
+
+/// Migration v11: Add parent_id column to tasks for task nesting
+fn migration_v11(tx: &rusqlite::Transaction) -> Result<(), rusqlite::Error> {
+    tx.execute(
+        "ALTER TABLE tasks ADD COLUMN parent_id INTEGER REFERENCES tasks(id)",
+        [],
+    )?;
+    tx.execute(
+        "CREATE INDEX idx_tasks_parent_id ON tasks(parent_id)",
         [],
     )?;
     Ok(())

@@ -165,6 +165,7 @@ fn test_filter_performance_with_indexes() {
             None,
             &std::collections::HashMap::new(),
             &tags,
+            None, // parent_id
         ).unwrap();
     }
     

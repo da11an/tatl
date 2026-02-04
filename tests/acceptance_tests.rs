@@ -502,8 +502,9 @@ fn acceptance_waiting_derived() {
         &[], // udas_to_remove
         &[], // tags_to_add
         &[], // tags_to_remove
+        None, // parent_id
     ).unwrap();
-    
+
     // Test waiting filter
     let filter_expr = parse_filter(vec!["waiting".to_string()]).unwrap();
     let matching = filter_tasks(ctx.db(), &filter_expr).unwrap();
@@ -542,10 +543,11 @@ fn acceptance_respawn_on_finish() {
         Some("daily".to_string()),
         &HashMap::new(),
         &[],
+        None, // parent_id
     ).unwrap();
-    
+
     let task_id = task.id.unwrap();
-    
+
     // Finish the task
     let mut when = WhenBuilder::new(&ctx);
     when.execute_success(&["close", &task_id.to_string(), "-y"]);

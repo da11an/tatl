@@ -126,6 +126,7 @@ pub fn respawn_task(conn: &Connection, task: &Task, completion_ts: i64) -> Resul
         Some(respawn_str.clone()), // Carry respawn rule forward
         &task.udas,
         &tags,
+        task.parent_id, // Carry parent forward
     )?;
     
     Ok(new_task.id)

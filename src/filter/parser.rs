@@ -125,6 +125,7 @@ pub enum FilterTerm {
     Created(ComparisonOp, String),
     Modified(ComparisonOp, String),
     Activity(ComparisonOp, String),
+    Parent(ComparisonOp, String),
 }
 
 /// Split a token into (key, operator, value) using operator detection.
@@ -167,7 +168,7 @@ fn split_on_operator(token: &str) -> Option<(String, ComparisonOp, String)> {
 const FILTER_KEYS: &[&str] = &[
     "id", "status", "project", "due", "scheduled", "wait",
     "stage", "desc", "description", "external",
-    "created", "modified", "activity",
+    "created", "modified", "activity", "parent",
 ];
 
 /// Resolve a filter key, supporting unambiguous prefix abbreviations.
@@ -273,6 +274,12 @@ fn parse_filter_term(token: &str) -> Result<Option<FilterTerm>, String> {
             "created" => Ok(Some(FilterTerm::Created(op, value))),
             "modified" => Ok(Some(FilterTerm::Modified(op, value))),
             "activity" => Ok(Some(FilterTerm::Activity(op, value))),
+            "parent" => {
+                if op != ComparisonOp::Eq && op != ComparisonOp::Neq {
+                    return Err(format!("Parent filter only supports '=' and '!=' operators, got '{}'", format_op(&op)));
+                }
+                Ok(Some(FilterTerm::Parent(op, value)))
+            },
             _ => Ok(None),
         };
     }

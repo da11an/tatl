@@ -323,6 +323,33 @@ impl FilterTerm {
             FilterTerm::Activity(op, expr) => {
                 match_date_field(Some(task.activity_ts), op, expr)
             }
+            FilterTerm::Parent(op, value) => {
+                let value_lower = value.to_lowercase();
+                if value_lower == "none" {
+                    let has_parent = task.parent_id.is_some();
+                    match op {
+                        ComparisonOp::Eq => Ok(!has_parent),
+                        ComparisonOp::Neq => Ok(has_parent),
+                        _ => Err(anyhow::anyhow!("Parent filter supports only '=' and '!='")),
+                    }
+                } else if value_lower == "any" {
+                    let has_parent = task.parent_id.is_some();
+                    match op {
+                        ComparisonOp::Eq => Ok(has_parent),
+                        ComparisonOp::Neq => Ok(!has_parent),
+                        _ => Err(anyhow::anyhow!("Parent filter supports only '=' and '!='")),
+                    }
+                } else {
+                    let target_id: i64 = value.parse()
+                        .map_err(|_| anyhow::anyhow!("Parent filter value must be 'none', 'any', or a task ID, got '{}'", value))?;
+                    let matches = task.parent_id == Some(target_id);
+                    match op {
+                        ComparisonOp::Eq => Ok(matches),
+                        ComparisonOp::Neq => Ok(!matches),
+                        _ => Err(anyhow::anyhow!("Parent filter supports only '=' and '!='")),
+                    }
+                }
+            }
         }
     }
 }
@@ -462,8 +489,8 @@ mod tests {
         let conn = DbConnection::connect_in_memory().unwrap();
 
         // Create tasks with tags
-        let task1 = TaskRepo::create_full(&conn, "Task 1", None, None, None, None, None, None, None, &std::collections::HashMap::new(), &["urgent".to_string()]).unwrap();
-        TaskRepo::create_full(&conn, "Task 2", None, None, None, None, None, None, None, &std::collections::HashMap::new(), &["important".to_string()]).unwrap();
+        let task1 = TaskRepo::create_full(&conn, "Task 1", None, None, None, None, None, None, None, &std::collections::HashMap::new(), &["urgent".to_string()], None).unwrap();
+        TaskRepo::create_full(&conn, "Task 2", None, None, None, None, None, None, None, &std::collections::HashMap::new(), &["important".to_string()], None).unwrap();
 
         // Filter by positive tag
         let filter = parse_filter(vec!["+urgent".to_string()]).unwrap();
@@ -483,8 +510,8 @@ mod tests {
 
         // Create tasks with and without due dates
         let now = chrono::Utc::now().timestamp();
-        let task1 = TaskRepo::create_full(&conn, "Task 1", None, Some(now), None, None, None, None, None, &std::collections::HashMap::new(), &[]).unwrap();
-        TaskRepo::create_full(&conn, "Task 2", None, None, None, None, None, None, None, &std::collections::HashMap::new(), &[]).unwrap();
+        let task1 = TaskRepo::create_full(&conn, "Task 1", None, Some(now), None, None, None, None, None, &std::collections::HashMap::new(), &[], None).unwrap();
+        TaskRepo::create_full(&conn, "Task 2", None, None, None, None, None, None, None, &std::collections::HashMap::new(), &[], None).unwrap();
 
         // Filter by due=any
         let filter = parse_filter(vec!["due=any".to_string()]).unwrap();
@@ -504,8 +531,8 @@ mod tests {
 
         // Create tasks with and without due dates
         let now = chrono::Utc::now().timestamp();
-        let task1 = TaskRepo::create_full(&conn, "Task 1", None, Some(now), None, None, None, None, None, &std::collections::HashMap::new(), &[]).unwrap();
-        TaskRepo::create_full(&conn, "Task 2", None, None, None, None, None, None, None, &std::collections::HashMap::new(), &[]).unwrap();
+        let task1 = TaskRepo::create_full(&conn, "Task 1", None, Some(now), None, None, None, None, None, &std::collections::HashMap::new(), &[], None).unwrap();
+        TaskRepo::create_full(&conn, "Task 2", None, None, None, None, None, None, None, &std::collections::HashMap::new(), &[], None).unwrap();
 
         // Filter by due!=none (should match tasks WITH a due date)
         let filter = parse_filter(vec!["due!=none".to_string()]).unwrap();
@@ -522,9 +549,9 @@ mod tests {
         let future = chrono::Utc::now().timestamp() + 3600; // 1 hour in future
         let past = chrono::Utc::now().timestamp() - 3600; // 1 hour in past
 
-        TaskRepo::create_full(&conn, "Waiting task", None, None, None, Some(future), None, None, None, &std::collections::HashMap::new(), &[]).unwrap();
-        TaskRepo::create_full(&conn, "Not waiting", None, None, None, Some(past), None, None, None, &std::collections::HashMap::new(), &[]).unwrap();
-        TaskRepo::create_full(&conn, "No wait", None, None, None, None, None, None, None, &std::collections::HashMap::new(), &[]).unwrap();
+        TaskRepo::create_full(&conn, "Waiting task", None, None, None, Some(future), None, None, None, &std::collections::HashMap::new(), &[], None).unwrap();
+        TaskRepo::create_full(&conn, "Not waiting", None, None, None, Some(past), None, None, None, &std::collections::HashMap::new(), &[], None).unwrap();
+        TaskRepo::create_full(&conn, "No wait", None, None, None, None, None, None, None, &std::collections::HashMap::new(), &[], None).unwrap();
 
         // Filter by waiting
         let filter = parse_filter(vec!["waiting".to_string()]).unwrap();
@@ -538,8 +565,8 @@ mod tests {
 
         // Create project and tasks
         let work = ProjectRepo::create(&conn, "work").unwrap();
-        let task1 = TaskRepo::create_full(&conn, "Task 1", work.id, None, None, None, None, None, None, &std::collections::HashMap::new(), &["urgent".to_string()]).unwrap();
-        TaskRepo::create_full(&conn, "Task 2", work.id, None, None, None, None, None, None, &std::collections::HashMap::new(), &[]).unwrap();
+        let task1 = TaskRepo::create_full(&conn, "Task 1", work.id, None, None, None, None, None, None, &std::collections::HashMap::new(), &["urgent".to_string()], None).unwrap();
+        TaskRepo::create_full(&conn, "Task 2", work.id, None, None, None, None, None, None, &std::collections::HashMap::new(), &[], None).unwrap();
 
         // Combined filter: project AND tag
         let filter = parse_filter(vec!["project=work".to_string(), "+urgent".to_string()]).unwrap();

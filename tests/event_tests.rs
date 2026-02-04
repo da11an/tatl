@@ -78,8 +78,9 @@ fn test_event_tag_added() {
         &[],
         &["urgent".to_string()],
         &[],
+        None, // parent_id
     ).unwrap();
-    
+
     // Verify tag_added event was recorded
     let mut stmt = conn.prepare("SELECT payload_json FROM task_events WHERE task_id = ?1 AND event_type = 'tag_added'").unwrap();
     let payload: String = stmt.query_row([task_id], |row| row.get(0)).unwrap();

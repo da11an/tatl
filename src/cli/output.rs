@@ -813,6 +813,8 @@ enum SortValue {
 
 #[derive(Debug, Clone)]
 struct TaskRow {
+    task_id: i64,
+    parent_id: Option<i64>,
     values: HashMap<TaskListColumn, String>,
     sort_values: HashMap<TaskListColumn, Option<SortValue>>,
 }
@@ -878,6 +880,118 @@ fn sort_value_as_string(value: &SortValue) -> String {
         SortValue::Float(v) => format!("{:.6}", v),
         SortValue::Str(v) => v.clone(),
     }
+}
+
+/// Reorder rows into depth-first tree order and apply tree prefixes to descriptions.
+/// Children whose parent is not in the result set appear as root tasks.
+/// Within each sibling set, the existing sort order is preserved.
+fn apply_tree_ordering(rows: &mut Vec<TaskRow>) {
+    // Check if any row has a parent_id that's in the set
+    let id_set: HashSet<i64> = rows.iter().map(|r| r.task_id).collect();
+    let has_nesting = rows.iter().any(|r| {
+        r.parent_id.map_or(false, |pid| id_set.contains(&pid))
+    });
+    if !has_nesting {
+        return;
+    }
+
+    // Build children map preserving current order
+    let mut children_map: HashMap<i64, Vec<usize>> = HashMap::new();
+    let mut root_indices: Vec<usize> = Vec::new();
+
+    for (idx, row) in rows.iter().enumerate() {
+        match row.parent_id {
+            Some(pid) if id_set.contains(&pid) => {
+                children_map.entry(pid).or_default().push(idx);
+            }
+            _ => {
+                root_indices.push(idx);
+            }
+        }
+    }
+
+    // DFS traversal collecting (index, depth, is_last_sibling_at_each_level)
+    struct TreeEntry {
+        index: usize,
+        prefix: String,
+    }
+
+    fn walk(
+        idx: usize,
+        depth: usize,
+        ancestor_continuations: &[bool], // true = ancestor at that level has more siblings after
+        is_last: bool,
+        children_map: &HashMap<i64, Vec<usize>>,
+        rows: &[TaskRow],
+        result: &mut Vec<TreeEntry>,
+    ) {
+        // Build prefix from ancestor continuations + own position
+        let mut prefix = String::new();
+        for level in 0..depth {
+            if level == depth - 1 {
+                if is_last {
+                    prefix.push_str("└─ ");
+                } else {
+                    prefix.push_str("├─ ");
+                }
+            } else if level < ancestor_continuations.len() && ancestor_continuations[level] {
+                prefix.push_str("│  ");
+            } else {
+                prefix.push_str("   ");
+            }
+        }
+
+        result.push(TreeEntry { index: idx, prefix });
+
+        let task_id = rows[idx].task_id;
+        if let Some(child_indices) = children_map.get(&task_id) {
+            let len = child_indices.len();
+            for (i, &child_idx) in child_indices.iter().enumerate() {
+                let child_is_last = i == len - 1;
+                let mut new_continuations = ancestor_continuations.to_vec();
+                if depth > 0 {
+                    // Already pushed in parent call
+                }
+                // For the current level: if current node is NOT last, descendants need continuation
+                new_continuations.resize(depth, false);
+                if depth > 0 {
+                    new_continuations[depth - 1] = !is_last;
+                }
+                new_continuations.push(!child_is_last);
+                // But we only pass up to `depth` for the child's ancestors
+                let child_ancestors: Vec<bool> = if depth == 0 {
+                    vec![] // root's children have no ancestor continuations from root
+                } else {
+                    let mut a = ancestor_continuations.to_vec();
+                    a.resize(depth, false);
+                    if depth > 0 {
+                        a[depth - 1] = !is_last;
+                    }
+                    a
+                };
+                walk(child_idx, depth + 1, &child_ancestors, child_is_last, children_map, rows, result);
+            }
+        }
+    }
+
+    let mut ordered: Vec<TreeEntry> = Vec::with_capacity(rows.len());
+    for &root_idx in &root_indices {
+        walk(root_idx, 0, &[], true, &children_map, rows, &mut ordered);
+    }
+
+    // Apply prefixes to description values and reorder
+    let mut new_rows: Vec<TaskRow> = Vec::with_capacity(rows.len());
+    for entry in ordered {
+        let mut row = rows[entry.index].clone();
+        if !entry.prefix.is_empty() {
+            if let Some(desc) = row.values.get_mut(&TaskListColumn::Description) {
+                *desc = format!("{}{}", entry.prefix, desc);
+            }
+        }
+        new_rows.push(row);
+    }
+
+    *rows = new_rows;
 }
 
 /// Format task list as a table
@@ -1042,6 +1156,8 @@ pub fn format_task_list_table(
         sort_values.insert(TaskListColumn::Status, Some(SortValue::Int(status_sort_order(task.status.as_str()))));
         
         rows.push(TaskRow {
+            task_id,
+            parent_id: task.parent_id,
             values,
             sort_values,
         });
@@ -1269,6 +1385,19 @@ pub fn format_task_list_table(
         });
     }
     
+    // Apply tree ordering (nest children under parents with tree characters)
+    apply_tree_ordering(&mut rows);
+
+    // Recompute description column width after tree ordering (prefixes added chars)
+    if let Some(desc_width) = column_widths.get_mut(&TaskListColumn::Description) {
+        for row in &rows {
+            if let Some(value) = row.values.get(&TaskListColumn::Description) {
+                let char_count = value.chars().count().min(100);
+                *desc_width = (*desc_width).max(char_count);
+            }
+        }
+    }
+
     // Compute ranges for gradient/heatmap coloring (if needed)
     let priority_range: Option<(f64, f64)> = if options.color_column.as_deref() == Some("priority") 
         || options.fill_column.as_deref() == Some("priority") {
@@ -1848,9 +1977,30 @@ pub fn format_task_summary(
     } else {
         output.push_str("  Respawn:     (none)\n");
     }
-    
+
+    // Parent
+    if let Some(parent_id) = task.parent_id {
+        if let Ok(Some(parent)) = TaskRepo::get_by_id(conn, parent_id) {
+            output.push_str(&format!("  Parent:      {} {}\n", parent_id, parent.description));
+        } else {
+            output.push_str(&format!("  Parent:      {} (not found)\n", parent_id));
+        }
+    }
+
     output.push_str("\n");
-    
+
+    // Children
+    if let Some(task_id) = task.id {
+        let children = TaskRepo::get_children(conn, task_id)?;
+        if !children.is_empty() {
+            output.push_str(&format!("Children ({}):\n", children.len()));
+            for child in &children {
+                output.push_str(&format!("  {} {}\n", child.id.unwrap_or(0), child.description));
+            }
+            output.push_str("\n");
+        }
+    }
+
     // User-Defined Attributes
     if !task.udas.is_empty() {
         output.push_str("User-Defined Attributes:\n");

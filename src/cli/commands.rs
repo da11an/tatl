@@ -60,6 +60,7 @@ The task description is all text that doesn't match field patterns. Field syntax
   allocation=<dur>   - Set time allocation (e.g., \"2h\", \"30m\", \"1d\")
   template=<name>    - Use template
   respawn=<pattern>  - Set respawn rule (see RESPAWN PATTERNS below)
+  parent=<id>        - Set parent task (creates nesting)
   +<tag>             - Add tag
   -<tag>             - Remove tag
   uda.<key>=<value>  - Set user-defined attribute
@@ -113,6 +114,7 @@ FILTER SYNTAX:
     stage=<stage>        - Match by stage (proposed, planned, in progress, suspended, active, external, completed, cancelled)
     desc=<pattern>       - Match description containing pattern (case-insensitive)
     description=<pattern> - Alias for desc=
+    parent=<id>          - Match by parent task (none=root tasks, any=child tasks, <id>=specific parent)
 
   Date filters (support =, >, <, >=, <=, !=):
     due=<expr>           - Match by due date (see DATE EXPRESSIONS)
@@ -201,6 +203,7 @@ MODIFICATION SYNTAX:
     allocation=<dur>      - Set time allocation (e.g., \"2h\", \"30m\", use \"allocation=none\" to clear)
     template=<name>       - Set template (use \"template=none\" to clear)
     respawn=<pattern>     - Set respawn rule (use \"respawn=none\" to clear, see RESPAWN PATTERNS)
+    parent=<id>           - Set parent task (use \"parent=none\" to clear)
     uda.<key>=<value>     - Set user-defined attribute (use \"uda.<key>=none\" to clear)
 
   Tag modifications:
@@ -2266,6 +2269,24 @@ fn handle_task_add(args: Vec<String>, auto_yes: bool) -> Result<i64> {
             (project_id, due_ts, scheduled_ts, wait_ts, alloc_secs, parsed.udas, parsed.tags_add)
         };
     
+    // Resolve parent
+    let parent_id = if let Some(parent_str) = &parsed.parent {
+        if parent_str == "none" {
+            None
+        } else {
+            let pid = validate_task_id(parent_str)
+                .map_err(|e| anyhow::anyhow!("Invalid parent ID: {}", e))?;
+            let parent_task = TaskRepo::get_by_id(&conn, pid)?
+                .ok_or_else(|| anyhow::anyhow!("Parent task {} not found", pid))?;
+            if parent_task.status.is_terminal() {
+                anyhow::bail!("Cannot set parent to task {} (status: {})", pid, parent_task.status.as_str());
+            }
+            Some(pid)
+        }
+    } else {
+        None
+    };
+
     // Create task
     let task = TaskRepo::create_full(
         &conn,
@@ -2279,12 +2300,13 @@ fn handle_task_add(args: Vec<String>, auto_yes: bool) -> Result<i64> {
         parsed.respawn,
         &final_udas,
         &final_tags,
+        parent_id,
     )
     .context("Failed to create task")?;
-    
+
     let task_id = task.id.unwrap();
     println!("Created task {}: {}", task_id, description);
-    
+
     Ok(task_id)
 }
 
@@ -2439,6 +2461,25 @@ fn handle_clone(task_id_str: String, args: Vec<String>, auto_yes: bool) -> Resul
     // Always clear respawn on clone (one-shot operation)
     let respawn: Option<String> = None;
 
+    // Parent: override > source
+    let parent_id = if let Some(ref o) = overrides {
+        if let Some(ref parent_str) = o.parent {
+            if parent_str == "none" {
+                None
+            } else {
+                let pid = validate_task_id(parent_str)
+                    .map_err(|e| anyhow::anyhow!("Invalid parent ID: {}", e))?;
+                TaskRepo::get_by_id(&conn, pid)?
+                    .ok_or_else(|| anyhow::anyhow!("Parent task {} not found", pid))?;
+                Some(pid)
+            }
+        } else {
+            source.parent_id
+        }
+    } else {
+        source.parent_id
+    };
+
     let new_task = TaskRepo::create_full(
         &conn,
         &description,
@@ -2451,6 +2492,7 @@ fn handle_clone(task_id_str: String, args: Vec<String>, auto_yes: bool) -> Resul
         respawn,
         &udas,
         &tags,
+        parent_id,
     )
     .context("Failed to create cloned task")?;
 
@@ -2859,10 +2901,27 @@ fn modify_single_task(conn: &Connection, task_id: i64, args: &[String], auto_cre
         None
     };
     
+    // Resolve parent
+    let parent_id = if let Some(parent_str) = &parsed.parent {
+        if parent_str == "none" {
+            Some(None) // Clear parent
+        } else {
+            let pid = validate_task_id(parent_str)
+                .map_err(|e| anyhow::anyhow!("Invalid parent ID: {}", e))?;
+            TaskRepo::get_by_id(conn, pid)?
+                .ok_or_else(|| anyhow::anyhow!("Parent task {} not found", pid))?;
+            // Cycle detection
+            TaskRepo::validate_no_cycle(conn, task_id, pid)?;
+            Some(Some(pid))
+        }
+    } else {
+        None // Don't change
+    };
+
     // Separate UDAs to add and remove
     let mut udas_to_add = HashMap::new();
     let mut udas_to_remove = Vec::new();
-    
+
     for (key, value) in &parsed.udas {
         if value == "none" {
             udas_to_remove.push(key.clone());
@@ -2870,10 +2929,10 @@ fn modify_single_task(conn: &Connection, task_id: i64, args: &[String], auto_cre
             udas_to_add.insert(key.clone(), value.clone());
         }
     }
-    
+
     // Apply modifications
     TaskRepo::modify(
-        &conn,
+        conn,
         task_id,
         description,
         project_id,
@@ -2887,6 +2946,7 @@ fn modify_single_task(conn: &Connection, task_id: i64, args: &[String], auto_cre
         &udas_to_remove,
         &parsed.tags_add,
         &parsed.tags_remove,
+        parent_id,
     )
     .with_context(|| format!("Failed to modify task {}", task_id))?;
     
@@ -4873,7 +4933,9 @@ fn handle_delete_confirm(conn: &Connection, task_ids: &[i64]) -> Result<()> {
             println!("Cancelled.");
             return Ok(());
         }
-        
+
+        // Orphan children before deleting
+        TaskRepo::orphan_children(conn, task_ids[0])?;
         TaskRepo::delete(conn, task_ids[0])
             .context("Failed to delete task")?;
         println!("Deleted task {}: {}", task_ids[0], task.description);
@@ -4900,10 +4962,12 @@ fn handle_delete_confirm(conn: &Connection, task_ids: &[i64]) -> Result<()> {
 /// Delete tasks without confirmation
 fn handle_delete_yes(conn: &Connection, task_ids: &[i64]) -> Result<()> {
     let mut deleted_count = 0;
-    
+
     for task_id in task_ids {
         match TaskRepo::get_by_id(conn, *task_id) {
             Ok(Some(task)) => {
+                // Orphan children before deleting
+                TaskRepo::orphan_children(conn, *task_id)?;
                 TaskRepo::delete(conn, *task_id)
                     .context(format!("Failed to delete task {}", task_id))?;
                 println!("Deleted task {}: {}", task_id, task.description);
@@ -4955,7 +5019,9 @@ fn handle_delete_interactive(conn: &Connection, task_ids: &[i64]) -> Result<()> 
             println!("Skipped task {}.", task_id);
             continue;
         }
-        
+
+        // Orphan children before deleting
+        TaskRepo::orphan_children(conn, *task_id)?;
         TaskRepo::delete(conn, *task_id)
             .context(format!("Failed to delete task {}", task_id))?;
         println!("Deleted task {}: {}", task_id, task.description);

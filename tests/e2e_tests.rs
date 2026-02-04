@@ -185,8 +185,9 @@ fn e2e_complex_filter_scenarios() {
         &[], // udas_to_remove
         &[], // tags_to_add
         &[], // tags_to_remove
+        None, // parent_id
     ).unwrap();
-    
+
     // Test 1: Filter by project
     let filter_expr = parse_filter(vec!["project=work".to_string()]).unwrap();
     let matching = filter_tasks(ctx.db(), &filter_expr).unwrap();
@@ -297,6 +298,7 @@ fn e2e_respawn_on_close_workflow() {
         Some("daily".to_string()), // respawn rule
         &HashMap::new(), // udas
         &["standup".to_string()], // tags
+        None, // parent_id
     ).unwrap();
     
     let task_id = task.id.unwrap();
@@ -345,10 +347,11 @@ fn e2e_respawn_on_cancel_workflow() {
         Some("weekly".to_string()), // respawn rule
         &HashMap::new(),
         &[],
+        None, // parent_id
     ).unwrap();
-    
+
     let task_id = task.id.unwrap();
-    
+
     // Cancel the task (abandon it)
     let mut when = WhenBuilder::new(&ctx);
     when.execute_success(&["cancel", &task_id.to_string(), "-y"]);
