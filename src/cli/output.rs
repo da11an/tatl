@@ -1388,15 +1388,6 @@ pub fn format_task_list_table(
     // Apply tree ordering (nest children under parents with tree characters)
     apply_tree_ordering(&mut rows);
 
-    // Recompute description column width after tree ordering (prefixes added chars)
-    if let Some(desc_width) = column_widths.get_mut(&TaskListColumn::Description) {
-        for row in &rows {
-            if let Some(value) = row.values.get(&TaskListColumn::Description) {
-                let char_count = value.chars().count().min(100);
-                *desc_width = (*desc_width).max(char_count);
-            }
-        }
-    }
 
     // Compute ranges for gradient/heatmap coloring (if needed)
     let priority_range: Option<(f64, f64)> = if options.color_column.as_deref() == Some("priority") 
