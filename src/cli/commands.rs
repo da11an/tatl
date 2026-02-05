@@ -309,9 +309,15 @@ If the interval overlaps with existing sessions, you'll be prompted to modify th
         yes: bool,
     },
     /// Remove task from queue without closing
-    #[command(long_about = "Remove a task from the queue without closing it. The task remains in open status.")]
+    #[command(long_about = "Remove task(s) from the queue without closing them. Tasks remain in open status.
+
+TARGET SYNTAX:
+  Omit:      Remove queue[0]
+  Single:    5
+  Multiple:  1,3,5
+  Range:     1-5")]
     Dequeue {
-        /// Task ID (optional, defaults to queue[0])
+        /// Task ID(s) (optional, defaults to queue[0]). Accepts single ID, comma-separated list, or ranges.
         task_id: Option<String>,
     },
     /// Annotate a task
@@ -4061,40 +4067,49 @@ impl<T> Pipe for T {}
 fn handle_dequeue(task_id_opt: Option<String>) -> Result<()> {
     let conn = DbConnection::connect()
         .context("Failed to connect to database")?;
-    
+
     let stack = StackRepo::get_or_create_default(&conn)?;
     let stack_id = stack.id.unwrap();
     let items = StackRepo::get_items(&conn, stack_id)?;
-    
+
     if items.is_empty() {
         user_error("Queue is empty.");
     }
-    
-    let task_id = if let Some(task_id_str) = task_id_opt {
-        // Specific task ID provided
-        match validate_task_id(&task_id_str) {
-            Ok(id) => id,
+
+    let task_ids = if let Some(task_id_str) = task_id_opt {
+        // Parse comma-separated list, ranges, etc.
+        match parse_task_id_list(&task_id_str) {
+            Ok(ids) => ids,
             Err(e) => user_error(&e),
         }
     } else {
         // Default to queue[0]
-        items[0].task_id
+        vec![items[0].task_id]
     };
-    
-    // Check if task is in the queue
-    if !items.iter().any(|item| item.task_id == task_id) {
-        user_error(&format!("Task {} is not in the queue", task_id));
+
+    // Validate all tasks are in the queue
+    let queued_ids: std::collections::HashSet<i64> = items.iter().map(|item| item.task_id).collect();
+    let mut not_in_queue = Vec::new();
+    for &task_id in &task_ids {
+        if !queued_ids.contains(&task_id) {
+            not_in_queue.push(task_id);
+        }
     }
-    
-    // Remove from queue
-    StackRepo::remove_task(&conn, stack_id, task_id)
-        .context("Failed to remove task from queue")?;
-    
-    // Get task description for better message
-    let task = TaskRepo::get_by_id(&conn, task_id)?;
-    let desc = task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
-    println!("Removed task {} from queue: {}", task_id, desc);
-    
+    if !not_in_queue.is_empty() {
+        user_error(&format!("Task(s) not in the queue: {}",
+            not_in_queue.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(", ")));
+    }
+
+    // Remove all tasks from queue
+    for task_id in &task_ids {
+        StackRepo::remove_task(&conn, stack_id, *task_id)
+            .context(format!("Failed to remove task {} from queue", task_id))?;
+
+        let task = TaskRepo::get_by_id(&conn, *task_id)?;
+        let desc = task.as_ref().map(|t| t.description.as_str()).unwrap_or("");
+        println!("Removed task {} from queue: {}", task_id, desc);
+    }
+
     Ok(())
 }
 
