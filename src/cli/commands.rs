@@ -1121,6 +1121,16 @@ pub fn run() -> Result<()> {
                 handle_offon(time_args, yes)?;
                 task_id
             }
+            Commands::Off { time_args } => {
+                // off stops timing the currently active task - get its ID for piping
+                let conn = DbConnection::connect()
+                    .context("Failed to connect to database")?;
+                let open_session = SessionRepo::get_open(&conn)?
+                    .ok_or_else(|| anyhow::anyhow!("No active session to stop"))?;
+                let task_id = open_session.task_id;
+                handle_off(time_args)?;
+                task_id
+            }
             _ => {
                 anyhow::bail!("Pipe operator is not supported with this command. Supported commands: add, modify, close, enqueue, cancel, reopen, annotate, send, collect, on, dequeue, onoff, offon, off");
             }
