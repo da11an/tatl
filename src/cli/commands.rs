@@ -3894,20 +3894,20 @@ fn parse_onoff_args(args: &[String]) -> Result<(i64, i64, Option<i64>, Option<St
     let mut end_ts: Option<i64> = None;
     let mut task_id: Option<i64> = None;
     let mut note: Option<String> = None;
-    
+
     for arg in args {
         if arg.starts_with("note:") {
             note = Some(arg[5..].to_string());
         } else if arg.contains("..") {
-            // Interval
+            // Interval - parse both times coherently on the same day
             let sep_pos = arg.find("..").unwrap();
             let start_expr = arg[..sep_pos].trim();
             let end_expr = arg[sep_pos + 2..].trim();
-            
-            start_ts = Some(parse_date_expr(start_expr)
-                .context("Invalid start time expression")?);
-            end_ts = Some(parse_date_expr(end_expr)
-                .context("Invalid end time expression")?);
+
+            let (start, end) = parse_time_interval(start_expr, end_expr)
+                .context("Invalid time interval")?;
+            start_ts = Some(start);
+            end_ts = Some(end);
         } else if let Ok(id) = arg.parse::<i64>() {
             task_id = Some(id);
         } else {
@@ -3915,11 +3915,136 @@ fn parse_onoff_args(args: &[String]) -> Result<(i64, i64, Option<i64>, Option<St
             // For now, just ignore unknown args
         }
     }
-    
+
     let start = start_ts.ok_or_else(|| anyhow::anyhow!("Interval required (use <start>..<end>)"))?;
     let end = end_ts.ok_or_else(|| anyhow::anyhow!("Interval required (use <start>..<end>)"))?;
-    
+
     Ok((start, end, task_id, note))
+}
+
+/// Parse a time interval ensuring both times are interpreted on the same day.
+/// For time-only expressions (like "15:30..16:00"), finds the most recent past
+/// day where the interval is valid (start < end).
+fn parse_time_interval(start_expr: &str, end_expr: &str) -> Result<(i64, i64)> {
+    use chrono::Duration;
+
+    // Check if both are time-only expressions (HH:MM format or keywords like "noon")
+    let start_time_only = is_time_only_expr(start_expr);
+    let end_time_only = is_time_only_expr(end_expr);
+
+    if start_time_only && end_time_only {
+        // Both are time-only: interpret on the same day
+        let now = Local::now();
+        let today = now.date_naive();
+
+        let start_time = parse_time_expr(start_expr)
+            .context("Invalid start time")?;
+        let end_time = parse_time_expr(end_expr)
+            .context("Invalid end time")?;
+
+        // Try today first
+        let start_today = Local.from_local_datetime(&today.and_time(start_time))
+            .earliest()
+            .ok_or_else(|| anyhow::anyhow!("Invalid start time"))?
+            .timestamp();
+        let end_today = Local.from_local_datetime(&today.and_time(end_time))
+            .earliest()
+            .ok_or_else(|| anyhow::anyhow!("Invalid end time"))?
+            .timestamp();
+
+        if start_today < end_today && end_today <= now.timestamp() {
+            // Valid interval in the past today
+            return Ok((start_today, end_today));
+        }
+
+        // Try yesterday
+        let yesterday = today - Duration::days(1);
+        let start_yesterday = Local.from_local_datetime(&yesterday.and_time(start_time))
+            .earliest()
+            .ok_or_else(|| anyhow::anyhow!("Invalid start time"))?
+            .timestamp();
+        let end_yesterday = Local.from_local_datetime(&yesterday.and_time(end_time))
+            .earliest()
+            .ok_or_else(|| anyhow::anyhow!("Invalid end time"))?
+            .timestamp();
+
+        if start_yesterday < end_yesterday {
+            return Ok((start_yesterday, end_yesterday));
+        }
+
+        // If still invalid, the times themselves are inverted (e.g., 16:00..15:00)
+        anyhow::bail!("Invalid interval: start time {} must be before end time {}", start_expr, end_expr);
+    }
+
+    // At least one is not time-only: use standard parsing
+    let start = parse_date_expr(start_expr)
+        .context("Invalid start time expression")?;
+    let end = parse_date_expr(end_expr)
+        .context("Invalid end time expression")?;
+
+    Ok((start, end))
+}
+
+/// Check if an expression is a time-only format (no date component)
+fn is_time_only_expr(expr: &str) -> bool {
+    let expr_lower = expr.to_lowercase();
+
+    // Keywords
+    if matches!(expr_lower.as_str(), "noon" | "midnight") {
+        return true;
+    }
+
+    // HH:MM format
+    if expr.contains(':') && !expr.contains('-') && !expr.contains('T') {
+        return true;
+    }
+
+    // 12-hour format: 9am, 2pm, etc.
+    if expr_lower.ends_with("am") || expr_lower.ends_with("pm") {
+        return true;
+    }
+
+    false
+}
+
+/// Parse a time-only expression into a NaiveTime
+fn parse_time_expr(expr: &str) -> Result<chrono::NaiveTime> {
+    use chrono::NaiveTime;
+
+    let expr_lower = expr.to_lowercase();
+
+    match expr_lower.as_str() {
+        "noon" => return Ok(NaiveTime::from_hms_opt(12, 0, 0).unwrap()),
+        "midnight" => return Ok(NaiveTime::from_hms_opt(0, 0, 0).unwrap()),
+        _ => {}
+    }
+
+    // Try HH:MM
+    if let Ok(time) = NaiveTime::parse_from_str(expr, "%H:%M") {
+        return Ok(time);
+    }
+
+    // Try 12-hour format
+    let (hour_str, is_pm) = if expr_lower.ends_with("pm") {
+        (&expr[..expr.len()-2], true)
+    } else if expr_lower.ends_with("am") {
+        (&expr[..expr.len()-2], false)
+    } else {
+        anyhow::bail!("Invalid time format: {}", expr);
+    };
+
+    let hour: u32 = hour_str.trim().parse()
+        .context("Invalid hour")?;
+
+    let hour_24 = match (hour, is_pm) {
+        (12, false) => 0,      // 12am = midnight
+        (12, true) => 12,      // 12pm = noon
+        (h, false) => h,       // 1am-11am
+        (h, true) => h + 12,   // 1pm-11pm
+    };
+
+    NaiveTime::from_hms_opt(hour_24, 0, 0)
+        .ok_or_else(|| anyhow::anyhow!("Invalid time: {}", expr))
 }
 
 /// Find all sessions overlapping with the given interval
